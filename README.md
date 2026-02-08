@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Deep Dive Brewing Co — Website
+
+Public-facing marketing and trade website for **Deep Dive Brewing Co**, a craft brewery on Saba.
+
+## Tech Stack
+
+- **Next.js 16** (App Router, server components)
+- **TypeScript**
+- **Tailwind CSS v4** + **shadcn/ui**
+- **Firebase** (Firestore, Storage)
+- **MDX** for long-form content
+- **Vercel** for deployment
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 18+
+- npm
+- A Firebase project with Firestore and Storage enabled
+
+### Setup
+
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Copy the environment template and fill in your Firebase credentials:
+   ```bash
+   cp .env.local.example .env.local
+   ```
+4. Start the development server:
+   ```bash
+   npm run dev
+   ```
+5. Open [http://localhost:3000](http://localhost:3000)
+
+## Project Structure
+
+```
+app/              → Routes (App Router)
+components/ui/    → shadcn/ui components
+lib/              → Firebase client, data fetching, types, utilities
+content/          → MDX content files
+public/           → Static assets, favicons, manifest
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Routes
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Path | Description |
+|---|---|
+| `/` | Home |
+| `/beers` | Beer catalog (Firestore) |
+| `/beers/[slug]` | Beer detail page (Firestore) |
+| `/where-to-buy` | Venue list (Firestore) |
+| `/about` | About page (MDX) |
+| `/contact` | Contact page (MDX) |
+| `/trade` | Wholesale info (MDX) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Firestore Collections
 
-## Learn More
+- **beers** — Beer catalog entries
+- **venues** — Bars, restaurants, retailers
+- **tradeLeads** — Wholesale inquiry submissions
 
-To learn more about Next.js, take a look at the following resources:
+## Design System
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+See [THEME_AND_BRANDING.md](./THEME_AND_BRANDING.md) for the complete visual design system including colors, typography, spacing, and animation guidelines.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+| Command | Description |
+|---|---|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Deployed to [Vercel](https://vercel.com). Push to `main` to trigger a production deploy.
+
+## Environment Variables
+
+All Firebase configuration is loaded from environment variables. See `.env.local.example` for the required keys.
+
+## License
+
+Private — all rights reserved.

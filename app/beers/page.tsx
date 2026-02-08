@@ -1,18 +1,68 @@
 import type { Metadata } from "next";
+import { Badge } from "@/components/ui/badge";
+// import { getBeers } from "@/lib/beers";
+// import { BeerCard } from "@/components/beer-card";
 
 export const metadata: Metadata = {
-  title: "Our Beers | Deep Dive Brewing Co",
+  title: "Our Beers",
   description: "Explore the full range of beers from Deep Dive Brewing Co.",
 };
 
-export default function BeersPage() {
-  // TODO: Fetch beers from Firestore and render catalog
+export default async function BeersPage() {
+  // TODO: Uncomment when Firestore is connected
+  // const beers = await getBeers();
+
   return (
-    <main className="mx-auto max-w-300 px-6 py-12">
-      <h1 className="text-3xl font-bold tracking-tight">Our Beers</h1>
-      <p className="mt-2 text-muted-foreground">
-        Coming soon — our full beer catalog.
-      </p>
+    <main className="mx-auto max-w-300 px-6 py-20 md:py-30">
+      <div className="mb-12">
+        <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+          Our Beers
+        </h1>
+        <p className="mt-3 max-w-180 text-muted-foreground">
+          From crisp lagers to bold stouts — every beer we brew reflects the
+          island we call home.
+        </p>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="mb-10 flex flex-wrap gap-2">
+        {["All", "Core", "Seasonal", "Limited"].map((filter) => (
+          <Badge
+            key={filter}
+            variant={filter === "All" ? "default" : "outline"}
+            className="cursor-pointer px-4 py-1.5 text-sm"
+          >
+            {filter}
+          </Badge>
+        ))}
+      </div>
+
+      {/* Beer grid */}
+      {/* TODO: Replace placeholders with <BeerCard beer={beer} /> mapped from Firestore data */}
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <BeerCardPlaceholder />
+        <BeerCardPlaceholder />
+        <BeerCardPlaceholder />
+        <BeerCardPlaceholder />
+        <BeerCardPlaceholder />
+        <BeerCardPlaceholder />
+      </div>
     </main>
+  );
+}
+
+function BeerCardPlaceholder() {
+  return (
+    <div className="rounded-lg border border-stone bg-paper p-6">
+      <div className="aspect-3/4 w-full rounded bg-stone/50" />
+      <div className="mt-4 space-y-2">
+        <div className="h-5 w-2/3 rounded bg-stone/50" />
+        <div className="h-4 w-1/3 rounded bg-stone/50" />
+        <div className="mt-3 flex gap-2">
+          <div className="h-6 w-16 rounded-full bg-stone/50" />
+          <div className="h-6 w-14 rounded-full bg-stone/50" />
+        </div>
+      </div>
+    </div>
   );
 }

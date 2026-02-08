@@ -2,13 +2,10 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -17,11 +14,6 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -45,75 +37,58 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+
+  /* Deep Dive brand colors */
+  --color-paper: #FAFAF8;
+  --color-ink: #0B0F14;
+  --color-stone: #E6E7E3;
+  --color-moss: #2F6F4E;
+  --color-ember: #9B2C2C;
+  --color-sand: #B08968;
+  --color-ocean: #334E68;
+
+  /* Beer-specific colors (contextual use only) */
+  --color-beer-pilsner: #1E8E3E;
+  --color-beer-dipa: #7B5D9E;
+  --color-beer-stout: #A67C52;
+  --color-beer-amber: #D32F2F;
+  --color-beer-lager: #FFD700;
+  --color-beer-neipa: #FF8C42;
+  --color-beer-belgian: #B8C5A0;
+  --color-beer-kuit-blue: #004B87;
+  --color-beer-kuit-orange: #E47041;
 }
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Semantic mappings — light mode only, no dark mode */
+  --background: #FAFAF8;
+  --foreground: #0B0F14;
+  --card: #FAFAF8;
+  --card-foreground: #0B0F14;
+  --popover: #FAFAF8;
+  --popover-foreground: #0B0F14;
+  --primary: #0B0F14;
+  --primary-foreground: #FAFAF8;
+  --secondary: #E6E7E3;
+  --secondary-foreground: #0B0F14;
+  --muted: #E6E7E3;
+  --muted-foreground: #334E68;
+  --accent: #E6E7E3;
+  --accent-foreground: #0B0F14;
+  --destructive: #9B2C2C;
+  --border: #E6E7E3;
+  --input: #E6E7E3;
+  --ring: #334E68;
+  --sidebar: #FAFAF8;
+  --sidebar-foreground: #0B0F14;
+  --sidebar-primary: #0B0F14;
+  --sidebar-primary-foreground: #FAFAF8;
+  --sidebar-accent: #E6E7E3;
+  --sidebar-accent-foreground: #0B0F14;
+  --sidebar-border: #E6E7E3;
+  --sidebar-ring: #334E68;
 }
 
 @layer base {
@@ -122,5 +97,143 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-size: 18px;
+    line-height: 28px;
+  }
+  @media (max-width: 640px) {
+    body {
+      font-size: 16px;
+      line-height: 24px;
+    }
+  }
+}
+
+/* Page-load fade-in animation (not scroll-triggered — per branding rules) */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in-up 600ms ease both;
+}
+
+.animate-delay-1 {
+  animation-delay: 150ms;
+}
+
+.animate-delay-2 {
+  animation-delay: 300ms;
+}
+
+.animate-delay-3 {
+  animation-delay: 450ms;
+}
+
+.animate-delay-4 {
+  animation-delay: 600ms;
+}
+
+/* Hero content fade-in */
+@keyframes hero-fade {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-hero-fade {
+  animation: hero-fade 800ms ease 200ms both;
+}
+
+/* MDX prose styling */
+.prose-dd h1 {
+  font-size: 2.5rem;
+  line-height: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--foreground);
+  margin-bottom: 1.5rem;
+}
+.prose-dd h2 {
+  font-size: 2rem;
+  line-height: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--foreground);
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+}
+.prose-dd h3 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+.prose-dd p {
+  color: var(--foreground);
+  margin-bottom: 1.25rem;
+}
+.prose-dd a {
+  color: #334E68;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-dd a:hover {
+  opacity: 0.85;
+}
+.prose-dd ul,
+.prose-dd ol {
+  margin-bottom: 1.25rem;
+  padding-left: 1.5rem;
+}
+.prose-dd ul {
+  list-style-type: disc;
+}
+.prose-dd ol {
+  list-style-type: decimal;
+}
+.prose-dd li {
+  margin-bottom: 0.5rem;
+  color: var(--foreground);
+}
+.prose-dd blockquote {
+  border-left: 3px solid #E6E7E3;
+  padding-left: 1rem;
+  margin-bottom: 1.25rem;
+  color: #334E68;
+  font-style: italic;
+}
+.prose-dd hr {
+  border-color: #E6E7E3;
+  margin: 2.5rem 0;
+}
+.prose-dd strong {
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .prose-dd h1 {
+    font-size: 2rem;
+    line-height: 2.5rem;
+  }
+  .prose-dd h2 {
+    font-size: 1.75rem;
+    line-height: 2.25rem;
+  }
+  .prose-dd h3 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
   }
 }
