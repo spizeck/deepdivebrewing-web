@@ -1,13 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { beerImageUrl } from "@/lib/beers";
 import type { Beer } from "@/lib/types";
 
 interface BeerCardProps {
   beer: Beer;
+  imageUrl?: string;
 }
 
-export function BeerCard({ beer }: BeerCardProps) {
+export function BeerCard({ beer, imageUrl }: BeerCardProps) {
   return (
     <Link
       href={`/beers/${beer.slug}`}
@@ -15,7 +17,7 @@ export function BeerCard({ beer }: BeerCardProps) {
     >
       <div className="relative aspect-4/5 w-full overflow-hidden rounded-t-lg">
         <Image
-          src={beer.images.card}
+          src={imageUrl ?? beerImageUrl(beer.images.cardPath)}
           alt={beer.name}
           fill
           className="object-cover"

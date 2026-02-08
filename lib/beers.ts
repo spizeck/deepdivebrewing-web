@@ -6,7 +6,15 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { storageDownloadUrl } from "@/lib/utils";
 import type { Beer } from "@/lib/types";
+
+const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!;
+
+/** Resolve image paths to full download URLs. */
+export function beerImageUrl(path: string): string {
+  return storageDownloadUrl(bucket, path);
+}
 
 export async function getBeers(): Promise<Beer[]> {
   const q = query(

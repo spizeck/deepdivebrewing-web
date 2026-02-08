@@ -16,8 +16,8 @@
       "Balanced finish"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Famerican-amber%2Famerican-amber_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Famerican-amber%2Famerican-amber_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/american-amber/american-amber_card_1200x1500.jpg",
+      "heroPath": "beers/american-amber/american-amber_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 1
@@ -39,8 +39,8 @@
       "Dry finish"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fbelgian-ipa%2Fbelgian-ipa_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fbelgian-ipa%2Fbelgian-ipa_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/belgian-ipa/belgian-ipa_card_1200x1500.jpg",
+      "heroPath": "beers/belgian-ipa/belgian-ipa_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 2
@@ -62,8 +62,8 @@
       "Clean finish"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdouble-ipa%2Fdouble-ipa_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdouble-ipa%2Fdouble-ipa_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/double-ipa/double-ipa_card_1200x1500.jpg",
+      "heroPath": "beers/double-ipa/double-ipa_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 3
@@ -85,8 +85,8 @@
       "Smooth body"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdutch-kuit%2Fdutch-kuit_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdutch-kuit%2Fdutch-kuit_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/dutch-kuit/dutch-kuit_card_1200x1500.jpg",
+      "heroPath": "beers/dutch-kuit/dutch-kuit_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 4
@@ -108,8 +108,8 @@
       "Smooth finish"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fneipa%2Fneipa_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fneipa%2Fneipa_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/neipa/neipa_card_1200x1500.jpg",
+      "heroPath": "beers/neipa/neipa_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 5
@@ -130,8 +130,8 @@
       "Clean finish"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpale-lager%2Fpale-lager_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpale-lager%2Fpale-lager_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/pale-lager/pale-lager_card_1200x1500.jpg",
+      "heroPath": "beers/pale-lager/pale-lager_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 6
@@ -147,8 +147,8 @@
     "descriptionShort": "This crisp, refreshing Pilsner is brewed with a simple and elegant malt bill, creating a light-bodied beer with a clean malt backbone. Subtle grain sweetness leads into a dry, snappy finish that keeps it endlessly drinkable. Traditional Saaz hops lend soft herbal spice and gentle floral character, with just 9 IBUs providing balance rather than bite. Bright, clean, and refreshing, this is a showcase of simplicity done well.",
     "tastingNotes": ["Soft grain", "Herbal spice", "Floral hops", "Dry finish"],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpilsner%2Fpilsner_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpilsner%2Fpilsner_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/pilsner/pilsner_card_1200x1500.jpg",
+      "heroPath": "beers/pilsner/pilsner_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 7
@@ -169,8 +169,8 @@
       "Smooth mouthfeel"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fstout%2Fstout_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fstout%2Fstout_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/stout/stout_card_1200x1500.jpg",
+      "heroPath": "beers/stout/stout_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 8
@@ -192,8 +192,8 @@
       "Crisp finish"
     ],
     "images": {
-      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Ftropical-wheat%2Ftropical-wheat_card_1200x1500.jpg?alt=media",
-      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Ftropical-wheat%2Ftropical-wheat_hero_1920x1080.jpg?alt=media"
+      "cardPath": "beers/tropical-wheat/tropical-wheat_card_1200x1500.jpg",
+      "heroPath": "beers/tropical-wheat/tropical-wheat_hero_1920x1080.jpg"
     },
     "isPublic": true,
     "sortOrder": 9

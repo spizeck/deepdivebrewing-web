@@ -3,13 +3,16 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/site-header";
 import IntroSection from "@/components/home/IntroSection";
-import { BeerCard } from "@/components/beer-card";
-import { getBeers } from "@/lib/beers";
+import { BeerCarousel } from "@/components/beer-carousel";
+import { getBeers, beerImageUrl } from "@/lib/beers";
 import type { CSSProperties } from "react";
 
 export default async function Home() {
   const beers = await getBeers();
-  const featuredBeers = beers.slice(0, 3);
+  const featuredBeers = beers.slice(0, 6);
+  const imageUrls = Object.fromEntries(
+    featuredBeers.map((b) => [b.slug, beerImageUrl(b.images.cardPath)])
+  );
   return (
     <>
       <SiteHeader />
@@ -120,10 +123,8 @@ export default async function Home() {
               View all &rarr;
             </Link>
           </div>
-          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredBeers.map((beer) => (
-              <BeerCard key={beer.slug} beer={beer} />
-            ))}
+          <div className="mt-10">
+            <BeerCarousel beers={featuredBeers} imageUrls={imageUrls} />
           </div>
         </div>
       </section>

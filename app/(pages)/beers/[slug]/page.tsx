@@ -3,7 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { notFound } from "next/navigation";
-import { getBeerBySlug } from "@/lib/beers";
+import { getBeerBySlug, beerImageUrl } from "@/lib/beers";
 
 interface BeerDetailPageProps {
   params: Promise<{ slug: string }>;
@@ -47,7 +47,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
         <div className="w-full lg:w-2/5">
           <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-stone/50">
             <Image
-              src={beer.images.hero}
+              src={beerImageUrl(beer.images.heroPath)}
               alt={beer.name}
               fill
               className="object-cover"
