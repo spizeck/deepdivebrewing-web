@@ -3,12 +3,18 @@
     "name": "American Amber",
     "slug": "american-amber",
     "style": "American Amber Ale",
-    "abv": 0,
-    "ibu": null,
-    "srm": null,
+    "abv": 5,
+    "ibu": 30,
+    "srm": 11.5,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "This American Amber is smooth and malt-forward with a clean, refreshing finish. Brewed with North American malts from Canada and the U.S., it delivers rich notes of caramel, toffee, and a touch of light roast. El Dorado hops provide a gentle, balancing bitterness, while Cascade added at flame-out brings subtle citrus and floral aromatics. At 30 IBUs, the bitterness stays restrained, allowing the malt character to remain the focus without becoming heavy or sweet.",
+    "tastingNotes": [
+      "Caramel",
+      "Toffee",
+      "Light roast",
+      "Subtle citrus",
+      "Balanced finish"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Famerican-amber%2Famerican-amber_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Famerican-amber%2Famerican-amber_hero_1920x1080.jpg?alt=media"
@@ -20,12 +26,18 @@
     "name": "Belgian IPA",
     "slug": "belgian-ipa",
     "style": "Belgian IPA",
-    "abv": 0,
-    "ibu": null,
-    "srm": null,
+    "abv": 7,
+    "ibu": 65,
+    "srm": 6.8,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "This Belgian IPA brings together expressive Belgian yeast character and modern hop intensity. A balanced malt base with a hint of caramel sweetness supports layers of fruity esters and hop-driven flavor. Galaxy hops lead with bright tropical fruit and citrus bitterness, while Mosaic adds depth with notes of pine, ripe berries, and subtle earthiness. Bold yet balanced, this beer finishes dry and lively, inviting another sip.",
+    "tastingNotes": [
+      "Tropical fruit",
+      "Citrus zest",
+      "Spicy yeast",
+      "Pine",
+      "Dry finish"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fbelgian-ipa%2Fbelgian-ipa_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fbelgian-ipa%2Fbelgian-ipa_hero_1920x1080.jpg?alt=media"
@@ -37,12 +49,18 @@
     "name": "Double IPA",
     "slug": "double-ipa",
     "style": "Double IPA",
-    "abv": 0,
-    "ibu": null,
-    "srm": null,
+    "abv": 8.1,
+    "ibu": 80,
+    "srm": 9.1,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "This Double IPA is bold, hop-forward, and unapologetically intense. A sturdy malt backbone provides enough structure to support heavy hop additions without becoming sweet or cloying. Bursting with resinous pine, bright citrus, and layered tropical fruit, the hop character is assertive yet clean. Despite its strength, the finish remains surprisingly crisp, making this a powerful but approachable take on the style.",
+    "tastingNotes": [
+      "Pine resin",
+      "Citrus peel",
+      "Tropical fruit",
+      "Bold bitterness",
+      "Clean finish"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdouble-ipa%2Fdouble-ipa_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdouble-ipa%2Fdouble-ipa_hero_1920x1080.jpg?alt=media"
@@ -58,8 +76,14 @@
     "ibu": null,
     "srm": null,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "Inspired by historic Dutch brewing traditions, this Kuit-style beer is built around a layered grain profile rather than hop intensity. Soft malt sweetness, gentle grain character, and a smooth, rounded body define the experience. Designed to be subtle, balanced, and highly drinkable, this beer offers a nod to old-world brewing with a modern, approachable touch.",
+    "tastingNotes": [
+      "Soft grain",
+      "Mild sweetness",
+      "Bready malt",
+      "Low bitterness",
+      "Smooth body"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdutch-kuit%2Fdutch-kuit_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdutch-kuit%2Fdutch-kuit_hero_1920x1080.jpg?alt=media"
@@ -75,8 +99,14 @@
     "ibu": 47,
     "srm": 5.2,
     "status": "core",
-    "descriptionShort": "This New England IPA brings the tropical essence of Saba straight to your glass. Crafted with malts from North America, including Canada and the U.S., this brew has a silky-smooth texture thanks to the addition of wheat and oats. The bitterness from Cascade hops is perfectly balanced, while the generous addition of Citra hops—both at flame-out and dry hop—unleashes a juicy burst of citrus and tropical fruits like grapefruit, mango, and passionfruit.",
-    "tastingNotes": ["Grapefruit", "Passionfruit", "Mango", "Smooth finish"],
+    "descriptionShort": "This New England IPA delivers a soft, juicy hop profile with a smooth, pillowy mouthfeel. Brewed with wheat and oats, it pours hazy and full-bodied without feeling heavy. Cascade provides a balanced bitterness, while generous additions of Citra at flame-out and dry hop unleash bright citrus and tropical fruit character. Juicy, aromatic, and easy to drink, this beer brings tropical freshness straight to the glass.",
+    "tastingNotes": [
+      "Grapefruit",
+      "Mango",
+      "Passionfruit",
+      "Juicy",
+      "Smooth finish"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fneipa%2Fneipa_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fneipa%2Fneipa_hero_1920x1080.jpg?alt=media"
@@ -88,12 +118,17 @@
     "name": "Pale Lager",
     "slug": "pale-lager",
     "style": "Pale Lager",
-    "abv": 0,
-    "ibu": null,
-    "srm": null,
+    "abv": 5.4,
+    "ibu": 21,
+    "srm": 4,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "This Pale Lager strikes a balance between crisp refreshment and subtle malt complexity. A blend of North American malts provides a smooth, lightly bready backbone with a touch of sweetness. Willamette hops contribute a delicate bitterness and soft herbal aroma, keeping the profile clean and restrained. With just 21 IBUs, this lager is easy-drinking, well-balanced, and suited to any occasion.",
+    "tastingNotes": [
+      "Light bread",
+      "Soft sweetness",
+      "Herbal hops",
+      "Clean finish"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpale-lager%2Fpale-lager_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpale-lager%2Fpale-lager_hero_1920x1080.jpg?alt=media"
@@ -105,12 +140,12 @@
     "name": "Pilsner",
     "slug": "pilsner",
     "style": "Pilsner",
-    "abv": 0,
-    "ibu": null,
-    "srm": null,
+    "abv": 4.1,
+    "ibu": 9,
+    "srm": 2.4,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "This crisp, refreshing Pilsner is brewed with a simple and elegant malt bill, creating a light-bodied beer with a clean malt backbone. Subtle grain sweetness leads into a dry, snappy finish that keeps it endlessly drinkable. Traditional Saaz hops lend soft herbal spice and gentle floral character, with just 9 IBUs providing balance rather than bite. Bright, clean, and refreshing, this is a showcase of simplicity done well.",
+    "tastingNotes": ["Soft grain", "Herbal spice", "Floral hops", "Dry finish"],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpilsner%2Fpilsner_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpilsner%2Fpilsner_hero_1920x1080.jpg?alt=media"
@@ -122,12 +157,17 @@
     "name": "Stout",
     "slug": "stout",
     "style": "Stout",
-    "abv": 0,
-    "ibu": null,
-    "srm": null,
+    "abv": 5.8,
+    "ibu": 26,
+    "srm": 40,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "This stout is smooth, full-bodied, and layered with roasted character. A complex blend of roasted barley, chocolate malt, crystal malts, and oats creates flavors of coffee, bittersweet cocoa, and dark caramel. Oats contribute a silky mouthfeel, while restrained hopping keeps the focus on malt depth. Rich yet approachable, it finishes clean and invites another sip.",
+    "tastingNotes": [
+      "Roasted coffee",
+      "Cocoa",
+      "Dark caramel",
+      "Smooth mouthfeel"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fstout%2Fstout_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fstout%2Fstout_hero_1920x1080.jpg?alt=media"
@@ -139,12 +179,18 @@
     "name": "Tropical Wheat",
     "slug": "tropical-wheat",
     "style": "Wheat Beer",
-    "abv": 0,
-    "ibu": null,
-    "srm": null,
+    "abv": 5.3,
+    "ibu": 19,
+    "srm": 19,
     "status": "core",
-    "descriptionShort": "",
-    "tastingNotes": [],
+    "descriptionShort": "This bright wheat ale is brewed with white wheat, pale malt, and a touch of Munich, Vienna, and oats for body. The result is a soft, pillowy mouthfeel with gentle grain sweetness. El Dorado and Galaxy hops bring vibrant notes of pineapple, mango, and stone fruit, while Cascade adds a citrusy lift. Light, smooth, and refreshing, this beer is built for warm days and easy drinking.",
+    "tastingNotes": [
+      "Pineapple",
+      "Mango",
+      "Stone fruit",
+      "Soft wheat",
+      "Crisp finish"
+    ],
     "images": {
       "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Ftropical-wheat%2Ftropical-wheat_card_1200x1500.jpg?alt=media",
       "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Ftropical-wheat%2Ftropical-wheat_hero_1920x1080.jpg?alt=media"

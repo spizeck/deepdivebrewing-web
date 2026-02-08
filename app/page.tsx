@@ -2,9 +2,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import IntroSection from "@/components/home/IntroSection";
+import { BeerCard } from "@/components/beer-card";
+import { getBeers } from "@/lib/beers";
 import type { CSSProperties } from "react";
 
-export default function Home() {
+export default async function Home() {
+  const beers = await getBeers();
+  const featuredBeers = beers.slice(0, 3);
   return (
     <main>
       {/* Hero — full viewport, grain photo */}
@@ -113,11 +117,10 @@ export default function Home() {
               View all &rarr;
             </Link>
           </div>
-          {/* TODO: Fetch featured/core beers from Firestore and render BeerCard grid */}
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <BeerCardPlaceholder />
-            <BeerCardPlaceholder />
-            <BeerCardPlaceholder />
+            {featuredBeers.map((beer) => (
+              <BeerCard key={beer.slug} beer={beer} />
+            ))}
           </div>
         </div>
       </section>
@@ -145,14 +148,3 @@ export default function Home() {
   );
 }
 
-function BeerCardPlaceholder() {
-  return (
-    <div className="rounded-lg border border-stone bg-paper p-6">
-      <div className="aspect-4/5 w-full rounded bg-stone/50" />
-      <div className="mt-4 space-y-2">
-        <div className="h-5 w-2/3 rounded bg-stone/50" />
-        <div className="h-4 w-1/3 rounded bg-stone/50" />
-      </div>
-    </div>
-  );
-}
