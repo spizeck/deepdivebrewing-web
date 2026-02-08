@@ -163,10 +163,6 @@ Use ONLY for:
 * Beer card title: 32px / 36px line-height
 * Detail page hero: 48px / 56px line-height (desktop), 36px / 44px (mobile)
 
-#### AccaciaFlare Bold
-Use ONLY for:
-* Beer style/type labels (IPA, Amber, Lager, Stout, etc.)
-
 **Sizes:**
 * Style tags: 12px / 16px line-height, uppercase, letter-spacing: 0.05em
 
@@ -182,7 +178,7 @@ Use sparingly for:
 ---
 
 ### Label Typography Rules
-Label typography (Money Money Plus, AccaciaFlare Bold, Gotham Black) must NEVER be used for:
+Label typography (Money Money Plus) must NEVER be used for:
 * Navigation
 * Call-to-action buttons
 * Page headings outside beer sections
@@ -227,7 +223,7 @@ When in doubt, add more space rather than less.
 * Hover states: Subtle opacity shift (1.0 → 0.85) or slight color change (200ms ease)
 * Loading states: Simple fade-in (300ms ease)
 * Page transitions: None (or instant)
-* Scroll effects: None (no parallax, no scroll-triggered reveals)
+* Scroll-triggered reveals: Simple fade-in (600ms ease)
 
 ### Forbidden Animations
 * Parallax scrolling
