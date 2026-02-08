@@ -27,7 +27,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
   if (!beer) notFound();
 
   return (
-    <main className="mx-auto max-w-300 px-6 py-20 md:py-30">
+    <main className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       {/* Breadcrumb */}
       <nav className="mb-8 text-sm text-muted-foreground">
         <Link

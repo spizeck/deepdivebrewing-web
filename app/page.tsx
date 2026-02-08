@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { SiteHeader } from "@/components/site-header";
 import IntroSection from "@/components/home/IntroSection";
 import { BeerCard } from "@/components/beer-card";
 import { getBeers } from "@/lib/beers";
@@ -10,9 +11,11 @@ export default async function Home() {
   const beers = await getBeers();
   const featuredBeers = beers.slice(0, 3);
   return (
-    <main>
-      {/* Hero — full viewport, grain photo */}
-      <section className="relative h-dvh w-full overflow-hidden">
+    <>
+      <SiteHeader />
+      <main>
+        {/* Hero — full viewport, grain photo, extends behind header */}
+        <section className="relative h-screen w-full overflow-hidden">
         <Image
           src="/photos/herograin.jpg"
           alt="Barley grain close-up"
@@ -22,7 +25,7 @@ export default async function Home() {
           className="object-cover"
         />
         <div className="absolute inset-0 bg-ink/60" />
-        <div className="animate-hero-fade relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
+        <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center animate-hero-fade">
           <h1
             className="text-4xl font-festival tracking-tight text-paper sm:text-5xl md:text-6xl"
             style={
@@ -68,7 +71,7 @@ export default async function Home() {
       </IntroSection>
 
       {/* Brewery video — full bleed background with content overlay */}
-      <section className="animate-fade-in animate-delay-2 relative h-dvh w-full overflow-hidden">
+      <section className="animate-fade-in animate-delay-2 relative h-screen w-full overflow-hidden">
         <video
           className="absolute inset-0 h-full w-full object-cover"
           autoPlay
@@ -144,7 +147,8 @@ export default async function Home() {
           </div>
         </div>
       </section>
-    </main>
+      </main>
+    </>
   );
 }
 

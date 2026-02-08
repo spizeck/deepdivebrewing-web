@@ -14,7 +14,7 @@ export default async function WhereToBuyPage() {
   // const venues = await getVenues();
 
   return (
-    <main className="mx-auto max-w-300 px-6 py-20 md:py-30">
+    <main className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <div className="mb-12">
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
           Where to Buy

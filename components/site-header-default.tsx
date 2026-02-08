@@ -8,11 +8,11 @@ const navLinks = [
   { href: "/trade", label: "Trade" },
 ];
 
-export function SiteHeader() {
+export function SiteHeaderDefault() {
   return (
-    <header className="absolute top-0 left-0 right-0 z-50 border-b border-white/10 backdrop-blur-sm">
+    <header className="border-b border-stone bg-paper">
       <div className="mx-auto flex max-w-300 items-center justify-between px-6 py-4">
-        <Link href="/" className="text-xl font-semibold tracking-tight text-paper">
+        <Link href="/" className="text-xl font-semibold tracking-tight text-ink">
           Deep Dive Brewing Co
         </Link>
         <nav className="hidden items-center gap-8 md:flex">
@@ -20,7 +20,7 @@ export function SiteHeader() {
             <Link
               key={link.href}
               href={link.href}
-              className="text-sm font-medium text-paper/80 transition-opacity duration-200 hover:opacity-100"
+              className="text-sm font-medium text-ink/70 transition-opacity duration-200 hover:opacity-85"
             >
               {link.label}
             </Link>
@@ -36,7 +36,7 @@ function MobileMenuButton() {
   // TODO: Implement mobile menu with state management
   return (
     <button
-      className="flex items-center justify-center md:hidden text-paper"
+      className="flex items-center justify-center md:hidden"
       aria-label="Open menu"
     >
       <svg
