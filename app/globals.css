@@ -2,10 +2,36 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Custom fonts — add font files to /public/fonts/ */
+@font-face {
+  font-family: "Festival Budaya XXXI";
+  src: url("/fonts/festival-budaya-xxxi.woff2") format("woff2");
+  font-display: swap;
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: "Trajan Pro";
+  src: url("/fonts/Trajan Pro Bold.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: "Money Money Plus";
+  src: url("/fonts/MoneyMoneyPlus-Regular.woff2") format("woff2");
+  font-display: swap;
+  font-weight: normal;
+}
+
+/* TODO: Add AccaciaFlare and Gotham fonts when available */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-inter);
+  --font-festival: var(--font-festival), ui-sans-serif, system-ui;
+  --font-money: var(--font-money), ui-sans-serif, system-ui;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -61,6 +87,10 @@
 
 :root {
   --radius: 0.625rem;
+
+  /* Custom font variables */
+  --font-festival: "Festival Budaya XXXI";
+  --font-money: "Money Money Plus";
 
   /* Semantic mappings — light mode only, no dark mode */
   --background: #FAFAF8;

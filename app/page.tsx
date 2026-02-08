@@ -16,46 +16,67 @@ export default function Home() {
         />
         <div className="absolute inset-0 bg-ink/40" />
         <div className="animate-hero-fade relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-paper sm:text-5xl md:text-6xl">
+          <h1 className="text-4xl font-festival tracking-tight text-paper sm:text-5xl md:text-6xl">
             Deep Dive Brewing Co
           </h1>
-          <p className="mt-4 max-w-lg text-lg text-paper/80">
+          <p className="mt-4 max-w-lg text-lg text-paper/90">
             Craft beer, brewed on Saba.
           </p>
           <div className="mt-8 flex gap-4">
             <Button asChild>
               <Link href="/beers">Explore Our Beers</Link>
             </Button>
-            <Button variant="outline" asChild className="border-paper/30 text-paper hover:bg-paper/10">
+            <Button
+              variant="outline"
+              asChild
+              className="border-paper/30 text-paper hover:bg-paper/10"
+            >
               <Link href="/where-to-buy">Where to Buy</Link>
             </Button>
           </div>
         </div>
       </section>
 
-      {/* Brewery video — scaffold */}
-      <section className="animate-fade-in animate-delay-1 bg-ink">
-        <div className="mx-auto max-w-300 px-6 py-20 md:py-30">
-          <div className="aspect-video w-full overflow-hidden rounded-lg bg-ink/80">
-            {/* TODO: Replace with <video> once brewery video is ready */}
-            {/* Expected path: /videos/brewery.mp4 */}
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-paper/40">Brewery video — coming soon</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Introduction */}
-      <section className="animate-fade-in animate-delay-2 mx-auto max-w-300 px-6 py-20 md:py-30">
-        <div className="mx-auto max-w-180">
+      {/* Introduction — bridge between hero and video */}
+      <section className="animate-fade-in animate-delay-1 mx-auto max-w-300 px-6 py-20 md:py-30">
+        <div className="mx-auto max-w-180 text-center">
           <h2 className="text-3xl font-bold tracking-tight">Brewed with Purpose</h2>
           <p className="mt-4 text-muted-foreground">
-            {/* TODO: Replace with real copy */}
             Deep Dive Brewing Co is a craft brewery on the island of Saba. We brew
             beers that reflect where we are — honest, distinctive, and worth slowing
             down for.
           </p>
+        </div>
+      </section>
+
+      {/* Brewery video — full bleed background with content overlay */}
+      <section className="animate-fade-in animate-delay-2 relative h-dvh w-full overflow-hidden">
+        <video
+          className="absolute inset-0 h-full w-full object-cover"
+          autoPlay
+          muted
+          loop
+          playsInline
+          poster="/photos/herograin.jpg"
+        >
+          <source src="/videos/ddbwebvid.mp4" type="video/mp4" />
+          <source src="/videos/ddbwebvid.webm" type="video/webm" />
+          Your browser does not support the video tag.
+        </video>
+        <div className="absolute inset-0 bg-ink/60" />
+        <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
+          <h2 className="text-4xl font-bold tracking-tight text-paper sm:text-5xl md:text-6xl">
+            The Brewery
+          </h2>
+          <p className="mt-4 max-w-lg text-lg text-paper/80">
+            {/* TODO: Replace with real copy */}
+            Watch our brewing process in action. Craft beer, brewed with purpose on Saba.
+          </p>
+          <div className="mt-8">
+            <Button asChild variant="outline" className="border-paper/30 text-paper hover:bg-paper/10">
+              <Link href="/about">Learn More</Link>
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -84,9 +105,12 @@ export default function Home() {
       <section className="animate-fade-in animate-delay-4 border-t border-stone">
         <div className="mx-auto max-w-300 px-6 py-20 md:py-30">
           <div className="mx-auto max-w-180 text-center">
-            <h2 className="text-3xl font-bold tracking-tight">Where to Find Us</h2>
+            <h2 className="text-3xl font-bold tracking-tight">
+              Where to Find Us
+            </h2>
             <p className="mt-4 text-muted-foreground">
-              Our beers are available at select bars, restaurants, and retailers.
+              Our beers are available at select bars, restaurants, and
+              retailers.
             </p>
             <div className="mt-8">
               <Button asChild variant="outline">
