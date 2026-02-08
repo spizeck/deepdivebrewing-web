@@ -148,7 +148,7 @@ export default function Home() {
 function BeerCardPlaceholder() {
   return (
     <div className="rounded-lg border border-stone bg-paper p-6">
-      <div className="aspect-3/4 w-full rounded bg-stone/50" />
+      <div className="aspect-4/5 w-full rounded bg-stone/50" />
       <div className="mt-4 space-y-2">
         <div className="h-5 w-2/3 rounded bg-stone/50" />
         <div className="h-4 w-1/3 rounded bg-stone/50" />

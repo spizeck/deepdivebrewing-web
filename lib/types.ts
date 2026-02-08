@@ -11,8 +11,8 @@ export interface Beer {
   descriptionShort: string;
   tastingNotes: string[];
   images: {
+    card: string;
     hero: string;
-    label?: string;
   };
   isPublic: boolean;
   sortOrder: number;

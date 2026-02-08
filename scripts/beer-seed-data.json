@@ -1,0 +1,155 @@
+[
+  {
+    "name": "American Amber",
+    "slug": "american-amber",
+    "style": "American Amber Ale",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Famerican-amber%2Famerican-amber_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Famerican-amber%2Famerican-amber_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 1
+  },
+  {
+    "name": "Belgian IPA",
+    "slug": "belgian-ipa",
+    "style": "Belgian IPA",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fbelgian-ipa%2Fbelgian-ipa_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fbelgian-ipa%2Fbelgian-ipa_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 2
+  },
+  {
+    "name": "Double IPA",
+    "slug": "double-ipa",
+    "style": "Double IPA",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdouble-ipa%2Fdouble-ipa_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdouble-ipa%2Fdouble-ipa_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 3
+  },
+  {
+    "name": "Dutch Kuit",
+    "slug": "dutch-kuit",
+    "style": "Dutch Kuit",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdutch-kuit%2Fdutch-kuit_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fdutch-kuit%2Fdutch-kuit_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 4
+  },
+  {
+    "name": "New England IPA",
+    "slug": "neipa",
+    "style": "New England IPA",
+    "abv": 6.3,
+    "ibu": 47,
+    "srm": 5.2,
+    "status": "core",
+    "descriptionShort": "This New England IPA brings the tropical essence of Saba straight to your glass. Crafted with malts from North America, including Canada and the U.S., this brew has a silky-smooth texture thanks to the addition of wheat and oats. The bitterness from Cascade hops is perfectly balanced, while the generous addition of Citra hops—both at flame-out and dry hop—unleashes a juicy burst of citrus and tropical fruits like grapefruit, mango, and passionfruit.",
+    "tastingNotes": ["Grapefruit", "Passionfruit", "Mango", "Smooth finish"],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fneipa%2Fneipa_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fneipa%2Fneipa_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 5
+  },
+  {
+    "name": "Pale Lager",
+    "slug": "pale-lager",
+    "style": "Pale Lager",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpale-lager%2Fpale-lager_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpale-lager%2Fpale-lager_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 6
+  },
+  {
+    "name": "Pilsner",
+    "slug": "pilsner",
+    "style": "Pilsner",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpilsner%2Fpilsner_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fpilsner%2Fpilsner_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 7
+  },
+  {
+    "name": "Stout",
+    "slug": "stout",
+    "style": "Stout",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fstout%2Fstout_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Fstout%2Fstout_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 8
+  },
+  {
+    "name": "Tropical Wheat",
+    "slug": "tropical-wheat",
+    "style": "Wheat Beer",
+    "abv": 0,
+    "ibu": null,
+    "srm": null,
+    "status": "core",
+    "descriptionShort": "",
+    "tastingNotes": [],
+    "images": {
+      "card": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Ftropical-wheat%2Ftropical-wheat_card_1200x1500.jpg?alt=media",
+      "hero": "https://firebasestorage.googleapis.com/v0/b/deepdivebrewing-web.firebasestorage.app/o/beers%2Ftropical-wheat%2Ftropical-wheat_hero_1920x1080.jpg?alt=media"
+    },
+    "isPublic": true,
+    "sortOrder": 9
+  }
+]

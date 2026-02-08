@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
+import type { Beer } from "@/lib/types";
 // import { notFound } from "next/navigation";
 // import { getBeerBySlug } from "@/lib/beers";
 
@@ -24,9 +26,10 @@ export async function generateMetadata({
 export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
   const { slug } = await params;
 
-  // TODO: Uncomment when Firestore is connected
+  // TODO: Replace with Firestore fetch once seeded
   // const beer = await getBeerBySlug(slug);
   // if (!beer) notFound();
+  const beer = null as Beer | null;
 
   return (
     <main className="mx-auto max-w-300 px-6 py-20 md:py-30">
@@ -44,48 +47,57 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
         </span>
       </nav>
 
-      <div className="grid gap-12 lg:grid-cols-2">
+      <div className="flex flex-col gap-8 lg:flex-row lg:gap-12">
         {/* Beer image */}
-        <div className="aspect-3/4 w-full overflow-hidden rounded-lg bg-stone/50">
-          {/* TODO: Replace with <Image src={beer.images.hero} /> */}
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-muted-foreground">Beer image</p>
+        <div className="w-full lg:w-2/5">
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-stone/50">
+            {beer ? (
+              <Image
+                src={beer.images.hero}
+                alt={beer.name}
+                fill
+                className="object-cover"
+                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 40vw"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-sm text-muted-foreground">Beer image</p>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Beer details */}
-        <div>
-          {/* TODO: Use beer.name with Money Money Plus font */}
+        <div className="w-full lg:w-3/5">
           <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-            {slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+            {beer ? beer.name : slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
           </h1>
 
-          {/* TODO: Use beer.style with AccaciaFlare Bold font */}
-          <p className="mt-2 text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            Beer Style
+          <p className="mt-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            {beer ? beer.style : "Beer Style"}
           </p>
 
           {/* Specs */}
           <div className="mt-6 flex flex-wrap gap-3">
-            <Badge variant="secondary">0.0% ABV</Badge>
-            <Badge variant="outline">Core</Badge>
-            {/* TODO: Conditionally show IBU, SRM */}
+            <Badge variant="secondary">{beer ? `${beer.abv}% ABV` : "0.0% ABV"}</Badge>
+            <Badge variant="outline">{beer ? beer.status : "Core"}</Badge>
+            {beer && beer.ibu && <Badge variant="outline">{beer.ibu} IBU</Badge>}
+            {beer && beer.srm && <Badge variant="outline">SRM {beer.srm}</Badge>}
           </div>
 
           {/* Description */}
-          <p className="mt-8 text-muted-foreground">
-            {/* TODO: beer.descriptionShort */}
-            Beer description will appear here once connected to Firestore.
+          <p className="mt-6 text-muted-foreground">
+            {beer ? beer.descriptionShort : "Beer description will appear here once connected to Firestore."}
           </p>
 
           {/* Tasting notes */}
-          <div className="mt-8">
+          <div className="mt-6">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-ink">
               Tasting Notes
             </h2>
             <div className="mt-3 flex flex-wrap gap-2">
               {/* TODO: Map beer.tastingNotes */}
-              {["Note 1", "Note 2", "Note 3"].map((note) => (
+              {(beer ? beer.tastingNotes : ["Note 1", "Note 2", "Note 3"]).map((note) => (
                 <Badge key={note} variant="secondary">
                   {note}
                 </Badge>
@@ -94,7 +106,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
           </div>
 
           {/* Where to find */}
-          <div className="mt-12 border-t border-stone pt-8">
+          <div className="mt-8 border-t border-stone pt-6">
             <p className="text-sm text-muted-foreground">
               Want to try this beer?
             </p>

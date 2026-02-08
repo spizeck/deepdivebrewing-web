@@ -13,9 +13,9 @@ export function BeerCard({ beer }: BeerCardProps) {
       href={`/beers/${beer.slug}`}
       className="group block rounded-lg border border-stone bg-paper transition-opacity duration-200 hover:opacity-85"
     >
-      <div className="relative aspect-3/4 w-full overflow-hidden rounded-t-lg">
+      <div className="relative aspect-4/5 w-full overflow-hidden rounded-t-lg">
         <Image
-          src={beer.images.hero}
+          src={beer.images.card}
           alt={beer.name}
           fill
           className="object-cover"

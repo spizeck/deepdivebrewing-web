@@ -108,83 +108,157 @@ Dutch Kuit Orange:  #E47041  (burnt orange from Kuit can)
 ---
 
 ## Typography System
-Typography is the primary brand expression.
+Typography is the primary brand expression through simplicity and restraint.
 
-### Brand Typography (Site-Wide)
+### Brand Typography
 
 #### Primary Brand Font: Festival Budaya XXXI
-Use only for:
-* Homepage hero headline
-* Rare, high-impact brand moments
+Use ONLY for:
+* Site name "Deep Dive Brewing Co." (homepage hero and navigation logo)
+* Nowhere else
 
 **Sizes:**
-* Hero (homepage): 56px / 64px line-height (desktop), 40px / 48px (mobile)
+* Homepage hero: 56px / 64px line-height (desktop), 40px / 48px (mobile)
+* Navigation logo: 24px / 28px line-height
 
-#### Secondary Brand Font: Trajan Pro Bold
-Use for:
-* Section headings
-* Page titles
-* Editorial hierarchy
+---
+
+### All Other Typography: Inter
+
+Inter is used for **everything else** on the site:
+* All headings (H1, H2, H3, H4, H5, H6)
+* All body text
+* Navigation links
+* Buttons
+* Beer names
+* Beer descriptions
+* Form labels
+* Footer content
+* Metadata
 
 **Sizes:**
 * H1 (Page titles): 40px / 48px line-height (desktop), 32px / 40px (mobile)
 * H2 (Section headings): 32px / 40px line-height (desktop), 28px / 36px (mobile)
 * H3 (Subsections): 24px / 32px line-height (desktop), 20px / 28px (mobile)
-
----
-
-### Body Typography: Inter
-
-Inter is used for all body text, navigation, buttons, and general UI.
-
-**Sizes:**
+* H4 (Minor headings): 20px / 28px line-height
 * Body (default): 18px / 28px line-height (desktop), 16px / 24px (mobile)
 * Small text: 14px / 20px line-height
 * Caption/metadata: 12px / 18px line-height
 
 **Font weights:**
-* Regular (400): Body text
-* Medium (500): Subtle emphasis, navigation
-* Semibold (600): Buttons, strong emphasis
-* Bold (700): Rare use only
+* Regular (400): Body text, general content
+* Medium (500): Navigation, subtle emphasis
+* Semibold (600): Headings, buttons, strong emphasis
+* Bold (700): Beer names, important headings
+
+**Special Typography Rules:**
+* Beer names use **Inter Bold** at larger sizes (32-48px) to make them feel special
+* Beer style labels (IPA, Lager, Stout) use **Inter Semibold, uppercase, letter-spacing: 0.05em** at 12px
+* ABV/IBU specs use **Inter Medium** at 12-14px
 
 ---
 
-### Product / Label Typography (Beer Names ONLY)
-These fonts are product typography, not brand typography.
-They appear on beer labels and should remain contextual to beer-specific content only.
+### Typography Philosophy
 
-#### Money Money Plus
-Use ONLY for:
-* Beer names on beer cards
-* Beer titles on detail pages
+**Simplicity is sophistication.**
 
-**Sizes:**
-* Beer card title: 32px / 36px line-height
-* Detail page hero: 48px / 56px line-height (desktop), 36px / 44px (mobile)
+By using only two fonts (Festival for branding, Inter for everything else), the site:
+* Feels cohesive and intentional
+* Loads faster (fewer font files)
+* Lets content and imagery do the branding work
+* Avoids typographic clutter
 
-**Sizes:**
-* Style tags: 12px / 16px line-height, uppercase, letter-spacing: 0.05em
-
-#### Gotham Black
-Use sparingly for:
-* Small supporting beer metadata (e.g. "Made on Saba" text)
-* ABV/IBU specifications
-
-**Sizes:**
-* Date labels: 11px / 14px line-height, uppercase
-* Specs (ABV/IBU): 12px / 16px line-height
+**Inter handles all the heavy lifting** through weight variation (Regular, Medium, Semibold, Bold) and size hierarchy, not through font changes.
 
 ---
 
-### Label Typography Rules
-Label typography (Money Money Plus) must NEVER be used for:
-* Navigation
-* Call-to-action buttons
-* Page headings outside beer sections
-* General UI text
-* Footer content
-* Form labels
+## Beer Image Assets
+
+All beer imagery is stored in Firebase Storage and follows a consistent naming convention.
+
+### Firebase Storage Structure
+
+```
+gs://deepdivebrewing-web.firebasestorage.app/beers/
+├── pilsner/
+│   ├── pilsner_card_1200x1500.jpg      (for beer listing cards)
+│   └── pilsner_hero_1920x1080.jpg      (for beer detail page hero)
+├── neipa/
+│   ├── neipa_card_1200x1500.jpg
+│   └── neipa_hero_1920x1080.jpg
+├── american-amber/
+│   ├── american-amber_card_1200x1500.jpg
+│   └── american-amber_hero_1920x1080.jpg
+├── pale-lager/
+│   ├── pale-lager_card_1200x1500.jpg
+│   └── pale-lager_hero_1920x1080.jpg
+├── double-ipa/
+│   ├── double-ipa_card_1200x1500.jpg
+│   └── double-ipa_hero_1920x1080.jpg
+├── stout/
+│   ├── stout_card_1200x1500.jpg
+│   └── stout_hero_1920x1080.jpg
+├── belgian-ipa/
+│   ├── belgian-ipa_card_1200x1500.jpg
+│   └── belgian-ipa_hero_1920x1080.jpg
+└── dutch-kuit/
+    ├── dutch-kuit_card_1200x1500.jpg
+    └── dutch-kuit_hero_1920x1080.jpg
+```
+
+### Image Specifications
+
+#### Card Images (`*_card_1200x1500.jpg`)
+* **Dimensions**: 1200px wide × 1500px tall (4:5 aspect ratio)
+* **Purpose**: Beer listing cards on homepage and beer list pages
+* **Format**: JPG, optimized for web
+* **File size target**: Under 200KB
+* **Aspect ratio**: Portrait orientation matches can labels
+
+#### Hero Images (`*_hero_1920x1080.jpg`)
+* **Dimensions**: 1920px wide × 1080px tall (16:9 aspect ratio)
+* **Purpose**: Full-width hero image on individual beer detail pages (e.g., `/beers/neipa`)
+* **Format**: JPG, optimized for web
+* **File size target**: Under 400KB
+* **Behavior**: Grows with screen width, maintains aspect ratio
+* **Responsive**: Will be served at different sizes based on viewport
+
+### Naming Convention
+
+All beer image filenames follow this pattern:
+```
+{beer-slug}_{image-type}_{dimensions}.jpg
+```
+
+**Examples:**
+* `neipa_card_1200x1500.jpg`
+* `neipa_hero_1920x1080.jpg`
+* `american-amber_card_1200x1500.jpg`
+* `american-amber_hero_1920x1080.jpg`
+
+**Rules:**
+* Use lowercase
+* Use hyphens for multi-word beer names (e.g., `american-amber`, `double-ipa`, `dutch-kuit`)
+* No spaces in filenames
+* Consistent dimensions in filename for clarity
+
+### Usage in Code
+
+```typescript
+// Example: Fetching beer card image from Firebase Storage
+const cardImageUrl = `gs://deepdivebrewing-web.firebasestorage.app/beers/${beerSlug}/${beerSlug}_card_1200x1500.jpg`;
+
+// Example: Fetching beer hero image for detail page
+const heroImageUrl = `gs://deepdivebrewing-web.firebasestorage.app/beers/${beerSlug}/${beerSlug}_hero_1920x1080.jpg`;
+```
+
+### Image Optimization Notes
+
+* All images should be optimized before upload using tools like ImageOptim, TinyPNG, or similar
+* Card images are portrait to match can label aesthetic
+* Hero images are landscape to work well in full-width page headers
+* Both formats use actual can photography for authenticity
+* Hero images should be cropped to showcase the can label while allowing for responsive width scaling
 
 ---
 
@@ -271,7 +345,7 @@ The site should feel calm even when color is present.
 * Use CSS variables for all color references
 
 ### Example Tailwind Config Mapping
-```
+```javascript
 colors: {
   paper: '#FAFAF8',
   ink: '#0B0F14',
@@ -323,8 +397,10 @@ Any changes to:
 * Typography
 * Spacing
 * Animation rules
+* Image asset structure
 
 Must be documented here FIRST before implementation.
 
 If a new beer color is introduced, add it to the Beer Color Palette section.
+If a new image format is needed, document it in the Beer Image Assets section.
 If a design pattern is questioned, refer back to the Core Design Principles and Success Criteria.
