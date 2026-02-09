@@ -32,7 +32,7 @@ export default function ContactPage() {
             <div>
               <h2 className="font-semibold">WhatsApp</h2>
               <Link
-                href="https://wa.me/15994163544"
+                href="https://wa.me/5994163544"
                 className="mt-1 block text-ocean transition-opacity duration-200 hover:opacity-85"
                 target="_blank"
                 rel="noopener noreferrer"
