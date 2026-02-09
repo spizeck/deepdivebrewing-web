@@ -11,7 +11,7 @@ const navLinks = [
 
 export function SiteHeaderDefault() {
   return (
-    <header className="border-b border-stone bg-paper">
+    <header className="relative border-b border-stone bg-paper">
       <div className="mx-auto flex max-w-300 items-center justify-between px-6 py-4">
         <Link href="/" className="text-xl font-semibold tracking-tight text-ink">
           Deep Dive Brewing Co
