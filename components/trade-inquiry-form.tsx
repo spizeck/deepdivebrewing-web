@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { submitTradeLead } from "@/lib/trade-leads";
 
 interface FormData {
   businessName: string;
@@ -38,7 +37,12 @@ export function TradeInquiryForm() {
     e.preventDefault();
     setStatus("submitting");
     try {
-      await submitTradeLead(formData);
+      const res = await fetch("/api/trade-inquiry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      if (!res.ok) throw new Error("Submit failed");
       setStatus("success");
       setFormData(initialFormData);
     } catch {
