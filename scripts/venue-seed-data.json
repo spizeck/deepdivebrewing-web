@@ -1,0 +1,126 @@
+[
+  {
+    "name": "The Dive Bar",
+    "slug": "the-dive-bar",
+    "type": "bar_restaurant",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 1,
+    "links": {
+      "website": "https://example.com/the-dive-bar",
+      "facebook": "https://www.facebook.com/TheDiveBarSaba",
+      "instagram": "https://www.instagram.com/thedivebarsaba",
+      "untappd": "https://untappd.com/v/the-dive-bar-saba"
+    },
+    "notesPublic": null
+  },
+  {
+    "name": "Tropics Cafe",
+    "slug": "tropics-cafe",
+    "type": "bar_restaurant",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 2,
+    "links": {
+      "website": "https://example.com/tropics-cafe",
+      "facebook": "https://www.facebook.com/TropicsCafeSaba",
+      "instagram": "https://www.instagram.com/tropicscafesaba",
+      "untappd": "https://untappd.com/v/tropics-cafe-saba"
+    },
+    "notesPublic": null
+  },
+  {
+    "name": "D'Corner",
+    "slug": "dcorner",
+    "type": "bar_restaurant",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 3,
+    "links": {
+      "website": "https://example.com/dcorner",
+      "facebook": "https://www.facebook.com/DCornerSaba",
+      "instagram": "https://www.instagram.com/dcornersaba",
+      "untappd": "https://untappd.com/v/dcorner-saba"
+    },
+    "notesPublic": null
+  },
+  {
+    "name": "Amonhana",
+    "slug": "amonhana",
+    "type": "bar_restaurant",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 4,
+    "links": {
+      "website": "https://example.com/amonhana",
+      "facebook": "https://www.facebook.com/AmonhanaSaba",
+      "instagram": "https://www.instagram.com/amohanhasaba",
+      "untappd": "https://untappd.com/v/amonhana-saba"
+    },
+    "notesPublic": null
+  },
+  {
+    "name": "Hideaway",
+    "slug": "hideaway",
+    "type": "bar_restaurant",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 5,
+    "links": {
+      "website": "https://example.com/hideaway",
+      "facebook": "https://www.facebook.com/HideawaySaba",
+      "instagram": "https://www.instagram.com/hideawaysaba",
+      "untappd": "https://untappd.com/v/hideaway-saba"
+    },
+    "notesPublic": null
+  },
+  {
+    "name": "Island Flavor",
+    "slug": "island-flavor",
+    "type": "bar_restaurant",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 6,
+    "links": {
+      "website": "https://example.com/island-flavor",
+      "facebook": "https://www.facebook.com/IslandFlavorSaba",
+      "instagram": "https://www.instagram.com/islandflavorsaba",
+      "untappd": "https://untappd.com/v/island-flavor-saba"
+    },
+    "notesPublic": null
+  },
+  {
+    "name": "Big Rock Supermarket",
+    "slug": "big-rock-supermarket",
+    "type": "retail",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 7,
+    "links": {
+      "website": "https://example.com/big-rock-supermarket",
+      "facebook": "https://www.facebook.com/BigRockSupermarketSaba"
+    },
+    "notesPublic": null
+  },
+  {
+    "name": "Unique Supermarket",
+    "slug": "unique-supermarket",
+    "type": "retail",
+    "locationName": "Saba",
+    "carriesBeerSlugs": [],
+    "isPublic": true,
+    "sortOrder": 8,
+    "links": {
+      "website": "https://example.com/unique-supermarket",
+      "facebook": "https://www.facebook.com/UniqueSupermarketSaba"
+    },
+    "notesPublic": null
+  }
+]

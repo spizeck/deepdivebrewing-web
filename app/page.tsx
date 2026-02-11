@@ -105,7 +105,7 @@ export default async function Home() {
               variant="outline"
               className="border-paper/30 text-paper hover:bg-paper/10"
             >
-              <Link href="/about">See How We Brew</Link>
+              <Link href="/about">Learn More</Link>
             </Button>
           </div>
         </div>

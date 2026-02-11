@@ -1,6 +1,11 @@
 import { Badge } from "@/components/ui/badge";
 import type { Venue } from "@/lib/types";
 
+const typeLabels: Record<Venue["type"], string> = {
+  bar_restaurant: "Bar / Restaurant",
+  retail: "Retail",
+};
+
 interface VenueCardProps {
   venue: Venue;
 }
@@ -15,15 +20,15 @@ export function VenueCard({ venue }: VenueCardProps) {
             {venue.locationName}
           </p>
         </div>
-        <Badge variant="outline">{venue.type}</Badge>
+        <Badge variant="outline">{typeLabels[venue.type]}</Badge>
       </div>
 
       {venue.notesPublic && (
         <p className="mt-3 text-sm text-muted-foreground">{venue.notesPublic}</p>
       )}
 
-      {(venue.links.website || venue.links.instagram) && (
-        <div className="mt-4 flex gap-4">
+      {(venue.links.website || venue.links.instagram || venue.links.facebook || venue.links.untappd) && (
+        <div className="mt-4 flex flex-wrap gap-4">
           {venue.links.website && (
             <a
               href={venue.links.website}
@@ -42,6 +47,26 @@ export function VenueCard({ venue }: VenueCardProps) {
               className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
             >
               Instagram
+            </a>
+          )}
+          {venue.links.facebook && (
+            <a
+              href={venue.links.facebook}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+            >
+              Facebook
+            </a>
+          )}
+          {venue.links.untappd && (
+            <a
+              href={venue.links.untappd}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+            >
+              Untappd
             </a>
           )}
         </div>

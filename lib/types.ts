@@ -20,13 +20,17 @@ export interface Beer {
 
 export interface Venue {
   name: string;
-  type: "bar" | "restaurant" | "hotel" | "retail";
+  slug: string;
+  type: "bar_restaurant" | "retail";
   locationName: string;
   carriesBeerSlugs: string[];
   isPublic: boolean;
+  sortOrder: number;
   links: {
     website?: string;
     instagram?: string;
+    facebook?: string;
+    untappd?: string;
   };
   notesPublic?: string;
 }
