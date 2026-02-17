@@ -122,5 +122,19 @@
       "facebook": "https://www.facebook.com/UniqueSupermarketSaba"
     },
     "notesPublic": null
+  },
+  {
+    "name": "Sea Saba",
+    "slug": "sea-saba",
+    "type": "retail",
+    "locationName":"Saba",
+    "carriesBeerSlugs":[],
+    "isPublic": true,
+    "sortOrder": 9,
+    "links": {
+      "website": "https://seasaba.com",
+      "facebook": "https://www.facebook.com/Sea.Saba"
+    },
+    "notesPublic": null
   }
 ]
