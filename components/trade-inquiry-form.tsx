@@ -10,6 +10,7 @@ interface FormData {
   phoneOrWhatsapp: string;
   venueType: string;
   message: string;
+  website: string;
 }
 
 const initialFormData: FormData = {
@@ -19,6 +20,7 @@ const initialFormData: FormData = {
   phoneOrWhatsapp: "",
   venueType: "",
   message: "",
+  website: "",
 };
 
 const venueTypes = ["Bar", "Restaurant", "Hotel", "Retail", "Distributor", "Other"];
@@ -26,6 +28,7 @@ const venueTypes = ["Bar", "Restaurant", "Hotel", "Retail", "Distributor", "Othe
 export function TradeInquiryForm() {
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string>("");
 
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -36,17 +39,26 @@ export function TradeInquiryForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setStatus("submitting");
+    setErrorMessage("");
+
     try {
       const res = await fetch("/api/trade-inquiry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
-      if (!res.ok) throw new Error("Submit failed");
+
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Submit failed");
+      }
+
       setStatus("success");
       setFormData(initialFormData);
-    } catch {
+    } catch (err) {
       setStatus("error");
+      setErrorMessage(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     }
   }
 
@@ -63,6 +75,19 @@ export function TradeInquiryForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="sr-only" aria-hidden="true">
+        <label htmlFor="website">Website</label>
+        <input
+          id="website"
+          name="website"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          value={formData.website}
+          onChange={handleChange}
+        />
+      </div>
+
       <div className="grid gap-6 sm:grid-cols-2">
         <FormField
           label="Business Name"
@@ -132,7 +157,7 @@ export function TradeInquiryForm() {
 
       {status === "error" && (
         <p className="text-sm text-ember">
-          Something went wrong. Please try again.
+          {errorMessage || "Something went wrong. Please try again."}
         </p>
       )}
 

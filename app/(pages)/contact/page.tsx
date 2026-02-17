@@ -100,14 +100,16 @@ export default function ContactPage() {
         </div>
 
         {/* Google Maps embed */}
-        <div className="overflow-hidden rounded-lg border border-stone">
-          <iframe
-            className="h-100 w-full"
-            src="https://maps.google.com/maps?width=600&amp;height=400&amp;hl=en&amp;q=66 fort bay road&amp;t=&amp;z=16&amp;ie=UTF8&amp;iwloc=B&amp;output=embed"
-            title="Deep Dive Brewing Co location"
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
+        <div className="rounded-xl border border-stone bg-paper p-4 md:p-5">
+          <div className="relative aspect-16/10 w-full overflow-hidden rounded-xl">
+            <iframe
+              className="absolute inset-0 h-full w-full"
+              src="https://maps.google.com/maps?width=600&amp;height=400&amp;hl=en&amp;q=66 fort bay road&amp;t=&amp;z=16&amp;ie=UTF8&amp;iwloc=B&amp;output=embed"
+              title="Deep Dive Brewing Co location"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
         </div>
       </div>
     </main>
