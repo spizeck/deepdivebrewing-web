@@ -43,6 +43,15 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
+function escapeHtml(input: string): string {
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!process.env.RESEND_API_KEY) {
@@ -103,20 +112,27 @@ export async function POST(req: NextRequest) {
     }
 
     const subject = `Trade Inquiry — ${businessName} (${contactName})`;
+    const safeBusinessName = escapeHtml(businessName);
+    const safeContactName = escapeHtml(contactName);
+    const safeEmail = escapeHtml(email);
+    const safePhoneOrWhatsapp = escapeHtml(phoneOrWhatsapp);
+    const safeVenueType = escapeHtml(venueType);
+    const safeMessage = escapeHtml(message);
+
     const html = `
       <h2>New Trade Inquiry</h2>
       <table style="border-collapse: collapse; width: 100%; max-width: 640px;">
-        <tr><td style="padding: 8px; font-weight: 700;">Business Name</td><td style="padding: 8px;">${businessName}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Contact Name</td><td style="padding: 8px;">${contactName}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Email</td><td style="padding: 8px;"><a href="mailto:${email}">${email}</a></td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Phone / WhatsApp</td><td style="padding: 8px;">${phoneOrWhatsapp || "—"}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Venue Type</td><td style="padding: 8px;">${venueType}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Message</td><td style="padding: 8px;">${message || "—"}</td></tr>
+        <tr><td style="padding: 8px; font-weight: 700;">Business Name</td><td style="padding: 8px;">${safeBusinessName}</td></tr>
+        <tr><td style="padding: 8px; font-weight: 700;">Contact Name</td><td style="padding: 8px;">${safeContactName}</td></tr>
+        <tr><td style="padding: 8px; font-weight: 700;">Email</td><td style="padding: 8px;"><a href="mailto:${safeEmail}">${safeEmail}</a></td></tr>
+        <tr><td style="padding: 8px; font-weight: 700;">Phone / WhatsApp</td><td style="padding: 8px;">${safePhoneOrWhatsapp || "—"}</td></tr>
+        <tr><td style="padding: 8px; font-weight: 700;">Venue Type</td><td style="padding: 8px;">${safeVenueType}</td></tr>
+        <tr><td style="padding: 8px; font-weight: 700;">Message</td><td style="padding: 8px;">${safeMessage || "—"}</td></tr>
       </table>
     `;
 
     const { error } = await resend.emails.send({
-      from: "Deep Dive Brewing <DeepDiveBrewing@mail.seasaba.com>",
+      from: process.env.RESEND_FROM_EMAIL || "Deep Dive Brewing <DeepDiveBrewing@mail.seasaba.com>",
       to: toEmail,
       replyTo: email,
       subject,
