@@ -5,7 +5,16 @@ import { Phone, Mail, Clock, MapPin } from "lucide-react";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Get in touch with Deep Dive Brewing Co on Saba. WhatsApp, email, or visit us at 66 Fort Bay Road.",
+    "Contact Deep Dive Brewing Co at 66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands. Reach us fastest on WhatsApp.",
+  keywords: [
+    "Deep Dive Brewing contact",
+    "brewery Saba contact",
+    "66 Fort Bay Road The Bottom Saba",
+    "Deep Dive Brewing WhatsApp",
+  ],
+  alternates: {
+    canonical: "/contact",
+  },
 };
 
 export default function ContactPage() {
@@ -65,11 +74,12 @@ export default function ContactPage() {
             </div>
             <div>
               <h2 className="font-semibold">Hours</h2>
-              <p className="mt-1 text-muted-foreground">Varies</p>
+              <p className="mt-1 text-muted-foreground">
+                Typically open Monday to Friday, 8:00 AM to 3:00 PM.
+              </p>
               <p className="mt-2 text-sm text-muted-foreground">
-                If the brewery is locked, check in with{" "}
-                <span className="font-medium text-ink">Sea Saba</span> next
-                door.
+                Hours can vary. If the brewery is locked, check in with{" "}
+                <span className="font-medium text-ink">Sea Saba</span> next door.
               </p>
             </div>
           </div>
@@ -82,7 +92,7 @@ export default function ContactPage() {
             <div>
               <h2 className="font-semibold">Location</h2>
               <p className="mt-1 text-muted-foreground">
-                66 Fort Bay Road, Saba
+                66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands
               </p>
             </div>
           </div>
@@ -93,9 +103,32 @@ export default function ContactPage() {
               Brewery Tours
             </p>
             <p className="mt-2 text-muted-foreground">
-              Brewery tours are available upon request. Reach out via WhatsApp or
-              email to schedule a visit.
+              Brewery tours are available by request. Reach out via WhatsApp to
+              schedule a visit.
             </p>
+          </div>
+
+          <div className="rounded-lg border border-stone bg-paper p-5">
+            <h2 className="text-base font-semibold text-ink">Contact FAQ</h2>
+            <div className="mt-3 space-y-3 text-sm text-muted-foreground">
+              <div>
+                <h3 className="font-medium text-ink">Do you have a taproom?</h3>
+                <p className="mt-1">No taproom at this time.</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-ink">What is the fastest way to reach you?</h3>
+                <p className="mt-1">
+                  WhatsApp at +599-416-3544 is the fastest channel for inquiries.
+                </p>
+              </div>
+              <div>
+                <h3 className="font-medium text-ink">Where are you distributing?</h3>
+                <p className="mt-1">
+                  We currently focus on Saba and select partner accounts in SXM,
+                  with expansion in progress.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 

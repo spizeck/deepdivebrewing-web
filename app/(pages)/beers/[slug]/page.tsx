@@ -15,9 +15,33 @@ export async function generateMetadata({
   const { slug } = await params;
   const beer = await getBeerBySlug(slug);
   if (!beer) return { title: "Beer Not Found" };
+
+  const imageUrl = beerImageUrl(beer.images.heroPath);
+
   return {
     title: beer.name,
     description: beer.descriptionShort,
+    alternates: {
+      canonical: `/beers/${beer.slug}`,
+    },
+    openGraph: {
+      title: `${beer.name} | Deep Dive Brewing Co`,
+      description: beer.descriptionShort,
+      type: "article",
+      url: `/beers/${beer.slug}`,
+      images: [
+        {
+          url: imageUrl,
+          alt: beer.name,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${beer.name} | Deep Dive Brewing Co`,
+      description: beer.descriptionShort,
+      images: [imageUrl],
+    },
   };
 }
 

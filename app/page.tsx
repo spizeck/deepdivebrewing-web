@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/site-header";
 import IntroSection from "@/components/home/IntroSection";
@@ -7,14 +8,89 @@ import { BeerCarousel } from "@/components/beer-carousel";
 import { getBeers, beerImageUrl } from "@/lib/beers";
 import type { CSSProperties } from "react";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
+
+export const metadata: Metadata = {
+  title: "Craft Beer on Saba",
+  description:
+    "Deep Dive Brewing Co is Saba's craft brewery. Find where to buy our beer across Saba and SXM, and contact us for wholesale partnerships.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "Deep Dive Brewing Co",
+    description:
+      "Saba's craft brewery. Discover locally brewed beers and where to find them on the island.",
+    url: "/",
+    images: [
+      {
+        url: "/photos/herograin.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Deep Dive Brewing Co hero image",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Deep Dive Brewing Co",
+    description:
+      "Saba's craft brewery. Discover locally brewed beers and where to find them on the island.",
+    images: ["/photos/herograin.jpg"],
+  },
+};
+
 export default async function Home() {
   const beers = await getBeers();
   const featuredBeers = beers.slice(0, 6);
   const imageUrls = Object.fromEntries(
     featuredBeers.map((b) => [b.slug, beerImageUrl(b.images.cardPath)])
   );
+  const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Brewery",
+    name: "Deep Dive Brewing Co",
+    legalName: "Deep Dive Brews, BV",
+    url: siteUrl,
+    image: `${siteUrl}/photos/herograin.jpg`,
+    email: "info@deepdivebrewing.com",
+    telephone: "+599-416-3544",
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: "66 Fort Bay Road",
+      addressLocality: "The Bottom",
+      addressCountry: "BQ",
+    },
+    areaServed: ["Saba", "Sint Maarten", "Saint Martin", "SXM"],
+    openingHoursSpecification: [
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: [
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+        ],
+        opens: "08:00",
+        closes: "15:00",
+      },
+    ],
+    description:
+      "Craft brewery based on Saba producing locally brewed beer with island-wide and regional partner distribution.",
+    sameAs: [
+      "https://www.instagram.com/deepdivebrewing",
+      "https://www.facebook.com/deepdivebrewing",
+      "https://untappd.com/DeepDiveBrewingCo",
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+      />
       <SiteHeader />
       <main>
         {/* Hero — full viewport, grain photo, extends behind header */}
