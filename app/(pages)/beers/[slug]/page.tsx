@@ -74,6 +74,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
               src={beerImageUrl(beer.images.heroPath)}
               alt={beer.name}
               fill
+              quality={80}
               className="object-cover"
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 40vw"
             />

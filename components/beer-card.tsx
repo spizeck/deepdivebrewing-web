@@ -20,6 +20,7 @@ export function BeerCard({ beer, imageUrl }: BeerCardProps) {
           src={imageUrl ?? beerImageUrl(beer.images.cardPath)}
           alt={beer.name}
           fill
+          quality={75}
           className="object-cover"
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
         />

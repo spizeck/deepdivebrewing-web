@@ -100,6 +100,7 @@ export default async function Home() {
           alt="Barley grain close-up"
           fill
           priority
+          quality={70}
           sizes="100vw"
           className="object-cover"
         />
@@ -157,11 +158,11 @@ export default async function Home() {
           muted
           loop
           playsInline
-          preload="metadata"
+          preload="none"
           poster="/photos/herograin.jpg"
         >
-          <source src="/videos/ddbwebvid.mp4" type="video/mp4" />
           <source src="/videos/ddbwebvid.webm" type="video/webm" />
+          <source src="/videos/ddbwebvid.mp4" type="video/mp4" />
           Your browser does not support the video tag.
         </video>
         <div className="absolute inset-0 bg-ink/60" />
