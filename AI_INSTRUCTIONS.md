@@ -1,5 +1,8 @@
 # AI_INSTRUCTIONS.md
 
+> Release baseline: **1.01** (`1.0.1`)
+> Project state: **Shelved / maintenance mode**
+
 ## Project Overview
 
 This repository is the marketing and trade website for **Deep Dive Brewing Co**.
@@ -46,6 +49,9 @@ Prefer **server components** and **static rendering** wherever possible.
 - `/about` — MDX
 - `/contact` — MDX
 
+### Admin Route
+- `/admin` — Firebase-authenticated admin dashboard for beer/venue updates, image uploads, and rebuild trigger
+
 ### Trade (B2B)
 - `/trade` — Wholesale info (MDX + form)
 - `/trade/login` — reserved for future
@@ -79,16 +85,23 @@ Required fields:
 - `sortOrder: number`
 
 #### venues
-Represents bars, restaurants, hotels, or retailers.
+Represents bars/restaurants or retailers.
 
 Required fields:
 - `name: string`
-- `type: "bar" | "restaurant" | "hotel" | "retail"`
+- `slug: string`
+- `type: "bar_restaurant" | "retail"`
 - `locationName: string`
 - `carriesBeerSlugs: string[]`
+- `tapBeerSlugs?: string[]`
+- `canBeerSlugs?: string[]`
 - `isPublic: boolean`
+- `sortOrder: number`
 - `links.website?: string`
+- `links.maps?: string`
 - `links.instagram?: string`
+- `links.facebook?: string`
+- `links.untappd?: string`
 - `notesPublic?: string`
 
 #### tradeLeads
@@ -103,6 +116,15 @@ Fields:
 - `message`
 - `createdAt` (server timestamp)
 - `status`
+
+#### meta/siteRebuild
+Admin-only rebuild and content-update metadata:
+- `cooldownUntil`
+- `lastTriggeredAt`
+- `lastTriggeredBy`
+- `contentUpdatedAt`
+- `contentUpdatedBy`
+- `lastContentUpdateType`
 
 ---
 

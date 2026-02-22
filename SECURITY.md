@@ -1,5 +1,7 @@
 # Security Policy
 
+> Applies to release **1.01** (`1.0.1`) while project is in maintenance mode.
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in this project, please report it responsibly.
@@ -34,6 +36,7 @@ This policy covers:
 - Firestore security rules restrict read/write access appropriately.
 - Firebase Admin SDK service account keys (`*firebase-adminsdk*.json`) are excluded from version control via `.gitignore`.
 - Client-side writes are limited to the trade lead inquiry form only.
+- Admin users can write content and update `meta/siteRebuild` for rebuild/audit state.
 
 ### Dependencies
 
@@ -44,3 +47,11 @@ This policy covers:
 
 - Production deployments are managed through Vercel.
 - Environment variables are configured in the Vercel dashboard, not in source code.
+- Rebuilds can be triggered from `/admin` via a protected server endpoint using Firebase ID token verification.
+- Rebuild endpoint security depends on: `VERCEL_DEPLOY_HOOK_URL`, Firebase Admin credentials, and admin email allowlist.
+
+## Maintenance / Shelving Expectations
+
+- Keep admin email allowlist current before reactivating edits.
+- Rotate Firebase Admin credentials if repository access changes.
+- Confirm cooldown behavior on the rebuild endpoint after long inactivity.

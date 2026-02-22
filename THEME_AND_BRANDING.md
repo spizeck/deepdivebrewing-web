@@ -1,6 +1,9 @@
 # Theme & Branding Instructions
 ## Deep Dive Brewing Co Website
 
+> Release baseline: **1.01** (`1.0.1`)
+> Project state: **Shelved / maintenance mode**
+
 ## Purpose
 Define a calm, readable, long-lasting visual system for the Deep Dive Brewing website.
 This is a brewery and hospitality brand — not a tech product, design demo, or marketing experiment.

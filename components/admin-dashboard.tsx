@@ -276,8 +276,25 @@ export function AdminDashboard() {
         setCurrentTimeMs(Date.now());
       }
 
+      const lastTriggeredAt = Date.now();
+      await setDoc(
+        doc(db, "meta", "siteRebuild"),
+        {
+          cooldownUntil: result.cooldownUntil ?? lastTriggeredAt,
+          lastTriggeredAt,
+          lastTriggeredBy: user.email ?? "unknown",
+        },
+        { merge: true }
+      );
+
+      setRebuildMeta((prev) => ({
+        ...prev,
+        cooldownUntil: result.cooldownUntil ?? lastTriggeredAt,
+        lastTriggeredAt,
+        lastTriggeredBy: user.email ?? "unknown",
+      }));
+
       setStatusMessage(result.message ?? "Rebuild triggered.");
-      await loadRebuildMeta();
     } catch (error) {
       console.error(error);
       setStatusMessage("Failed to trigger rebuild.");
@@ -473,6 +490,11 @@ export function AdminDashboard() {
         <TabsList>
           <TabsTrigger value="beers">Beers</TabsTrigger>
           <TabsTrigger value="venues">Venues</TabsTrigger>
+          {hasUpdatesSinceLastRebuild && (
+            <span className="ml-2 inline-flex items-center rounded-full border border-amber-500/40 bg-amber-100/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+              Needs Rebuild
+            </span>
+          )}
         </TabsList>
 
         <TabsContent value="beers">

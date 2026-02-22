@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFirestore } from "firebase-admin/firestore";
 import { ADMIN_EMAIL_SET } from "@/lib/admin-emails";
-import { getFirebaseAdminApp, getFirebaseAdminAuth } from "@/lib/firebase-admin";
+import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
 
 const REBUILD_COOLDOWN_MS = Number(
   process.env.ADMIN_REBUILD_COOLDOWN_MS ?? 10 * 60 * 1000
 );
+let cooldownUntil = 0;
 
 function getBearerToken(req: NextRequest) {
   const authHeader = req.headers.get("authorization") ?? "";
@@ -27,11 +27,6 @@ export async function POST(req: NextRequest) {
     }
 
     const now = Date.now();
-    const adminApp = getFirebaseAdminApp();
-    const adminDb = getFirestore(adminApp);
-    const controlRef = adminDb.collection("meta").doc("siteRebuild");
-    const controlSnap = await controlRef.get();
-    const cooldownUntil = (controlSnap.data()?.cooldownUntil as number | undefined) ?? 0;
 
     if (now < cooldownUntil) {
       return NextResponse.json(
@@ -84,14 +79,7 @@ export async function POST(req: NextRequest) {
     }
 
     const nextCooldownUntil = Date.now() + REBUILD_COOLDOWN_MS;
-    await controlRef.set(
-      {
-        cooldownUntil: nextCooldownUntil,
-        lastTriggeredAt: Date.now(),
-        lastTriggeredBy: email,
-      },
-      { merge: true }
-    );
+    cooldownUntil = nextCooldownUntil;
 
     return NextResponse.json({
       ok: true,
