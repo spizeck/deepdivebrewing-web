@@ -83,11 +83,16 @@ export function AdminDashboard() {
   const [beerForm, setBeerForm] = useState<Beer>(DEFAULT_BEER);
   const [venueForm, setVenueForm] = useState<Venue>(DEFAULT_VENUE);
   const [beerTastingNotesInput, setBeerTastingNotesInput] = useState("");
-  const [venueCarriesInput, setVenueCarriesInput] = useState("");
-  const [venueTapInput, setVenueTapInput] = useState("");
-  const [venueCanInput, setVenueCanInput] = useState("");
+  const [venueCarriesSelection, setVenueCarriesSelection] = useState<string[]>([]);
+  const [venueTapSelection, setVenueTapSelection] = useState<string[]>([]);
+  const [venueCanSelection, setVenueCanSelection] = useState<string[]>([]);
   const [statusMessage, setStatusMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  const beerOptions = useMemo(
+    () => beers.map((beer) => ({ slug: beer.slug, name: beer.name })),
+    [beers]
+  );
 
   const isAuthorized = useMemo(
     () => !!user?.email && ADMIN_EMAILS.has(user.email),
@@ -117,9 +122,9 @@ export function AdminDashboard() {
     const found = venues.find((venue) => venue.slug === selectedVenueSlug);
     if (!found) return;
     setVenueForm(found);
-    setVenueCarriesInput(arrayToCsv(found.carriesBeerSlugs));
-    setVenueTapInput(arrayToCsv(found.tapBeerSlugs));
-    setVenueCanInput(arrayToCsv(found.canBeerSlugs));
+    setVenueCarriesSelection(found.carriesBeerSlugs ?? []);
+    setVenueTapSelection(found.tapBeerSlugs ?? []);
+    setVenueCanSelection(found.canBeerSlugs ?? []);
   }, [selectedVenueSlug, venues]);
 
   async function loadData() {
@@ -193,9 +198,9 @@ export function AdminDashboard() {
     try {
       const payload: Venue = {
         ...venueForm,
-        carriesBeerSlugs: csvToArray(venueCarriesInput),
-        tapBeerSlugs: csvToArray(venueTapInput),
-        canBeerSlugs: csvToArray(venueCanInput),
+        carriesBeerSlugs: venueCarriesSelection,
+        tapBeerSlugs: venueTapSelection,
+        canBeerSlugs: venueCanSelection,
       };
       await setDoc(doc(db, "venues", payload.slug), payload, { merge: true });
       setStatusMessage("Venue saved.");
@@ -235,6 +240,26 @@ export function AdminDashboard() {
       console.error(error);
       setStatusMessage("Image upload failed.");
     }
+  }
+
+  function toggleBeerSlugSelection(
+    slug: string,
+    checked: boolean,
+    setSelection: (updater: (prev: string[]) => string[]) => void
+  ) {
+    setSelection((prev) => {
+      if (checked) {
+        return prev.includes(slug) ? prev : [...prev, slug];
+      }
+      return prev.filter((value) => value !== slug);
+    });
+  }
+
+  function selectionSummary(selection: string[]) {
+    if (selection.length === 0) return "No beers selected";
+    return selection
+      .map((slug) => beers.find((beer) => beer.slug === slug)?.name ?? slug)
+      .join(", ");
   }
 
   if (!authReady) {
@@ -410,9 +435,9 @@ export function AdminDashboard() {
                   onClick={() => {
                     setSelectedVenueSlug("");
                     setVenueForm(DEFAULT_VENUE);
-                    setVenueCarriesInput("");
-                    setVenueTapInput("");
-                    setVenueCanInput("");
+                    setVenueCarriesSelection([]);
+                    setVenueTapSelection([]);
+                    setVenueCanSelection([]);
                   }}
                 >
                   New
@@ -461,20 +486,87 @@ export function AdminDashboard() {
                 </label>
               </div>
 
-              <label className="mt-4 block text-sm">
-                <span className="mb-1 block font-medium">Carries Beer Slugs (comma-separated)</span>
-                <input className="w-full rounded-md border border-stone px-3 py-2" value={venueCarriesInput} onChange={(e) => setVenueCarriesInput(e.target.value)} />
-              </label>
+              <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                <details className="text-sm">
+                  <summary className="cursor-pointer rounded-md border border-stone px-3 py-2 font-medium">
+                    Carries Beers
+                  </summary>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {selectionSummary(venueCarriesSelection)}
+                  </p>
+                  <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border border-stone p-2">
+                    {beerOptions.map((beer) => (
+                      <label key={`carries-${beer.slug}`} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={venueCarriesSelection.includes(beer.slug)}
+                          onChange={(e) =>
+                            toggleBeerSlugSelection(
+                              beer.slug,
+                              e.target.checked,
+                              setVenueCarriesSelection
+                            )
+                          }
+                        />
+                        <span>{beer.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
 
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium">Tap Beer Slugs</span>
-                  <input className="w-full rounded-md border border-stone px-3 py-2" value={venueTapInput} onChange={(e) => setVenueTapInput(e.target.value)} />
-                </label>
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium">Can Beer Slugs</span>
-                  <input className="w-full rounded-md border border-stone px-3 py-2" value={venueCanInput} onChange={(e) => setVenueCanInput(e.target.value)} />
-                </label>
+                <details className="text-sm">
+                  <summary className="cursor-pointer rounded-md border border-stone px-3 py-2 font-medium">
+                    On Tap
+                  </summary>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {selectionSummary(venueTapSelection)}
+                  </p>
+                  <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border border-stone p-2">
+                    {beerOptions.map((beer) => (
+                      <label key={`tap-${beer.slug}`} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={venueTapSelection.includes(beer.slug)}
+                          onChange={(e) =>
+                            toggleBeerSlugSelection(
+                              beer.slug,
+                              e.target.checked,
+                              setVenueTapSelection
+                            )
+                          }
+                        />
+                        <span>{beer.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+
+                <details className="text-sm">
+                  <summary className="cursor-pointer rounded-md border border-stone px-3 py-2 font-medium">
+                    In Can
+                  </summary>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {selectionSummary(venueCanSelection)}
+                  </p>
+                  <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border border-stone p-2">
+                    {beerOptions.map((beer) => (
+                      <label key={`can-${beer.slug}`} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={venueCanSelection.includes(beer.slug)}
+                          onChange={(e) =>
+                            toggleBeerSlugSelection(
+                              beer.slug,
+                              e.target.checked,
+                              setVenueCanSelection
+                            )
+                          }
+                        />
+                        <span>{beer.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
               </div>
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">

@@ -31,16 +31,22 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
         <p className="mt-3 text-sm text-muted-foreground">{venue.notesPublic}</p>
       )}
 
-      <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-        <p>
-          <span className="font-semibold text-ink">On Tap:</span>{" "}
-          {tapBeers.length > 0 ? tapBeers.join(", ") : "Not listed"}
-        </p>
-        <p>
-          <span className="font-semibold text-ink">In Can:</span>{" "}
-          {canBeers.length > 0 ? canBeers.join(", ") : "Not listed"}
-        </p>
-      </div>
+      {(tapBeers.length > 0 || canBeers.length > 0) && (
+        <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+          {tapBeers.length > 0 && (
+            <p>
+              <span className="font-semibold text-ink">On Tap:</span>{" "}
+              {tapBeers.join(", ")}
+            </p>
+          )}
+          {canBeers.length > 0 && (
+            <p>
+              <span className="font-semibold text-ink">In Can:</span>{" "}
+              {canBeers.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
 
       {(venue.links.website || venue.links.maps || venue.links.instagram || venue.links.facebook || venue.links.untappd) && (
         <div className="mt-4 flex flex-wrap gap-4">
