@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
@@ -20,15 +21,17 @@ import { ref, uploadBytes } from "firebase/storage";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { auth, db, storage } from "@/lib/firebase";
+import { ADMIN_EMAIL_SET } from "@/lib/admin-emails";
 import type { Beer, Venue } from "@/lib/types";
 
-const ADMIN_EMAILS = new Set([
-  "chadnuttall1@gmail.com",
-  "chad@seasaba.com",
-  "katy@seasaba.com",
-  "knuttall05@gmail.com",
-  "timschwenck@gmail.com",
-]);
+interface RebuildMeta {
+  cooldownUntil?: number;
+  lastTriggeredAt?: number;
+  lastTriggeredBy?: string;
+  contentUpdatedAt?: number;
+  contentUpdatedBy?: string;
+  lastContentUpdateType?: "beer" | "venue";
+}
 
 const DEFAULT_BEER: Beer = {
   name: "",
@@ -88,6 +91,10 @@ export function AdminDashboard() {
   const [venueCanSelection, setVenueCanSelection] = useState<string[]>([]);
   const [statusMessage, setStatusMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isTriggeringRebuild, setIsTriggeringRebuild] = useState(false);
+  const [rebuildCooldownUntil, setRebuildCooldownUntil] = useState(0);
+  const [currentTimeMs, setCurrentTimeMs] = useState(Date.now());
+  const [rebuildMeta, setRebuildMeta] = useState<RebuildMeta>({});
 
   const beerOptions = useMemo(
     () => beers.map((beer) => ({ slug: beer.slug, name: beer.name })),
@@ -95,16 +102,23 @@ export function AdminDashboard() {
   );
 
   const isAuthorized = useMemo(
-    () => !!user?.email && ADMIN_EMAILS.has(user.email),
+    () => !!user?.email && ADMIN_EMAIL_SET.has(user.email.toLowerCase()),
     [user?.email]
   );
+
+  const rebuildCooldownMs = Math.max(0, rebuildCooldownUntil - currentTimeMs);
+  const isRebuildDisabled = isTriggeringRebuild || rebuildCooldownMs > 0;
+  const hasUpdatesSinceLastRebuild =
+    !!rebuildMeta.contentUpdatedAt &&
+    (!rebuildMeta.lastTriggeredAt || rebuildMeta.contentUpdatedAt > rebuildMeta.lastTriggeredAt);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (nextUser) => {
       setUser(nextUser);
       setAuthReady(true);
-      if (nextUser && ADMIN_EMAILS.has(nextUser.email ?? "")) {
+      if (nextUser && ADMIN_EMAIL_SET.has((nextUser.email ?? "").toLowerCase())) {
         await loadData();
+        await loadRebuildMeta();
       }
     });
 
@@ -127,6 +141,18 @@ export function AdminDashboard() {
     setVenueCanSelection(found.canBeerSlugs ?? []);
   }, [selectedVenueSlug, venues]);
 
+  useEffect(() => {
+    if (rebuildCooldownUntil <= Date.now()) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setCurrentTimeMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [rebuildCooldownUntil]);
+
   async function loadData() {
     const [beerSnap, venueSnap] = await Promise.all([
       getDocs(query(collection(db, "beers"), orderBy("sortOrder", "asc"))),
@@ -147,6 +173,22 @@ export function AdminDashboard() {
     }
   }
 
+  async function loadRebuildMeta() {
+    const metaSnap = await getDoc(doc(db, "meta", "siteRebuild"));
+    if (!metaSnap.exists()) {
+      setRebuildMeta({});
+      return;
+    }
+
+    const meta = metaSnap.data() as RebuildMeta;
+    setRebuildMeta(meta);
+
+    if (typeof meta.cooldownUntil === "number") {
+      setRebuildCooldownUntil(meta.cooldownUntil);
+      setCurrentTimeMs(Date.now());
+    }
+  }
+
   async function handleGoogleSignIn() {
     setStatusMessage("");
     try {
@@ -160,6 +202,88 @@ export function AdminDashboard() {
   async function handleSignOut() {
     await signOut(auth);
     setStatusMessage("");
+  }
+
+  function formatDuration(ms: number) {
+    const totalSeconds = Math.ceil(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  }
+
+  function formatDateTime(value?: number) {
+    if (!value) return "—";
+    return new Date(value).toLocaleString();
+  }
+
+  async function markContentUpdated(updateType: "beer" | "venue") {
+    const now = Date.now();
+    const email = user?.email ?? "unknown";
+
+    await setDoc(
+      doc(db, "meta", "siteRebuild"),
+      {
+        contentUpdatedAt: now,
+        contentUpdatedBy: email,
+        lastContentUpdateType: updateType,
+      },
+      { merge: true }
+    );
+
+    setRebuildMeta((prev) => ({
+      ...prev,
+      contentUpdatedAt: now,
+      contentUpdatedBy: email,
+      lastContentUpdateType: updateType,
+    }));
+  }
+
+  async function triggerRebuild() {
+    if (!user || isRebuildDisabled) {
+      return;
+    }
+
+    setIsTriggeringRebuild(true);
+    setStatusMessage("");
+
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch("/api/admin/rebuild", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+
+      const result = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        cooldownUntil?: number;
+      };
+
+      if (!response.ok || !result.ok) {
+        if (result.cooldownUntil) {
+          setRebuildCooldownUntil(result.cooldownUntil);
+          setCurrentTimeMs(Date.now());
+        }
+        setStatusMessage(result.error ?? "Failed to trigger rebuild.");
+        return;
+      }
+
+      if (result.cooldownUntil) {
+        setRebuildCooldownUntil(result.cooldownUntil);
+        setCurrentTimeMs(Date.now());
+      }
+
+      setStatusMessage(result.message ?? "Rebuild triggered.");
+      await loadRebuildMeta();
+    } catch (error) {
+      console.error(error);
+      setStatusMessage("Failed to trigger rebuild.");
+    } finally {
+      setIsTriggeringRebuild(false);
+    }
   }
 
   async function saveBeer() {
@@ -176,6 +300,7 @@ export function AdminDashboard() {
         tastingNotes: csvToArray(beerTastingNotesInput),
       };
       await setDoc(doc(db, "beers", payload.slug), payload, { merge: true });
+      await markContentUpdated("beer");
       setStatusMessage("Beer saved.");
       await loadData();
       setSelectedBeerSlug(payload.slug);
@@ -203,6 +328,7 @@ export function AdminDashboard() {
         canBeerSlugs: venueCanSelection,
       };
       await setDoc(doc(db, "venues", payload.slug), payload, { merge: true });
+      await markContentUpdated("venue");
       setStatusMessage("Venue saved.");
       await loadData();
       setSelectedVenueSlug(payload.slug);
@@ -307,6 +433,39 @@ export function AdminDashboard() {
             Sign out
           </Button>
         </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button
+            onClick={triggerRebuild}
+            disabled={isRebuildDisabled}
+            variant="outline"
+          >
+            {isTriggeringRebuild
+              ? "Triggering rebuild..."
+              : rebuildCooldownMs > 0
+                ? `Rebuild cooldown (${formatDuration(rebuildCooldownMs)})`
+                : "Rebuild Site"}
+          </Button>
+          {rebuildCooldownMs > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Rebuild can be triggered again after cooldown expires.
+            </p>
+          )}
+        </div>
+        <div className="mt-4 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          <p>
+            Last rebuild by: <span className="font-medium text-ink">{rebuildMeta.lastTriggeredBy ?? "—"}</span>
+          </p>
+          <p>
+            Last rebuild at: <span className="font-medium text-ink">{formatDateTime(rebuildMeta.lastTriggeredAt)}</span>
+          </p>
+        </div>
+        {hasUpdatesSinceLastRebuild && (
+          <div className="mt-4 rounded-md border border-amber-400/50 bg-amber-100/60 px-3 py-2 text-sm text-amber-900">
+            Content was updated after the last rebuild
+            {rebuildMeta.lastContentUpdateType ? ` (${rebuildMeta.lastContentUpdateType})` : ""}
+            . Latest update by {rebuildMeta.contentUpdatedBy ?? "—"} at {formatDateTime(rebuildMeta.contentUpdatedAt)}.
+          </div>
+        )}
         {statusMessage && <p className="mt-3 text-sm text-ocean">{statusMessage}</p>}
       </div>
 

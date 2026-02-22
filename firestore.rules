@@ -52,6 +52,10 @@ service cloud.firestore {
       allow read, update, delete: if isAuthorizedAdmin();
     }
 
+    match /meta/{docId} {
+      allow read, write: if isAuthorizedAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
