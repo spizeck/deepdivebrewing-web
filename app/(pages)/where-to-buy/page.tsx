@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getVenues } from "@/lib/venues";
+import { getBeers } from "@/lib/beers";
 import { VenueCard } from "@/components/venue-card";
 import type { Venue } from "@/lib/types";
 
@@ -22,7 +23,8 @@ export const metadata: Metadata = {
 };
 
 export default async function WhereToBuyPage() {
-  const venues = await getVenues();
+  const [venues, beers] = await Promise.all([getVenues(), getBeers()]);
+  const beerNameBySlug = Object.fromEntries(beers.map((beer) => [beer.slug, beer.name]));
 
   const barRestaurants = venues.filter((v: Venue) => v.type === "bar_restaurant");
   const retail = venues.filter((v: Venue) => v.type === "retail");
@@ -102,7 +104,7 @@ export default async function WhereToBuyPage() {
           </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {barRestaurants.map((venue: Venue) => (
-              <VenueCard key={venue.slug} venue={venue} />
+              <VenueCard key={venue.slug} venue={venue} beerNameBySlug={beerNameBySlug} />
             ))}
           </div>
         </section>
@@ -114,7 +116,7 @@ export default async function WhereToBuyPage() {
           <h2 className="mb-6 text-2xl font-bold tracking-tight">Retail</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {retail.map((venue: Venue) => (
-              <VenueCard key={venue.slug} venue={venue} />
+              <VenueCard key={venue.slug} venue={venue} beerNameBySlug={beerNameBySlug} />
             ))}
           </div>
         </section>

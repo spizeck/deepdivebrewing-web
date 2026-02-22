@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { BeerCard } from "@/components/beer-card";
+import { BeersFilterGrid } from "@/components/beers-filter-grid";
 import { getBeers } from "@/lib/beers";
 
 export const metadata: Metadata = {
@@ -52,25 +51,7 @@ export default async function BeersPage() {
         </p>
       </section>
 
-      {/* Filter tabs */}
-      <div className="mb-10 flex flex-wrap gap-2">
-        {["All", "Core", "Seasonal", "Limited"].map((filter) => (
-          <Badge
-            key={filter}
-            variant={filter === "All" ? "default" : "outline"}
-            className="cursor-pointer px-4 py-1.5 text-sm"
-          >
-            {filter}
-          </Badge>
-        ))}
-      </div>
-
-      {/* Beer grid */}
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {beers.map((beer) => (
-          <BeerCard key={beer.slug} beer={beer} />
-        ))}
-      </div>
+      <BeersFilterGrid beers={beers} />
 
       <section className="mt-12 rounded-lg border border-stone bg-paper p-6">
         <h2 className="text-xl font-bold tracking-tight">Food Pairing Ideas</h2>

@@ -8,9 +8,13 @@ const typeLabels: Record<Venue["type"], string> = {
 
 interface VenueCardProps {
   venue: Venue;
+  beerNameBySlug: Record<string, string>;
 }
 
-export function VenueCard({ venue }: VenueCardProps) {
+export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
+  const tapBeers = (venue.tapBeerSlugs ?? []).map((slug) => beerNameBySlug[slug] ?? slug);
+  const canBeers = (venue.canBeerSlugs ?? []).map((slug) => beerNameBySlug[slug] ?? slug);
+
   return (
     <div className="rounded-lg border border-stone bg-paper p-6">
       <div className="flex items-start justify-between gap-4">
@@ -27,7 +31,18 @@ export function VenueCard({ venue }: VenueCardProps) {
         <p className="mt-3 text-sm text-muted-foreground">{venue.notesPublic}</p>
       )}
 
-      {(venue.links.website || venue.links.instagram || venue.links.facebook || venue.links.untappd) && (
+      <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+        <p>
+          <span className="font-semibold text-ink">On Tap:</span>{" "}
+          {tapBeers.length > 0 ? tapBeers.join(", ") : "Not listed"}
+        </p>
+        <p>
+          <span className="font-semibold text-ink">In Can:</span>{" "}
+          {canBeers.length > 0 ? canBeers.join(", ") : "Not listed"}
+        </p>
+      </div>
+
+      {(venue.links.website || venue.links.maps || venue.links.instagram || venue.links.facebook || venue.links.untappd) && (
         <div className="mt-4 flex flex-wrap gap-4">
           {venue.links.website && (
             <a
@@ -37,6 +52,16 @@ export function VenueCard({ venue }: VenueCardProps) {
               className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
             >
               Website
+            </a>
+          )}
+          {venue.links.maps && (
+            <a
+              href={venue.links.maps}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+            >
+              Directions
             </a>
           )}
           {venue.links.instagram && (

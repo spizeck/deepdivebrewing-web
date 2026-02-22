@@ -24,10 +24,13 @@ export interface Venue {
   type: "bar_restaurant" | "retail";
   locationName: string;
   carriesBeerSlugs: string[];
+  tapBeerSlugs?: string[];
+  canBeerSlugs?: string[];
   isPublic: boolean;
   sortOrder: number;
   links: {
     website?: string;
+    maps?: string;
     instagram?: string;
     facebook?: string;
     untappd?: string;
