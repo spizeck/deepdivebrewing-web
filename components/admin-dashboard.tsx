@@ -216,6 +216,24 @@ export function AdminDashboard() {
     return new Date(value).toLocaleString();
   }
 
+  function getErrorMessage(error: unknown, fallback: string) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      "message" in error
+    ) {
+      const code = String((error as { code: unknown }).code);
+      const message = String((error as { message: unknown }).message);
+      if (code.includes("permission-denied")) {
+        return `${fallback} Firestore permission denied.`;
+      }
+      return `${fallback} ${code}: ${message}`;
+    }
+
+    return fallback;
+  }
+
   async function markContentUpdated(updateType: "beer" | "venue") {
     const now = Date.now();
     const email = user?.email ?? "unknown";
@@ -317,13 +335,21 @@ export function AdminDashboard() {
         tastingNotes: csvToArray(beerTastingNotesInput),
       };
       await setDoc(doc(db, "beers", payload.slug), payload, { merge: true });
-      await markContentUpdated("beer");
-      setStatusMessage("Beer saved.");
+
+      let metadataWarning = "";
+      try {
+        await markContentUpdated("beer");
+      } catch (metadataError) {
+        console.warn("Beer saved but failed to update rebuild metadata:", metadataError);
+        metadataWarning = " Beer saved, but rebuild alert metadata could not be updated.";
+      }
+
+      setStatusMessage(`Beer saved.${metadataWarning}`);
       await loadData();
       setSelectedBeerSlug(payload.slug);
     } catch (error) {
       console.error(error);
-      setStatusMessage("Failed to save beer.");
+      setStatusMessage(getErrorMessage(error, "Failed to save beer."));
     } finally {
       setIsSaving(false);
     }
@@ -345,13 +371,21 @@ export function AdminDashboard() {
         canBeerSlugs: venueCanSelection,
       };
       await setDoc(doc(db, "venues", payload.slug), payload, { merge: true });
-      await markContentUpdated("venue");
-      setStatusMessage("Venue saved.");
+
+      let metadataWarning = "";
+      try {
+        await markContentUpdated("venue");
+      } catch (metadataError) {
+        console.warn("Venue saved but failed to update rebuild metadata:", metadataError);
+        metadataWarning = " Venue saved, but rebuild alert metadata could not be updated.";
+      }
+
+      setStatusMessage(`Venue saved.${metadataWarning}`);
       await loadData();
       setSelectedVenueSlug(payload.slug);
     } catch (error) {
       console.error(error);
-      setStatusMessage("Failed to save venue.");
+      setStatusMessage(getErrorMessage(error, "Failed to save venue."));
     } finally {
       setIsSaving(false);
     }

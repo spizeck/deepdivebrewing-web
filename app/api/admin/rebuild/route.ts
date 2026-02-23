@@ -18,10 +18,22 @@ function getBearerToken(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const deployHookUrl = process.env.VERCEL_DEPLOY_HOOK_URL;
+    const deployHookUrl =
+      process.env.VERCEL_DEPLOY_HOOK_URL?.trim() ||
+      process.env.VERCEL_REBUILD_DEPLOY_HOOK_URL?.trim() ||
+      "";
     if (!deployHookUrl) {
       return NextResponse.json(
-        { ok: false, error: "VERCEL_DEPLOY_HOOK_URL is not configured." },
+        {
+          ok: false,
+          error:
+            "VERCEL_DEPLOY_HOOK_URL is not configured for this deployment environment.",
+          expectedEnvVars: [
+            "VERCEL_DEPLOY_HOOK_URL",
+            "VERCEL_REBUILD_DEPLOY_HOOK_URL",
+          ],
+          runtimeNodeEnv: process.env.NODE_ENV ?? "unknown",
+        },
         { status: 500 }
       );
     }
