@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import Script from "next/script";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/next";
 import { SiteFooter } from "@/components/site-footer";
 import "./globals.css";
 
@@ -93,6 +94,7 @@ export default function RootLayout({
         {children}
         <SiteFooter />
         <SpeedInsights />
+        <Analytics />
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
           strategy="lazyOnload"
