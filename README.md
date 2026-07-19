@@ -1,7 +1,7 @@
 # Deep Dive Brewing Co — Website
 
-> Release: **1.01** (package version `1.0.1`)
-> Status: **Shelved / maintenance mode**
+> Release: **1.0.2** (package version `1.0.2`)
+> Status: **Active**
 
 Public-facing marketing and trade website for **Deep Dive Brewing Co**, a craft brewery on Saba.
 
@@ -18,7 +18,7 @@ Public-facing marketing and trade website for **Deep Dive Brewing Co**, a craft 
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - npm
 - A Firebase project with Firestore and Storage enabled
 
@@ -81,6 +81,7 @@ See [THEME_AND_BRANDING.md](./THEME_AND_BRANDING.md) for the complete visual des
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
 | `npm run lint` | Run ESLint |
+| `npm run optimize-assets` | Recompress hero image and generate OG image |
 
 ## Deployment
 
@@ -99,6 +100,12 @@ The dashboard also shows:
 
 - Last rebuild triggered by / at
 - Warning when content has changed since the last rebuild
+
+## Public Repository Notice
+
+This repository is public for transparency and reference. No secrets, API keys, or private keys are stored in source control. All sensitive configuration is injected via environment variables (see `.env.local.example`).
+
+The public Firebase configuration values are safe to expose; access to Firebase services is controlled by Firebase Security Rules and App Check.
 
 ## Environment Variables
 
@@ -135,6 +142,24 @@ When resuming work later:
 3. Re-deploy Firebase rules (`firestore.rules`, `storage.rules`) if needed.
 4. Test `/admin` login, save a record, and run one rebuild.
 
-## License
+## Legal & Licensing
 
-Private — all rights reserved.
+- **Copyright:** © 2024–2026 Deep Dive Brews, BV, trading as **Deep Dive Brewing Co**.
+- **Code:** Released under the [MIT License](./LICENSE).
+- **Brand & Content:** The Deep Dive Brewing Co name, logo, artwork, photography, and written content are the property of Deep Dive Brews, BV, and are not licensed for reuse, redistribution, or modification without explicit written permission.
+- **Third-party assets:** Any third-party libraries remain under their respective licenses.
+
+## Privacy & Data Handling
+
+This site uses:
+
+- **Google Analytics** for aggregated traffic measurement (via `NEXT_PUBLIC_GA_ID`).
+- **Vercel Analytics** and **Vercel Speed Insights** for performance telemetry.
+- **Firebase** for Firestore data and Storage assets.
+- **Resend** for sending trade-inquiry emails.
+
+No personal data is stored in this repository. Wholesale inquiry submissions are sent to the configured email address and may be stored in Firestore for follow-up.
+
+## Security
+
+If you discover a security vulnerability in this codebase or the live site, please email **info@deepdivebrewing.com** with details. Do not open a public issue for security-sensitive bugs.
