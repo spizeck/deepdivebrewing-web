@@ -83,12 +83,15 @@ export function SiteFooter() {
           <div>
             <p className="text-sm font-semibold text-ink">Legal</p>
             <ul className="mt-3 space-y-2">
-              {/* TODO: Add legal/policy pages when created */}
-              <li className="text-sm text-muted-foreground">
-                &copy; {new Date().getFullYear()} Deep Dive Brewing Co
-              </li>
+              <FooterLink href="/privacy">Privacy Policy</FooterLink>
+              <FooterLink href="/terms">Terms of Use</FooterLink>
             </ul>
           </div>
+        </div>
+        <div className="mt-12 border-t border-stone pt-8">
+          <p className="text-sm text-muted-foreground">
+            &copy; {new Date().getFullYear()} Deep Dive Brewing Co
+          </p>
         </div>
       </div>
     </footer>
