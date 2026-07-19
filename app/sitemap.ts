@@ -4,49 +4,51 @@ import { getBeers } from "@/lib/beers";
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const lastModified = new Date();
+
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: `${siteUrl}/`,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: "weekly",
       priority: 1,
     },
     {
-      url: `${siteUrl}/beers`,
-      lastModified: new Date(),
+      url: `${siteUrl}/where-to-buy`,
+      lastModified,
       changeFrequency: "weekly",
       priority: 0.9,
     },
     {
-      url: `${siteUrl}/where-to-buy`,
-      lastModified: new Date(),
+      url: `${siteUrl}/beers`,
+      lastModified,
       changeFrequency: "weekly",
-      priority: 0.9,
+      priority: 0.8,
     },
     {
       url: `${siteUrl}/about`,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: "monthly",
       priority: 0.7,
     },
     {
       url: `${siteUrl}/contact`,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: "monthly",
       priority: 0.7,
     },
     {
       url: `${siteUrl}/trade`,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: "monthly",
-      priority: 0.7,
+      priority: 0.3,
     },
   ];
 
   const beers = await getBeers();
   const beerRoutes: MetadataRoute.Sitemap = beers.map((beer) => ({
     url: `${siteUrl}/beers/${beer.slug}`,
-    lastModified: new Date(),
+    lastModified,
     changeFrequency: "weekly",
     priority: 0.8,
   }));

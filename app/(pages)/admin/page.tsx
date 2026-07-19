@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function AdminPage() {
   return (
-    <main className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <AdminDashboard />
     </main>
   );

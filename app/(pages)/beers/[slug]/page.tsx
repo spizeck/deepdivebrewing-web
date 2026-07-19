@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { notFound } from "next/navigation";
 import { getBeerBySlug, beerImageUrl } from "@/lib/beers";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
+
 interface BeerDetailPageProps {
   params: Promise<{ slug: string }>;
 }
@@ -32,6 +34,8 @@ export async function generateMetadata({
       images: [
         {
           url: imageUrl,
+          width: 1200,
+          height: 630,
           alt: beer.name,
         },
       ],
@@ -50,8 +54,32 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
   const beer = await getBeerBySlug(slug);
   if (!beer) notFound();
 
+  const imageUrl = beerImageUrl(beer.images.heroPath);
+
+  const beerJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Beer",
+    name: beer.name,
+    description: beer.descriptionShort,
+    image: imageUrl,
+    alcohol: {
+      "@type": "DrugStrength",
+      strengthUnit: "percent",
+      activeIngredient: `${beer.abv}% ABV`,
+    },
+    manufacturer: {
+      "@type": "Brewery",
+      name: "Deep Dive Brewing Co",
+      url: siteUrl,
+    },
+  };
+
   return (
-    <main className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(beerJsonLd) }}
+      />
       {/* Breadcrumb */}
       <nav className="mb-8 text-sm text-muted-foreground">
         <Link

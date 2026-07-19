@@ -4,6 +4,30 @@ export const metadata = {
   title: "About",
   description:
     "Learn about Deep Dive Brewing Co — a small, family-run craft brewery on Saba.",
+  alternates: {
+    canonical: "/about",
+  },
+  openGraph: {
+    title: "About | Deep Dive Brewing Co",
+    description:
+      "Learn about Deep Dive Brewing Co — a small, family-run craft brewery on Saba.",
+    url: "/about",
+    images: [
+      {
+        url: "/photos/og-default.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Deep Dive Brewing Co brewery",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "About | Deep Dive Brewing Co",
+    description:
+      "Learn about Deep Dive Brewing Co — a small, family-run craft brewery on Saba.",
+    images: ["/photos/og-default.jpg"],
+  },
 };
 
 <MdxLayout>

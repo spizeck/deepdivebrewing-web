@@ -18,13 +18,34 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/beers",
   },
+  openGraph: {
+    title: "Our Beers | Deep Dive Brewing Co",
+    description:
+      "Explore beers from Deep Dive Brewing Co, including NEIPA, American Amber, Pale Lager, and Tropical Wheat brewed on Saba.",
+    url: "/beers",
+    images: [
+      {
+        url: "/photos/og-default.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Deep Dive Brewing Co beer selection",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Our Beers | Deep Dive Brewing Co",
+    description:
+      "Explore beers from Deep Dive Brewing Co, including NEIPA, American Amber, Pale Lager, and Tropical Wheat brewed on Saba.",
+    images: ["/photos/og-default.jpg"],
+  },
 };
 
 export default async function BeersPage() {
   const beers = await getBeers();
 
   return (
-    <main className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <div className="mb-12">
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
           Our Beers

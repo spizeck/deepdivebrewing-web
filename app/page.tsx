@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     url: "/",
     images: [
       {
-        url: "/photos/herograin.jpg",
+        url: "/photos/og-default.jpg",
         width: 1200,
         height: 630,
         alt: "Deep Dive Brewing Co hero image",
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
     title: "Deep Dive Brewing Co",
     description:
       "Saba's craft brewery. Discover locally brewed beers and where to find them on the island.",
-    images: ["/photos/herograin.jpg"],
+    images: ["/photos/og-default.jpg"],
   },
 };
 
@@ -52,7 +52,7 @@ export default async function Home() {
     name: "Deep Dive Brewing Co",
     legalName: "Deep Dive Brews, BV",
     url: siteUrl,
-    image: `${siteUrl}/photos/herograin.jpg`,
+    image: `${siteUrl}/photos/og-default.jpg`,
     email: "info@deepdivebrewing.com",
     telephone: "+599-416-3544",
     address: {
@@ -92,7 +92,7 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
       />
       <SiteHeader />
-      <main>
+      <main id="main-content">
         {/* Hero — full viewport, grain photo, extends behind header */}
         <section className="relative h-screen w-full overflow-hidden">
         <Image
@@ -158,7 +158,7 @@ export default async function Home() {
           muted
           loop
           playsInline
-          preload="none"
+          preload="metadata"
           poster="/photos/herograin.jpg"
         >
           <source src="/videos/ddbwebvid.webm" type="video/webm" />

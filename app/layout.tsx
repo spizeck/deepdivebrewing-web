@@ -42,7 +42,7 @@ export const metadata: Metadata = {
       "Craft beer from Deep Dive Brewing Co. Explore our beers, find where to buy, and connect with us.",
     images: [
       {
-        url: "/photos/herograin.jpg",
+        url: "/photos/og-default.jpg",
         width: 1200,
         height: 630,
         alt: "Deep Dive Brewing Co",
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     title: "Deep Dive Brewing Co",
     description:
       "Craft beer from Deep Dive Brewing Co. Explore our beers, find where to buy, and connect with us.",
-    images: ["/photos/herograin.jpg"],
+    images: ["/photos/og-default.jpg"],
   },
   robots: {
     index: true,
@@ -91,6 +91,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased`}>
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-paper"
+        >
+          Skip to content
+        </a>
         {children}
         <SiteFooter />
         <SpeedInsights />

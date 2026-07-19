@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone, Mail, Clock, MapPin } from "lucide-react";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
+
 export const metadata: Metadata = {
   title: "Contact",
   description:
@@ -15,11 +17,67 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/contact",
   },
+  openGraph: {
+    title: "Contact | Deep Dive Brewing Co",
+    description:
+      "Contact Deep Dive Brewing Co at 66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands. Reach us fastest on WhatsApp.",
+    url: "/contact",
+    images: [
+      {
+        url: "/photos/og-default.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Deep Dive Brewing Co contact",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Contact | Deep Dive Brewing Co",
+    description:
+      "Contact Deep Dive Brewing Co at 66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands. Reach us fastest on WhatsApp.",
+    images: ["/photos/og-default.jpg"],
+  },
 };
 
 export default function ContactPage() {
+  const localBusinessJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Brewery",
+    "@id": `${siteUrl}/#brewery`,
+    name: "Deep Dive Brewing Co",
+    legalName: "Deep Dive Brews, BV",
+    url: siteUrl,
+    telephone: "+599-416-3544",
+    email: "info@deepdivebrewing.com",
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: "66 Fort Bay Road",
+      addressLocality: "The Bottom",
+      addressCountry: "BQ",
+    },
+    openingHoursSpecification: [
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        opens: "08:00",
+        closes: "15:00",
+      },
+    ],
+    areaServed: ["Saba", "Sint Maarten", "Saint Martin", "SXM", "Sint Eustatius", "Statia"],
+    sameAs: [
+      "https://www.instagram.com/deepdivebrewing",
+      "https://www.facebook.com/deepdivebrewing",
+      "https://untappd.com/DeepDiveBrewingCo",
+    ],
+  };
+
   return (
-    <main className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
+      />
       <div className="mb-12">
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
           Contact Us

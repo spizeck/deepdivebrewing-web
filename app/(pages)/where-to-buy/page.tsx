@@ -4,6 +4,8 @@ import { getBeers } from "@/lib/beers";
 import { VenueCard } from "@/components/venue-card";
 import type { Venue } from "@/lib/types";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
+
 export const metadata: Metadata = {
   title: "Where to Buy",
   description:
@@ -59,8 +61,29 @@ export default async function WhereToBuyPage() {
     ],
   };
 
+  const localBusinessJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Brewery",
+    "@id": `${siteUrl}/#brewery`,
+    name: "Deep Dive Brewing Co",
+    url: siteUrl,
+    telephone: "+599-416-3544",
+    email: "info@deepdivebrewing.com",
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: "66 Fort Bay Road",
+      addressLocality: "The Bottom",
+      addressCountry: "BQ",
+    },
+    areaServed: ["Saba", "Sint Maarten", "Saint Martin", "SXM", "Sint Eustatius", "Statia"],
+  };
+
   return (
-    <main className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}

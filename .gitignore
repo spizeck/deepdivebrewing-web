@@ -30,8 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env.local
+# env files
+.env
+.env.*
+!.env.local.example
 
 # vercel
 .vercel
@@ -40,6 +42,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# service account
+# service account / credentials
 **/*firebase-adminsdk*.json
+**/*serviceAccount*.json
+**/*service-account*.json
 

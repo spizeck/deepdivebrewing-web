@@ -4,6 +4,28 @@ import { TradeInquiryForm } from "@/components/trade-inquiry-form"
 export const metadata = {
   title: "Trade & Wholesale",
   description: "Wholesale and trade information for Deep Dive Brewing Co.",
+  alternates: {
+    canonical: "/trade",
+  },
+  openGraph: {
+    title: "Trade & Wholesale | Deep Dive Brewing Co",
+    description: "Wholesale and trade information for Deep Dive Brewing Co.",
+    url: "/trade",
+    images: [
+      {
+        url: "/photos/og-default.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Deep Dive Brewing Co",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Trade & Wholesale | Deep Dive Brewing Co",
+    description: "Wholesale and trade information for Deep Dive Brewing Co.",
+    images: ["/photos/og-default.jpg"],
+  },
 }
 
 <MdxLayout>

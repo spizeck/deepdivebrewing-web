@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 
 const navLinks = [
@@ -17,8 +17,22 @@ interface MobileMenuProps {
 
 export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
   const [open, setOpen] = useState(false);
+  const menuId = useId();
 
   const iconColor = variant === "light" ? "text-paper" : "text-ink";
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   return (
     <div className="md:hidden">
@@ -27,6 +41,8 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
         className={`flex items-center justify-center ${iconColor}`}
         aria-label={open ? "Close menu" : "Open menu"}
         aria-expanded={open}
+        aria-controls={menuId}
+        type="button"
       >
         {open ? (
           <svg
@@ -63,7 +79,10 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
       </button>
 
       {open && (
-        <nav className="absolute left-0 right-0 top-full z-50 border-b border-stone bg-ink/95 backdrop-blur-md px-6 py-6">
+        <nav
+          id={menuId}
+          className="absolute left-0 right-0 top-full z-50 border-b border-stone bg-ink/95 backdrop-blur-md px-6 py-6"
+        >
           <div className="flex flex-col gap-4">
             {navLinks.map((link) => (
               <Link
