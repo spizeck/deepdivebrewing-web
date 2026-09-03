@@ -3,10 +3,17 @@ import createMDX from "@next/mdx";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 
-const longCacheHeaders = [
+const versionedCacheHeaders = [
   {
     key: "Cache-Control",
     value: "public, max-age=31536000, immutable",
+  },
+];
+
+const mediaCacheHeaders = [
+  {
+    key: "Cache-Control",
+    value: "public, max-age=0, must-revalidate",
   },
 ];
 
@@ -103,22 +110,23 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      // Long-lived caching for static versioned media assets.
-      {
-        source: "/videos/:path*",
-        headers: longCacheHeaders,
-      },
+      // Fonts served by Next.js use content-hashed filenames, so immutable is safe.
       {
         source: "/fonts/:path*",
-        headers: longCacheHeaders,
+        headers: versionedCacheHeaders,
+      },
+      // Fixed public media URLs are not content-hashed; use revalidation so updates show immediately.
+      {
+        source: "/videos/:path*",
+        headers: mediaCacheHeaders,
       },
       {
         source: "/photos/herograin.jpg",
-        headers: longCacheHeaders,
+        headers: mediaCacheHeaders,
       },
       {
         source: "/photos/og-default.jpg",
-        headers: longCacheHeaders,
+        headers: mediaCacheHeaders,
       },
     ];
   },
