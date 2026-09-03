@@ -55,9 +55,7 @@ export default async function WhereToBuyPage() {
     return (
       normalized === "sxm" ||
       normalized.includes("maarten") ||
-      normalized.includes("martin") ||
-      normalized.includes("statia") ||
-      normalized.includes("eustatius")
+      normalized.includes("martin")
     );
   });
 

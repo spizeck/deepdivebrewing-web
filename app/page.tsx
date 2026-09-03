@@ -151,8 +151,8 @@ export default async function Home() {
                 target="_blank"
                 rel="noopener noreferrer"
                 data-analytics-event="tour_inquiry_click"
-                data-analytics-category="conversion"
-                data-analytics-label="Book a Brewery Tour"
+                data-analytics-event-category="conversion"
+                data-analytics-event-label="Book a Brewery Tour"
                 data-analytics-cta-location="homepage_hero"
               >
                 Book a Brewery Tour
