@@ -34,12 +34,12 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
             key={option.value}
             type="button"
             onClick={() => setActiveFilter(option.value)}
-            className="cursor-pointer"
+            className="min-h-[44px] min-w-[44px] cursor-pointer rounded-md focus-visible:ring-2 focus-visible:ring-ocean/50"
             aria-pressed={activeFilter === option.value}
           >
             <Badge
               variant={activeFilter === option.value ? "default" : "outline"}
-              className="px-4 py-1.5 text-sm"
+              className="px-4 py-2 text-sm"
             >
               {option.label}
             </Badge>

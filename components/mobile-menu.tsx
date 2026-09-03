@@ -38,7 +38,7 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
     <div className="md:hidden">
       <button
         onClick={() => setOpen(!open)}
-        className={`flex items-center justify-center ${iconColor}`}
+        className={`flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md ${iconColor} focus-visible:ring-2 focus-visible:ring-ocean/50`}
         aria-label={open ? "Close menu" : "Open menu"}
         aria-expanded={open}
         aria-controls={menuId}
@@ -89,7 +89,7 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className="text-base font-medium text-paper/90 transition-opacity duration-200 hover:opacity-100"
+                className="flex min-h-[44px] items-center text-base font-medium text-paper/90 transition-opacity duration-200 hover:opacity-100 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/70"
               >
                 {link.label}
               </Link>

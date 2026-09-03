@@ -2,7 +2,7 @@ import { MdxLayout } from "@/components/mdx-layout";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms of Use | Deep Dive Brewing Co",
+  title: "Terms of Use",
   description: "Terms governing the use of the Deep Dive Brewing Co. website.",
   alternates: {
     canonical: "/terms",

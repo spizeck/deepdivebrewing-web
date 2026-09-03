@@ -47,3 +47,6 @@ next-env.d.ts
 **/*serviceAccount*.json
 **/*service-account*.json
 
+# verification screenshots generated locally
+/screenshots
+

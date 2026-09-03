@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { trackEvent } from "@/lib/analytics";
 
 interface FormData {
   businessName: string;
@@ -29,10 +30,17 @@ export function TradeInquiryForm() {
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const statusRef = useRef<HTMLDivElement>(null);
+  const successRef = useRef<HTMLDivElement>(null);
+  const startedRef = useRef(false);
 
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) {
+    if (!startedRef.current) {
+      startedRef.current = true;
+      trackEvent("trade_form_start", { event_category: "conversion", cta_location: "trade_page" });
+    }
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
@@ -56,15 +64,41 @@ export function TradeInquiryForm() {
 
       setStatus("success");
       setFormData(initialFormData);
+      trackEvent("trade_form_success", {
+        event_category: "conversion",
+        cta_location: "trade_page",
+        venue_type: formData.venueType,
+      });
     } catch (err) {
       setStatus("error");
-      setErrorMessage(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      setErrorMessage(message);
+      trackEvent("trade_form_error", {
+        event_category: "conversion",
+        cta_location: "trade_page",
+        venue_type: formData.venueType,
+      });
     }
   }
 
+  useEffect(() => {
+    if (status === "success" && successRef.current) {
+      successRef.current.focus();
+    }
+    if (status === "error" && statusRef.current) {
+      statusRef.current.focus();
+    }
+  }, [status]);
+
   if (status === "success") {
     return (
-      <div className="rounded-lg border border-moss/30 bg-moss/5 p-8 text-center">
+      <div
+        ref={successRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className="rounded-lg border border-moss/30 bg-moss/5 p-8 text-center outline-none focus-visible:ring-2 focus-visible:ring-moss/50"
+      >
         <p className="font-semibold text-ink">Thank you for your inquiry.</p>
         <p className="mt-2 text-sm text-muted-foreground">
           We&apos;ll be in touch soon.
@@ -75,6 +109,7 @@ export function TradeInquiryForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Honeypot: hidden from humans and assistive technology */}
       <div className="sr-only" aria-hidden="true">
         <label htmlFor="website">Website</label>
         <input
@@ -129,7 +164,7 @@ export function TradeInquiryForm() {
           value={formData.venueType}
           onChange={handleChange}
           required
-          className="w-full rounded-md border border-stone bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-ocean/50"
+          className="min-h-[44px] w-full rounded-md border border-stone bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-ocean/50"
         >
           <option value="">Select type...</option>
           {venueTypes.map((type) => (
@@ -155,13 +190,21 @@ export function TradeInquiryForm() {
         />
       </div>
 
-      {status === "error" && (
-        <p className="text-sm text-ember">
-          {errorMessage || "Something went wrong. Please try again."}
-        </p>
-      )}
+      <div
+        ref={statusRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className="outline-none focus-visible:ring-2 focus-visible:ring-ember/50"
+      >
+        {status === "error" && (
+          <p className="text-sm text-ember">
+            {errorMessage || "Something went wrong. Please try again."}
+          </p>
+        )}
+      </div>
 
-      <Button type="submit" disabled={status === "submitting"}>
+      <Button type="submit" disabled={status === "submitting"} className="h-11 min-h-[44px] px-6">
         {status === "submitting" ? "Sending..." : "Submit Inquiry"}
       </Button>
     </form>
@@ -195,7 +238,7 @@ function FormField({
         value={value}
         onChange={onChange}
         required={required}
-        className="w-full rounded-md border border-stone bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-ocean/50"
+        className="min-h-[44px] w-full rounded-md border border-stone bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-ocean/50"
       />
     </div>
   );
