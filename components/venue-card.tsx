@@ -14,6 +14,7 @@ interface VenueCardProps {
 export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
   const tapBeers = (venue.tapBeerSlugs ?? []).map((slug) => beerNameBySlug[slug] ?? slug);
   const canBeers = (venue.canBeerSlugs ?? []).map((slug) => beerNameBySlug[slug] ?? slug);
+  const island = venue.locationName ?? "Saba";
 
   return (
     <div className="rounded-lg border border-stone bg-paper p-6">
@@ -49,25 +50,37 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
       )}
 
       {(venue.links.website || venue.links.maps || venue.links.instagram || venue.links.facebook || venue.links.untappd) && (
-        <div className="mt-4 flex flex-wrap gap-4">
-          {venue.links.website && (
-            <a
-              href={venue.links.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
-            >
-              Website
-            </a>
-          )}
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           {venue.links.maps && (
             <a
               href={venue.links.maps}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+              data-analytics-event="directions_click"
+              data-analytics-event-category="conversion"
+              data-analytics-event-label="Directions"
+              data-analytics-partner-name={venue.name}
+              data-analytics-island={island}
+              data-analytics-venue-type={typeLabels[venue.type]}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-opacity duration-200 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50"
             >
               Directions
+            </a>
+          )}
+          {venue.links.website && (
+            <a
+              href={venue.links.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-analytics-event="where_to_buy_click"
+              data-analytics-event-category="conversion"
+              data-analytics-event-label="Website"
+              data-analytics-partner-name={venue.name}
+              data-analytics-island={island}
+              data-analytics-venue-type={typeLabels[venue.type]}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ocean/50"
+            >
+              Website
             </a>
           )}
           {venue.links.instagram && (
@@ -75,7 +88,8 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
               href={venue.links.instagram}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+              aria-label={`${venue.name} on Instagram`}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ocean/50"
             >
               Instagram
             </a>
@@ -85,7 +99,8 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
               href={venue.links.facebook}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+              aria-label={`${venue.name} on Facebook`}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ocean/50"
             >
               Facebook
             </a>
@@ -95,7 +110,8 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
               href={venue.links.untappd}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+              aria-label={`${venue.name} on Untappd`}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ocean/50"
             >
               Untappd
             </a>

@@ -3,6 +3,20 @@ import createMDX from "@next/mdx";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 
+const versionedCacheHeaders = [
+  {
+    key: "Cache-Control",
+    value: "public, max-age=31536000, immutable",
+  },
+];
+
+const mediaCacheHeaders = [
+  {
+    key: "Cache-Control",
+    value: "public, max-age=0, must-revalidate",
+  },
+];
+
 const nextConfig: NextConfig = {
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   poweredByHeader: false,
@@ -19,6 +33,35 @@ const nextConfig: NextConfig = {
         pathname: "/**",
       },
     ],
+  },
+  async redirects() {
+    return [
+      // HTTP → HTTPS in one hop, permanent 308 (Vercel sets x-forwarded-proto).
+      {
+        source: "/:path*",
+        has: [
+          {
+            type: "header",
+            key: "x-forwarded-proto",
+            value: "http",
+          },
+        ],
+        destination: "https://deepdivebrewing.com/:path*",
+        permanent: true,
+      },
+      // www → non-www in one hop, permanent 308.
+      {
+        source: "/:path*",
+        has: [
+          {
+            type: "host",
+            value: "www.deepdivebrewing.com",
+          },
+        ],
+        destination: "https://deepdivebrewing.com/:path*",
+        permanent: true,
+      },
+    ];
   },
   async headers() {
     return [
@@ -57,13 +100,33 @@ const nextConfig: NextConfig = {
               "frame-src 'self' https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
               "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://*.googleusercontent.com https://*.google-analytics.com https://*.googletagmanager.com https://*.gstatic.com https://va.vercel-scripts.com",
               "media-src 'self' https://firebasestorage.googleapis.com",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.googletagmanager.com https://*.google-analytics.com https://va.vercel-scripts.com",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "script-src 'self' 'unsafe-inline' https://*.googletagmanager.com https://*.google-analytics.com https://va.vercel-scripts.com",
               "script-src-elem 'self' 'unsafe-inline' https://*.googletagmanager.com https://*.google-analytics.com https://va.vercel-scripts.com",
               "style-src 'self' 'unsafe-inline'",
               "upgrade-insecure-requests",
             ].join("; "),
           },
         ],
+      },
+      // Fonts served by Next.js use content-hashed filenames, so immutable is safe.
+      {
+        source: "/fonts/:path*",
+        headers: versionedCacheHeaders,
+      },
+      // Fixed public media URLs are not content-hashed; use revalidation so updates show immediately.
+      {
+        source: "/videos/:path*",
+        headers: mediaCacheHeaders,
+      },
+      {
+        source: "/photos/herograin.jpg",
+        headers: mediaCacheHeaders,
+      },
+      {
+        source: "/photos/og-default.jpg",
+        headers: mediaCacheHeaders,
       },
     ];
   },

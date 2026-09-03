@@ -15,7 +15,7 @@ export function SiteFooter() {
                 href="https://www.facebook.com/deepdivebrewing"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-muted-foreground transition-opacity duration-200 hover:opacity-85"
+                className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
                 aria-label="Facebook"
               >
                 <svg
@@ -31,7 +31,7 @@ export function SiteFooter() {
                 href="https://www.instagram.com/deepdivebrewing"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-muted-foreground transition-opacity duration-200 hover:opacity-85"
+                className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
                 aria-label="Instagram"
               >
                 <svg
@@ -48,7 +48,7 @@ export function SiteFooter() {
                 href="https://untappd.com/DeepDiveBrewingCo"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-muted-foreground transition-opacity duration-200 hover:opacity-85"
+                className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
                 aria-label="Untappd"
               >
                 <svg
@@ -109,7 +109,7 @@ function FooterLink({
     <li>
       <Link
         href={href}
-        className="text-sm text-muted-foreground transition-opacity duration-200 hover:opacity-85"
+        className="inline-flex min-h-[44px] items-center text-sm text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
       >
         {children}
       </Link>

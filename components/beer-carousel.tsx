@@ -39,7 +39,7 @@ export function BeerCarousel({ beers, imageUrls }: BeerCarouselProps) {
       <button
         onClick={scrollPrev}
         aria-label="Previous beer"
-        className="absolute -left-4 top-1/3 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-stone bg-paper shadow-sm transition-opacity hover:opacity-75"
+        className="absolute -left-4 top-1/3 z-10 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-stone bg-paper shadow-sm transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-ocean/50"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 18l-6-6 6-6" />
@@ -48,7 +48,7 @@ export function BeerCarousel({ beers, imageUrls }: BeerCarouselProps) {
       <button
         onClick={scrollNext}
         aria-label="Next beer"
-        className="absolute -right-4 top-1/3 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-stone bg-paper shadow-sm transition-opacity hover:opacity-75"
+        className="absolute -right-4 top-1/3 z-10 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-stone bg-paper shadow-sm transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-ocean/50"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 18l6-6-6-6" />

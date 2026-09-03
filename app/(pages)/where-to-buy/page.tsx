@@ -9,7 +9,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com
 export const metadata: Metadata = {
   title: "Where to Buy",
   description:
-    "Where to buy Deep Dive beer on Saba, Sint Maarten (SXM), Saint Martin, and soon Sint Eustatius (Statia).",
+    "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus SXM availability updates.",
   keywords: [
     "where to buy beer on Saba",
     "where to buy beer on Sint Maarten",
@@ -24,12 +24,41 @@ export const metadata: Metadata = {
   },
 };
 
+function groupByIsland(venues: Venue[]): Record<string, Venue[]> {
+  return venues.reduce<Record<string, Venue[]>>((acc, venue) => {
+    const island = venue.locationName || "Saba";
+    acc[island] = acc[island] ?? [];
+    acc[island].push(venue);
+    return acc;
+  }, {});
+}
+
+function islandDisplayName(island: string): string {
+  const normalized = island.trim().toLowerCase();
+  if (normalized === "sxm" || normalized.includes("maarten") || normalized.includes("martin")) {
+    return "Sint Maarten / Saint Martin / SXM";
+  }
+  if (normalized.includes("statia") || normalized.includes("eustatius")) {
+    return "Sint Eustatius / Statia";
+  }
+  // Capitalize first letter for Saba or any other value.
+  return island.charAt(0).toUpperCase() + island.slice(1);
+}
+
 export default async function WhereToBuyPage() {
   const [venues, beers] = await Promise.all([getVenues(), getBeers()]);
   const beerNameBySlug = Object.fromEntries(beers.map((beer) => [beer.slug, beer.name]));
+  const byIsland = groupByIsland(venues);
+  const islands = Object.keys(byIsland).sort();
+  const hasSxm = islands.some((island) => {
+    const normalized = island.trim().toLowerCase();
+    return (
+      normalized === "sxm" ||
+      normalized.includes("maarten") ||
+      normalized.includes("martin")
+    );
+  });
 
-  const barRestaurants = venues.filter((v: Venue) => v.type === "bar_restaurant");
-  const retail = venues.filter((v: Venue) => v.type === "retail");
   const faqJsonLd = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
@@ -47,7 +76,9 @@ export default async function WhereToBuyPage() {
         name: "Where can I buy Deep Dive beer on Sint Maarten, Saint Martin, or SXM?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Deep Dive beer is available at select partner locations and we are actively adding additional partner accounts across SXM.",
+          text: hasSxm
+            ? "Partner locations in SXM are listed below. We are actively adding additional accounts across the island."
+            : "We are working to add partner locations in SXM. Contact us or check back for updates.",
         },
       },
       {
@@ -94,9 +125,9 @@ export default async function WhereToBuyPage() {
           Where to Buy
         </h1>
         <p className="mt-3 max-w-180 text-muted-foreground">
-          Find Deep Dive beers through our partner locations. We currently serve
-          Saba and select accounts in SXM, with more partner locations being
-          added regularly.
+          Find Deep Dive beers through our partner locations on Saba. We are
+          expanding into Sint Maarten / SXM and nearby islands; those locations
+          will be added here as they come online.
         </p>
       </div>
 
@@ -109,8 +140,9 @@ export default async function WhereToBuyPage() {
           </li>
           <li>
             <span className="font-medium text-ink">Sint Maarten / Saint Martin / SXM:</span>{" "}
-            currently at select partner locations, with additional accounts
-            coming soon.
+            {hasSxm
+              ? "partner locations listed below; more coming soon."
+              : "not currently listed; expansion in progress."}
           </li>
           <li>
             <span className="font-medium text-ink">Sint Eustatius / Statia:</span>{" "}
@@ -119,29 +151,25 @@ export default async function WhereToBuyPage() {
         </ul>
       </section>
 
-      {/* Bars & Restaurants */}
-      {barRestaurants.length > 0 && (
-        <section className="mb-12">
+      {islands.map((island) => (
+        <section key={island} className="mb-12">
           <h2 className="mb-6 text-2xl font-bold tracking-tight">
-            Bars &amp; Restaurants
+            {islandDisplayName(island)}
           </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {barRestaurants.map((venue: Venue) => (
+            {byIsland[island].map((venue: Venue) => (
               <VenueCard key={venue.slug} venue={venue} beerNameBySlug={beerNameBySlug} />
             ))}
           </div>
         </section>
-      )}
+      ))}
 
-      {/* Retail */}
-      {retail.length > 0 && (
-        <section>
-          <h2 className="mb-6 text-2xl font-bold tracking-tight">Retail</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {retail.map((venue: Venue) => (
-              <VenueCard key={venue.slug} venue={venue} beerNameBySlug={beerNameBySlug} />
-            ))}
-          </div>
+      {islands.length === 0 && (
+        <section className="mb-12 rounded-lg border border-stone bg-stone/20 p-5">
+          <p className="text-muted-foreground">
+            No partner locations are listed right now. Please check back soon or
+            contact us directly.
+          </p>
         </section>
       )}
 
@@ -158,8 +186,9 @@ export default async function WhereToBuyPage() {
           <div>
             <h3 className="font-semibold text-ink">Where can I buy Deep Dive beer on Sint Maarten, Saint Martin, or SXM?</h3>
             <p className="mt-1">
-              We are already available at select locations and actively adding
-              more partner accounts across SXM.
+              {hasSxm
+                ? "Partner locations in SXM are listed above. We are actively adding more partner accounts across the island."
+                : "We are working to add partner locations in SXM. Contact us or check back for updates."}
             </p>
           </div>
           <div>

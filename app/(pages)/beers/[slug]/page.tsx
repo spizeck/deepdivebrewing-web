@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { notFound } from "next/navigation";
+import { BeerViewTracker } from "@/components/beer-view-tracker";
 import { getBeerBySlug, beerImageUrl } from "@/lib/beers";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
@@ -11,24 +12,44 @@ interface BeerDetailPageProps {
   params: Promise<{ slug: string }>;
 }
 
+function buildBeerMetaDescription(beer: {
+  name: string;
+  style: string;
+  abv: number;
+  tastingNotes: string[];
+}): string {
+  const article = /^[aeiou]/i.test(beer.style) ? "an" : "a";
+  const abvText = beer.abv > 0 ? `${beer.abv}% ABV` : "0% ABV";
+  const differentiator = beer.tastingNotes[0]
+    ? `${beer.tastingNotes[0].toLowerCase()} character`
+    : "island-crafted";
+  return `${beer.name} — ${article} ${beer.style} at ${abvText}, brewed on Saba. ${differentiator} from Deep Dive Brewing Co.`;
+}
+
 export async function generateMetadata({
   params,
 }: BeerDetailPageProps): Promise<Metadata> {
   const { slug } = await params;
   const beer = await getBeerBySlug(slug);
-  if (!beer) return { title: "Beer Not Found" };
+  if (!beer) {
+    return {
+      title: "Beer Not Found",
+      robots: { index: false },
+    };
+  }
 
   const imageUrl = beerImageUrl(beer.images.heroPath);
+  const description = buildBeerMetaDescription(beer);
 
   return {
     title: beer.name,
-    description: beer.descriptionShort,
+    description,
     alternates: {
       canonical: `/beers/${beer.slug}`,
     },
     openGraph: {
       title: `${beer.name} | Deep Dive Brewing Co`,
-      description: beer.descriptionShort,
+      description,
       type: "article",
       url: `/beers/${beer.slug}`,
       images: [
@@ -43,7 +64,7 @@ export async function generateMetadata({
     twitter: {
       card: "summary_large_image",
       title: `${beer.name} | Deep Dive Brewing Co`,
-      description: beer.descriptionShort,
+      description,
       images: [imageUrl],
     },
   };
@@ -55,27 +76,62 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
   if (!beer) notFound();
 
   const imageUrl = beerImageUrl(beer.images.heroPath);
+  const description = buildBeerMetaDescription(beer);
+
+  const additionalProperties: Array<Record<string, unknown>> = [
+    {
+      "@type": "PropertyValue",
+      name: "Alcohol by Volume",
+      value: beer.abv > 0 ? `${beer.abv}%` : "0%",
+      unitText: "percent",
+    },
+  ];
+
+  if (beer.ibu != null) {
+    additionalProperties.push({
+      "@type": "PropertyValue",
+      name: "International Bitterness Units",
+      value: String(beer.ibu),
+      unitText: "IBU",
+    });
+  }
+
+  if (beer.srm != null) {
+    additionalProperties.push({
+      "@type": "PropertyValue",
+      name: "Standard Reference Method",
+      value: String(beer.srm),
+      unitText: "SRM",
+    });
+  }
 
   const beerJsonLd = {
     "@context": "https://schema.org",
-    "@type": "Beer",
+    "@type": "Product",
     name: beer.name,
-    description: beer.descriptionShort,
+    description,
     image: imageUrl,
-    alcohol: {
-      "@type": "DrugStrength",
-      strengthUnit: "percent",
-      activeIngredient: `${beer.abv}% ABV`,
+    brand: {
+      "@type": "Brewery",
+      name: "Deep Dive Brewing Co",
+      url: siteUrl,
     },
     manufacturer: {
       "@type": "Brewery",
       name: "Deep Dive Brewing Co",
       url: siteUrl,
     },
+    additionalProperty: additionalProperties,
   };
 
   return (
     <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+      <BeerViewTracker
+        slug={beer.slug}
+        name={beer.name}
+        style={beer.style}
+        status={beer.status}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(beerJsonLd) }}
@@ -155,7 +211,14 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
             </p>
             <Link
               href="/where-to-buy"
-              className="mt-1 inline-block text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+              data-analytics-event="where_to_buy_click"
+              data-analytics-event-category="conversion"
+              data-analytics-event-label="See where to buy"
+              data-analytics-beer-slug={beer.slug}
+              data-analytics-beer-name={beer.name}
+              data-analytics-beer-style={beer.style}
+              data-analytics-cta-location="beer_detail_page"
+              className="mt-1 inline-flex min-h-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
             >
               See where to buy &rarr;
             </Link>

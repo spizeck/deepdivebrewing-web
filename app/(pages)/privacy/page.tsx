@@ -2,7 +2,7 @@ import { MdxLayout } from "@/components/mdx-layout";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Deep Dive Brewing Co",
+  title: "Privacy Policy",
   description:
     "Learn how Deep Dive Brewing Co. collects, uses, and protects your information.",
   alternates: {

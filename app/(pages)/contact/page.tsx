@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone, Mail, Clock, MapPin } from "lucide-react";
+import { TrackedAnchor } from "@/components/tracked-link";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 
@@ -98,14 +99,16 @@ export default function ContactPage() {
             </div>
             <div>
               <h2 className="font-semibold">WhatsApp</h2>
-              <Link
+              <TrackedAnchor
                 href="https://wa.me/5994163544"
-                className="mt-1 block text-ocean transition-opacity duration-200 hover:opacity-85"
+                eventName="whatsapp_click"
+                eventParams={{ event_category: "contact", cta_location: "contact_page", event_label: "WhatsApp" }}
+                className="mt-1 inline-flex min-h-[44px] items-center text-ocean transition-opacity duration-200 hover:opacity-85"
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 +599-416-3544
-              </Link>
+              </TrackedAnchor>
             </div>
           </div>
 
@@ -195,7 +198,7 @@ export default function ContactPage() {
           <div className="relative aspect-16/10 w-full overflow-hidden rounded-xl">
             <iframe
               className="absolute inset-0 h-full w-full"
-              src="https://maps.google.com/maps?width=600&amp;height=400&amp;hl=en&amp;q=66 fort bay road&amp;t=&amp;z=16&amp;ie=UTF8&amp;iwloc=B&amp;output=embed"
+              src="https://www.google.com/maps?q=66+Fort+Bay+Road,+The+Bottom,+Saba&output=embed"
               title="Deep Dive Brewing Co location"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
