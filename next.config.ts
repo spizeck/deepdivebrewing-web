@@ -3,6 +3,12 @@ import createMDX from "@next/mdx";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 
+const firebaseAuthDomain =
+  process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "deepdivebrewing-web.firebaseapp.com";
+const firebaseAuthOrigin = firebaseAuthDomain.startsWith("http")
+  ? firebaseAuthDomain
+  : `https://${firebaseAuthDomain}`;
+
 const versionedCacheHeaders = [
   {
     key: "Cache-Control",
@@ -93,17 +99,17 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              `connect-src 'self' ${siteUrl} https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://firebasestorage.googleapis.com https://*.firebaseio.com https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com`,
+              `connect-src 'self' ${siteUrl} https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://apis.google.com https://accounts.google.com https://firebasestorage.googleapis.com https://*.firebaseio.com https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com`,
               "font-src 'self'",
               "form-action 'self'",
               "frame-ancestors 'self'",
-              "frame-src 'self' https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
+              `frame-src 'self' https://www.google.com https://maps.google.com https://accounts.google.com ${firebaseAuthOrigin} https://www.youtube.com https://www.youtube-nocookie.com`,
               "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://*.googleusercontent.com https://*.google-analytics.com https://*.googletagmanager.com https://*.gstatic.com https://va.vercel-scripts.com",
               "media-src 'self' https://firebasestorage.googleapis.com",
               "object-src 'none'",
               "base-uri 'self'",
-              "script-src 'self' 'unsafe-inline' https://*.googletagmanager.com https://*.google-analytics.com https://va.vercel-scripts.com",
-              "script-src-elem 'self' 'unsafe-inline' https://*.googletagmanager.com https://*.google-analytics.com https://va.vercel-scripts.com",
+              "script-src 'self' 'unsafe-inline' https://*.googletagmanager.com https://*.google-analytics.com https://apis.google.com https://accounts.google.com https://va.vercel-scripts.com",
+              "script-src-elem 'self' 'unsafe-inline' https://*.googletagmanager.com https://*.google-analytics.com https://apis.google.com https://accounts.google.com https://va.vercel-scripts.com",
               "style-src 'self' 'unsafe-inline'",
               "upgrade-insecure-requests",
             ].join("; "),
