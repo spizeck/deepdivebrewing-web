@@ -84,10 +84,12 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
         return;
       }
       setInviteEmail("");
-      if (data.emailSent) {
+      if (data.warning) {
+        onStatusMessage(data.warning);
+      } else if (data.emailSent) {
         onStatusMessage(`Invitation created and email sent to ${email} as ${inviteRole}.`);
       } else {
-        onStatusMessage(data.warning ?? "Invitation created, but the email could not be sent.");
+        onStatusMessage("Invitation created, but the email could not be sent.");
       }
       await load();
     } catch (error) {
@@ -120,12 +122,13 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
         onStatusMessage(data.error ?? "Resend failed.");
         return;
       }
-      if (data.emailResent) {
+      if (data.warning) {
+        onStatusMessage(data.warning);
+      } else if (data.emailResent) {
         onStatusMessage("Invitation email resent.");
       } else {
         onStatusMessage(
-          data.warning ??
-            "The email could not be resent. The invitation remains pending."
+          "The email could not be resent. The invitation remains pending."
         );
       }
       await load();

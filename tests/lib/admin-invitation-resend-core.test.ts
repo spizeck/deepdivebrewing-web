@@ -4,6 +4,7 @@ import {
   runResendInvitationCore,
   type ResendEmailResult,
   type FailedEmailResult,
+  type SendEmailFunction,
 } from "@/lib/admin-invitation-resend-core";
 import type { AdminInvitation, AdminRole } from "@/lib/admin-types";
 
@@ -23,7 +24,7 @@ function makeInvitation(
 
 function makeSendEmail(
   result: ResendEmailResult | FailedEmailResult
-): typeof import("@/lib/admin-invitation-resend-core").SendEmailFunction {
+): SendEmailFunction {
   return async () => result;
 }
 
