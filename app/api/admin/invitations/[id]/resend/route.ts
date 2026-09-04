@@ -9,6 +9,7 @@ import {
   getAdminSiteUrl,
   sendAdminInvitationEmail,
 } from "@/lib/admin-invitation-email";
+import { runResendInvitationCore } from "@/lib/admin-invitation-resend-core";
 import {
   getInvitationById,
   recordInvitationEmailAttempt,
@@ -26,6 +27,19 @@ import type { AdminInvitation } from "@/lib/admin-types";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+function mergeLatestEmailFields(
+  invitation: AdminInvitation,
+  emailSent: boolean,
+  messageId?: string
+): AdminInvitation {
+  return {
+    ...invitation,
+    emailStatus: emailSent ? "sent" : "failed",
+    lastEmailAttemptAt: new Date() as unknown as AdminInvitation["lastEmailAttemptAt"],
+    messageId: emailSent ? messageId : undefined,
+  };
 }
 
 export async function POST(req: NextRequest, { params }: RouteParams) {
@@ -85,51 +99,49 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     const { invitation } = claim;
-    const emailResult = await sendAdminInvitationEmail(invitation.email, invitation.role);
+    const adminUrl = `${getAdminSiteUrl()}/admin`;
 
-    await recordInvitationEmailAttempt(
-      invitation.id,
-      emailResult.ok ? "sent" : "failed",
-      emailResult.ok ? emailResult.messageId : undefined
-    );
-
-    await logAdminAudit({
-      action: "resend_invitation",
-      targetEmail: normalizeEmail(invitation.email),
-      newRole: invitation.role,
-      actingUid: decoded.uid,
-      actingEmail: normalizeEmail(decoded.email),
-      metadata: {
-        invitationId: invitation.id,
-        emailSent: emailResult.ok,
-        messageId: emailResult.ok ? emailResult.messageId : undefined,
-        error: emailResult.ok ? undefined : emailResult.error,
-      },
-    }).catch((auditError) => {
-      console.error("Failed to log resend_invitation audit:", auditError);
+    const coreResult = await runResendInvitationCore({
+      invitation,
+      sendEmail: sendAdminInvitationEmail,
+      recordDelivery: (id, status, messageId) =>
+        recordInvitationEmailAttempt(id, status, messageId),
+      audit: (metadata) =>
+        logAdminAudit({
+          action: "resend_invitation",
+          targetEmail: normalizeEmail(invitation.email),
+          newRole: invitation.role,
+          actingUid: decoded.uid,
+          actingEmail: normalizeEmail(decoded.email),
+          metadata,
+        }),
+      logError: console.error,
     });
 
-    const updatedInvitation = await getInvitationById(invitation.id);
+    let updatedInvitation: AdminInvitation | null = null;
+    try {
+      updatedInvitation = await getInvitationById(invitation.id);
+    } catch (viewError) {
+      console.error("Failed to load invitation after resend:", viewError);
+    }
+
     const view = updatedInvitation
       ? serializeAdminInvitation(updatedInvitation)
-      : serializeAdminInvitation(invitation);
-
-    if (emailResult.ok) {
-      return NextResponse.json({
-        ok: true,
-        emailResent: true,
-        invitation: view,
-        adminUrl: `${getAdminSiteUrl()}/admin`,
-      });
-    }
+      : serializeAdminInvitation(
+          mergeLatestEmailFields(
+            invitation,
+            coreResult.emailSent,
+            coreResult.messageId
+          )
+        );
 
     return NextResponse.json({
       ok: true,
-      emailResent: false,
-      warning:
-        "The email could not be resent. The invitation remains pending.",
+      emailResent: coreResult.emailSent,
+      deliveryRecorded: coreResult.deliveryRecorded,
+      ...(coreResult.warning ? { warning: coreResult.warning } : {}),
       invitation: view,
-      adminUrl: `${getAdminSiteUrl()}/admin`,
+      adminUrl,
     });
   } catch (error) {
     const message =

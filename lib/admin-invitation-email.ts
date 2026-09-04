@@ -1,20 +1,17 @@
 import "server-only";
 import { Resend } from "resend";
 import { buildAdminInvitationEmail } from "@/lib/admin-invitation-email-common";
-
-export interface SentInvitationEmail {
-  ok: true;
-  messageId: string;
-}
-
-export interface FailedInvitationEmail {
-  ok: false;
-  error: string;
-}
+import type {
+  ResendEmailResult,
+  FailedEmailResult,
+  SendEmailFunction,
+} from "@/lib/admin-invitation-resend-core";
 
 export type SendAdminInvitationEmailResult =
-  | SentInvitationEmail
-  | FailedInvitationEmail;
+  | ResendEmailResult
+  | FailedEmailResult;
+
+export type { ResendEmailResult, FailedEmailResult, SendEmailFunction };
 
 export function getAdminInviteFromEmail(): string | undefined {
   return (
@@ -29,10 +26,10 @@ export function getAdminSiteUrl(): string {
   return raw.replace(/\/+$/, "");
 }
 
-export async function sendAdminInvitationEmail(
-  email: string,
-  role: string
-): Promise<SendAdminInvitationEmailResult> {
+export const sendAdminInvitationEmail: SendEmailFunction = async (
+  email,
+  role
+) => {
   const apiKey = process.env.RESEND_API_KEY;
   const from = getAdminInviteFromEmail();
 
