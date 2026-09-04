@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ADMIN_EMAIL_SET } from "@/lib/admin-emails";
-import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
+import { assertAnyAdmin, getAdminClaims, normalizeEmail, verifyAdminIdToken } from "@/lib/admin-auth";
+import { getAdminUser } from "@/lib/admin-users";
+import { getBearerToken } from "@/lib/api-auth";
 
 const REBUILD_COOLDOWN_MS = Number(
   process.env.ADMIN_REBUILD_COOLDOWN_MS ?? 10 * 60 * 1000
 );
 let cooldownUntil = 0;
-
-function getBearerToken(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const [scheme, token] = authHeader.split(" ");
-  if (scheme?.toLowerCase() !== "bearer" || !token) {
-    return null;
-  }
-  return token;
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -59,23 +51,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const adminAuth = getFirebaseAdminAuth();
-    const decoded = await adminAuth.verifyIdToken(idToken);
-    const email = decoded.email?.toLowerCase();
+    const decoded = await verifyAdminIdToken(idToken);
+    assertAnyAdmin(decoded);
 
-    if (!email || !ADMIN_EMAIL_SET.has(email)) {
+    const adminRecord = await getAdminUser(decoded.uid);
+    if (adminRecord?.status === "disabled") {
       return NextResponse.json(
-        { ok: false, error: "Not authorized to trigger rebuild." },
+        { ok: false, error: "Administrator account is disabled." },
         { status: 403 }
       );
     }
+
+    const claims = getAdminClaims(decoded)!;
+    const email = normalizeEmail(decoded.email);
 
     const hookResponse = await fetch(deployHookUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ trigger: "admin-dashboard", email }),
+      body: JSON.stringify({ trigger: "admin-dashboard", email, role: claims.role }),
     });
 
     if (!hookResponse.ok) {
@@ -100,9 +95,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Rebuild trigger error:", error);
-    return NextResponse.json(
-      { ok: false, error: "Failed to trigger rebuild." },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "Failed to trigger rebuild.";
+    const status = (error as { status?: number }).status ?? 500;
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

@@ -11,6 +11,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import {
+  getIdTokenResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
@@ -21,8 +22,8 @@ import { ref, uploadBytes } from "firebase/storage";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { auth, db, storage } from "@/lib/firebase";
-import { ADMIN_EMAIL_SET } from "@/lib/admin-emails";
-import type { Beer, Venue } from "@/lib/types";
+import { AdminAccessPanel } from "@/components/admin-access";
+import type { AdminRole, Beer, Venue } from "@/lib/types";
 
 interface RebuildMeta {
   cooldownUntil?: number;
@@ -95,16 +96,17 @@ export function AdminDashboard() {
   const [rebuildCooldownUntil, setRebuildCooldownUntil] = useState(0);
   const [currentTimeMs, setCurrentTimeMs] = useState(Date.now());
   const [rebuildMeta, setRebuildMeta] = useState<RebuildMeta>({});
+  const [role, setRole] = useState<AdminRole | null>(null);
+  const [showBootstrap, setShowBootstrap] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   const beerOptions = useMemo(
     () => beers.map((beer) => ({ slug: beer.slug, name: beer.name })),
     [beers]
   );
 
-  const isAuthorized = useMemo(
-    () => !!user?.email && ADMIN_EMAIL_SET.has(user.email.toLowerCase()),
-    [user?.email]
-  );
+  const isAuthorized = useMemo(() => role === "admin" || role === "superadmin", [role]);
+  const isSuperAdmin = useMemo(() => role === "superadmin", [role]);
 
   const rebuildCooldownMs = Math.max(0, rebuildCooldownUntil - currentTimeMs);
   const isRebuildDisabled = isTriggeringRebuild || rebuildCooldownMs > 0;
@@ -115,11 +117,41 @@ export function AdminDashboard() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (nextUser) => {
       setUser(nextUser);
-      setAuthReady(true);
-      if (nextUser && ADMIN_EMAIL_SET.has((nextUser.email ?? "").toLowerCase())) {
-        await loadData();
-        await loadRebuildMeta();
+      setShowBootstrap(false);
+      setRole(null);
+
+      if (nextUser) {
+        try {
+          const tokenResult = await getIdTokenResult(nextUser, true);
+          const claims = tokenResult.claims as Partial<{ admin?: boolean; role?: string }>;
+          if (
+            claims.admin === true &&
+            (claims.role === "superadmin" || claims.role === "admin")
+          ) {
+            setRole(claims.role as AdminRole);
+            await loadData();
+            await loadRebuildMeta();
+          } else {
+            // The user is signed in but has no admin claim yet. Check whether this account
+            // matches the configured bootstrap superadmin email.
+            const idToken = await nextUser.getIdToken();
+            const res = await fetch("/api/admin/me", {
+              headers: { Authorization: `Bearer ${idToken}` },
+            });
+            const me = (await res.json()) as {
+              isAdmin?: boolean;
+              isBootstrapEmail?: boolean;
+            };
+            if (!me.isAdmin && me.isBootstrapEmail) {
+              setShowBootstrap(true);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to resolve admin session:", error);
+        }
       }
+
+      setAuthReady(true);
     });
 
     return () => unsub();
@@ -202,6 +234,37 @@ export function AdminDashboard() {
   async function handleSignOut() {
     await signOut(auth);
     setStatusMessage("");
+    setRole(null);
+    setShowBootstrap(false);
+  }
+
+  async function handleBootstrap() {
+    if (!user) return;
+    setIsBootstrapping(true);
+    setStatusMessage("");
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/admin/bootstrap", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = (await res.json()) as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok || !data.ok) {
+        setStatusMessage(data.error ?? "Bootstrap failed.");
+        return;
+      }
+      setStatusMessage(
+        data.message ?? "Superadmin access granted. Sign out and sign back in to continue."
+      );
+      // Force a token refresh so the dashboard can see the new claims on next sign-in.
+      await user.getIdToken(true);
+      setShowBootstrap(false);
+    } catch (error) {
+      console.error(error);
+      setStatusMessage("Bootstrap failed. Please try again.");
+    } finally {
+      setIsBootstrapping(false);
+    }
   }
 
   function formatDuration(ms: number) {
@@ -460,12 +523,33 @@ export function AdminDashboard() {
     return (
       <div className="rounded-lg border border-stone bg-paper p-6">
         <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
-        <p className="mt-2 text-sm text-ember">
-          {user.email} is not authorized for admin access.
-        </p>
+        {showBootstrap ? (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">
+              This account is configured as the bootstrap superadmin. Complete setup to grant
+              administrator access.
+            </p>
+            <Button
+              onClick={handleBootstrap}
+              disabled={isBootstrapping}
+              className="mt-4"
+            >
+              {isBootstrapping ? "Completing setup..." : "Complete Superadmin Setup"}
+            </Button>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-ember">
+            {user.email} is not authorized for admin access.
+          </p>
+        )}
         <Button onClick={handleSignOut} variant="outline" className="mt-4">
           Sign out
         </Button>
+        {statusMessage && (
+          <p className={`mt-3 text-sm ${showBootstrap ? "text-ocean" : "text-ember"}`}>
+            {statusMessage}
+          </p>
+        )}
       </div>
     );
   }
@@ -524,6 +608,7 @@ export function AdminDashboard() {
         <TabsList>
           <TabsTrigger value="beers">Beers</TabsTrigger>
           <TabsTrigger value="venues">Venues</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="access">Access</TabsTrigger>}
           {hasUpdatesSinceLastRebuild && (
             <span className="ml-2 inline-flex items-center rounded-full border border-amber-500/40 bg-amber-100/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
               Needs Rebuild
@@ -818,6 +903,12 @@ export function AdminDashboard() {
             </div>
           </div>
         </TabsContent>
+
+        {isSuperAdmin && (
+          <TabsContent value="access">
+            <AdminAccessPanel user={user} onStatusMessage={setStatusMessage} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

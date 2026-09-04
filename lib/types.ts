@@ -48,3 +48,28 @@ export interface TradeLead {
   createdAt: Timestamp;
   status: string;
 }
+
+export type AdminRole = "superadmin" | "admin";
+export type AdminStatus = "active" | "disabled";
+
+export interface AdminUserView {
+  uid: string;
+  email: string;
+  displayName?: string;
+  role: AdminRole;
+  status: AdminStatus;
+  createdAt: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+  lastLoginAt?: string;
+}
+
+export interface AdminInvitationView {
+  id: string;
+  email: string;
+  role: AdminRole;
+  status: "pending" | "accepted" | "cancelled";
+  invitedBy: string;
+  createdAt: string;
+}

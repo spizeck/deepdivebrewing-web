@@ -6,20 +6,13 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    function isAuthorizedAdmin() {
-      return isSignedIn() &&
-        request.auth.token.email in [
-          "chadnuttall1@gmail.com",
-          "chad@seasaba.com",
-          "katy@seasaba.com",
-          "knuttall05@gmail.com",
-          "timschwenck@gmail.com"
-        ];
+    function hasAdminClaim() {
+      return isSignedIn() && request.auth.token.admin == true;
     }
 
     match /{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthorizedAdmin();
+      allow write: if hasAdminClaim();
     }
   }
 }
