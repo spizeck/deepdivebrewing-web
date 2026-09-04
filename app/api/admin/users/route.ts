@@ -18,6 +18,7 @@ import {
   serializeAdminInvitation,
   serializeAdminUser,
 } from "@/lib/admin-serializers";
+import type { AdminInvitationView } from "@/lib/types";
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -88,37 +89,70 @@ export async function POST(req: NextRequest) {
 
     const emailResult = await sendAdminInvitationEmail(invitation.email, invitation.role);
 
-    await recordInvitationEmailAttempt(
-      invitation.id,
-      emailResult.ok ? "sent" : "failed",
-      emailResult.ok ? emailResult.messageId : undefined
-    );
+    let deliveryRecorded = true;
+    try {
+      await recordInvitationEmailAttempt(
+        invitation.id,
+        emailResult.ok ? "sent" : "failed",
+        emailResult.ok ? emailResult.messageId : undefined
+      );
+    } catch (recordError) {
+      console.error("Failed to record invitation email delivery:", recordError);
+      deliveryRecorded = false;
+    }
 
-    const updatedInvitation = await getInvitationById(invitation.id);
-    const view = updatedInvitation
-      ? serializeAdminInvitation(updatedInvitation)
-      : serializeAdminInvitation(invitation);
+    let view: AdminInvitationView;
+    try {
+      const updatedInvitation = await getInvitationById(invitation.id);
+      view = updatedInvitation
+        ? serializeAdminInvitation(updatedInvitation)
+        : serializeAdminInvitation(invitation);
+    } catch (viewError) {
+      console.error("Failed to load invitation after email attempt:", viewError);
+      view = serializeAdminInvitation(invitation);
+    }
 
-    await logAdminAudit({
-      action: "create_invitation",
-      targetEmail: email,
-      newRole: role,
-      actingUid: decoded.uid,
-      actingEmail: normalizeEmail(decoded.email),
-      metadata: {
-        invitationId: invitation.id,
-        emailSent: emailResult.ok,
-        messageId: emailResult.ok ? emailResult.messageId : undefined,
-      },
-    });
+    try {
+      await logAdminAudit({
+        action: "create_invitation",
+        targetEmail: email,
+        newRole: role,
+        actingUid: decoded.uid,
+        actingEmail: normalizeEmail(decoded.email),
+        metadata: {
+          invitationId: invitation.id,
+          emailSent: emailResult.ok,
+          messageId: emailResult.ok ? emailResult.messageId : undefined,
+          deliveryRecorded,
+        },
+      });
+    } catch (auditError) {
+      console.error("Failed to log create_invitation audit:", auditError);
+    }
 
-    if (emailResult.ok) {
+    const adminUrl = `${getAdminSiteUrl()}/admin`;
+
+    if (emailResult.ok && deliveryRecorded) {
       return NextResponse.json({
         ok: true,
         invitationCreated: true,
         emailSent: true,
+        deliveryRecorded: true,
         invitation: view,
-        adminUrl: `${getAdminSiteUrl()}/admin`,
+        adminUrl,
+      });
+    }
+
+    if (emailResult.ok && !deliveryRecorded) {
+      return NextResponse.json({
+        ok: true,
+        invitationCreated: true,
+        emailSent: true,
+        deliveryRecorded: false,
+        warning:
+          "Invitation created and the email was sent, but the delivery record could not be saved. The invitation is still pending.",
+        invitation: view,
+        adminUrl,
       });
     }
 
@@ -126,10 +160,11 @@ export async function POST(req: NextRequest) {
       ok: true,
       invitationCreated: true,
       emailSent: false,
+      deliveryRecorded,
       warning:
         "Invitation created, but the email could not be delivered. The invitation remains pending.",
       invitation: view,
-      adminUrl: `${getAdminSiteUrl()}/admin`,
+      adminUrl,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create invitation.";

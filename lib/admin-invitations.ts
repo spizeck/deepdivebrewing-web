@@ -2,7 +2,7 @@ import "server-only";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin";
 import { normalizeEmail } from "@/lib/admin-common";
 import type { AdminInvitation, AdminRole } from "@/lib/admin-types";
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 const COLLECTION = "adminInvitations";
 
@@ -69,7 +69,9 @@ export async function recordInvitationEmailAttempt(
     emailStatus: status,
     lastEmailAttemptAt: Timestamp.now(),
   };
-  if (messageId) {
+  if (status === "failed") {
+    payload.messageId = FieldValue.delete();
+  } else if (messageId) {
     payload.messageId = messageId;
   }
   await getAdminInvitationsCollection().doc(id).update(payload);
