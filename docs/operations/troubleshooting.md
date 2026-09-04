@@ -45,7 +45,8 @@ Use this guide to diagnose and fix common problems with the Deep Dive Brewing Co
 - The browser is in a strict privacy mode or container.
 - The current domain is not authorized in Firebase Authentication.
 - The Firebase Auth helper iframe is blocked by CSP.
-- You are signing in with a Google account that is not in the admin allow-list.
+- You are signing in with a Google account that does not have valid admin custom claims.
+- Your ID token has not been refreshed after a role change or invitation acceptance.
 - Third-party cookies are blocked.
 
 **Safe diagnostic checks:**
@@ -53,14 +54,15 @@ Use this guide to diagnose and fix common problems with the Deep Dive Brewing Co
 1. Open the browser console and look for CSP errors, `auth/` errors, or 403/429 errors.
 2. Try an incognito/private window with extensions disabled.
 3. Confirm the domain in the address bar is in Firebase Authentication authorized domains.
-4. Confirm the email you are using is in `lib/admin-emails.ts`, `firestore.rules`, and `storage.rules`.
+4. Ask a superadmin to check the **Access** tab and confirm your account is active.
 
 **Recommended fix:**
 
 - Allow popups and third-party cookies for `deepdivebrewing.com`.
 - Add the preview or production domain to Firebase Authentication authorized domains.
 - Confirm `frame-src` in `next.config.ts` includes the Firebase Auth helper origin derived from `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`.
-- Ask an owner to verify your email is on the allow-list in both code and rules.
+- Sign out and sign back in to refresh your Firebase ID token.
+- If you were just invited, make sure you accepted the invitation and then signed out and back in.
 
 For detailed steps, see [Login and access troubleshooting](../admin/login-and-access.md).
 
@@ -210,20 +212,22 @@ For detailed steps, see [Login and access troubleshooting](../admin/login-and-ac
 
 **Likely causes:**
 
-- The signed-in user is not in the admin allow-list in `firestore.rules`.
+- The signed-in user does not have an `admin: true` custom claim.
+- The user's role is not authorized for the attempted action (for example, an admin trying to manage other admins).
 - The security rules have not been deployed.
 - The browser is using an expired or invalid Firebase Auth token.
 
 **Safe diagnostic checks:**
 
-1. Confirm the signed-in email is in `firestore.rules` and `lib/admin-emails.ts`.
+1. Ask a superadmin to confirm your account is active in the **Access** tab.
 2. Sign out and sign in again to refresh the token.
 3. Check the Firebase console to confirm the rules are deployed.
 
 **Recommended fix:**
 
-- Add the email to the allow-lists, redeploy the rules, and rebuild the site.
-- Sign out and sign back in.
+- If access was recently changed, sign out and sign back in.
+- If the account is disabled, a superadmin must reactivate it.
+- Redeploy `firestore.rules` if they were recently changed.
 
 **When to escalate:** If permissions fail for all admins, contact a developer immediately; the security rules may have been overwritten or misconfigured.
 
@@ -315,6 +319,35 @@ For detailed steps, see [Login and access troubleshooting](../admin/login-and-ac
 - Redeploy the site after any change to `next.config.ts`.
 
 **When to escalate:** If redirects are configured but not applied, contact a developer; the issue may be at the DNS or Vercel project-domain level.
+
+---
+
+## Admin access lockout
+
+**Visible symptom:** No superadmin can sign in, so access cannot be managed through the website.
+
+**Likely causes:**
+
+- Custom claims were cleared or corrupted.
+- The bootstrap superadmin account was accidentally disabled.
+- The `SUPER_ADMIN_EMAIL` environment variable changed.
+
+**Safe diagnostic checks:**
+
+1. Verify that `SUPER_ADMIN_EMAIL` is set in Vercel.
+2. Confirm the bootstrap account still exists in Firebase Authentication and is verified.
+3. Check the `adminUsers` collection in Firestore for the bootstrap account's status.
+
+**Recommended fix:**
+
+1. A developer with Firebase Admin SDK credentials should run the bootstrap migration from a secure local environment:
+   ```bash
+   npm run bootstrap-superadmin
+   ```
+2. Ask the bootstrap superadmin to sign out and sign back in.
+3. From the **Access** tab, restore any other administrators.
+
+**When to escalate:** If the migration script fails or the Firebase project is inaccessible, contact a developer immediately.
 
 ---
 

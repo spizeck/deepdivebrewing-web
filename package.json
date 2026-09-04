@@ -7,9 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "seed:beers": "tsx scripts/seed-beers.ts",
     "seed:venues": "tsx scripts/seed-venues.ts",
-    "optimize-assets": "node scripts/optimize-assets.mjs"
+    "optimize-assets": "node scripts/optimize-assets.mjs",
+    "bootstrap-superadmin": "node --env-file=.env.local --import tsx scripts/bootstrap-superadmin.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
@@ -40,6 +42,7 @@
     "eslint-config-next": "^16.2.10",
     "firebase-admin": "^13.10.0",
     "playwright": "^1.62.1",
+    "server-only": "^0.0.1",
     "shadcn": "^3.8.4",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",

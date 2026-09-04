@@ -7,7 +7,7 @@ This guide explains how to sign in to the Deep Dive Brewing Co admin dashboard, 
 - Use a modern browser.
 - Make sure popups are allowed for `deepdivebrewing.com`.
 - Make sure cookies and third-party storage are not blocked.
-- Have the Google account ready that an owner has added to the admin allow-list.
+- Have the Google account ready that has been invited by a superadmin, or the configured bootstrap superadmin account.
 
 ## Signing in
 
@@ -16,44 +16,59 @@ This guide explains how to sign in to the Deep Dive Brewing Co admin dashboard, 
 3. A Google popup appears. Choose the authorized Google account.
 4. The popup closes and the dashboard loads.
 
-If you are already signed in to Google with only one account, the popup may skip the account chooser and sign you in immediately.
+If you are the bootstrap superadmin and it is your first sign-in, the dashboard shows **Complete Superadmin Setup**. Click it, then sign out and sign back in.
+
+If you were invited but have not accepted the invitation yet, the dashboard shows **Accept Invitation**. Click it, then sign out and sign back in.
 
 ## What happens after you choose an account
 
-- The site verifies your Google ID token.
-- It checks whether your email address is in the admin allow-list.
-- If you are authorized, the dashboard loads beer and venue data from Firestore.
-- If you are not authorized, you see a message such as `your-email@example.com is not authorized for admin access` and a **Sign out** button.
+- The site verifies your Google ID token with the Firebase Admin SDK.
+- The server reads your Firebase custom claims. A valid admin has claims like `{ admin: true, role: "superadmin" }` or `{ admin: true, role: "admin" }`.
+- If your claims are valid and your `adminUsers` record is active, the dashboard loads.
+- If you are signed in but have no admin claim, the server checks whether your account matches the configured bootstrap superadmin email and offers the setup step if appropriate.
+- If you are signed in but not authorized, you see a message saying your account is not authorized.
 
 ## How administrator authorization is determined
 
-Authorization is controlled by an allow-list of email addresses.
+Authorization is controlled by **Firebase custom claims** set by the server. The server uses the Firebase Admin SDK to set claims after verifying:
 
-- The same list is used in two places:
-  - The React admin dashboard code (`lib/admin-emails.ts`) checks it on the client for UI gating.
-  - The server-side API route and Firebase Security Rules also enforce it for any data changes or rebuilds.
-- If the lists are out of sync, a user might see the dashboard but be unable to save data or trigger a rebuild.
+- The user signed in with Google.
+- The email is verified.
+- For invitations, the email matches a pending invitation exactly.
+- For the bootstrap flow, the email matches the server-only `SUPER_ADMIN_EMAIL` environment variable.
 
-## How an owner safely grants or removes access
+The client UI checks claims to decide which tabs and buttons to show, but the **server APIs and Firebase Security Rules enforce the real authorization**.
 
-> **Warning:** Changing access requires editing code and redeploying Firebase rules. Only an owner or developer should do this.
+## Roles
+
+- **superadmin** — Can manage content, administrators, and site rebuilds.
+- **admin** — Can manage content and trigger rebuilds, but cannot open the **Access** tab or call access-management APIs.
+
+## How a superadmin grants or removes access
+
+> **Warning:** Granting superadmin access gives full control over the website and other administrators. Only invite people you trust.
 
 To grant access:
 
-1. Add the email address to `lib/admin-emails.ts`.
-2. Add the same email address to the allow-list in `firestore.rules`.
-3. Add the same email address to the allow-list in `storage.rules`.
-4. Redeploy the Firebase rules to the Firebase project.
-5. Rebuild and redeploy the website so the updated `lib/admin-emails.ts` is included.
-6. Ask the new admin to sign in at https://deepdivebrewing.com/admin.
+1. Sign in as a superadmin.
+2. Open the **Access** tab.
+3. Enter the email address and choose a role.
+4. Click **Invite**.
+5. Tell the invited person to sign in with that exact Google account and accept the invitation.
 
-To remove access, reverse the steps: remove the email from all three files, redeploy the rules, and rebuild the site.
+To remove access:
+
+1. Open the **Access** tab.
+2. Find the administrator.
+3. Click **Disable** to temporarily block access, or **Revoke** to permanently remove access.
+
+The bootstrap superadmin account cannot be disabled or revoked through the UI. This prevents accidental lockout.
 
 ## Firebase Authentication authorized domains
 
 Firebase Authentication only allows sign-in from registered domains. The production domain `deepdivebrewing.com` and any Vercel preview domains must be listed in the Firebase Authentication console under **Settings > Authorized domains**.
 
-If a new preview domain is not authorized, Google sign-in will fail with an `auth/unauthorized-domain` error. Add the exact domain to the Firebase console and try again.
+If a new preview domain is not authorized, Google sign-in will fail. Add the exact domain to the Firebase console and try again.
 
 ## Required CSP origins for Firebase Auth
 
@@ -79,6 +94,10 @@ This domain is derived from the `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` environment v
 ## Signing out
 
 Click the **Sign out** button in the dashboard header. This signs you out of Firebase Auth on the site. It does not sign you out of Google entirely.
+
+## Claim refresh
+
+Custom claims are embedded in the Firebase ID token. If a superadmin changes your role, disables your account, or reactivates it, you must sign out and sign back in to get a fresh token. The dashboard will prompt you to do this when needed.
 
 ## Troubleshooting
 
@@ -144,13 +163,19 @@ Click the **Sign out** button in the dashboard header. This signs you out of Fir
 
 ### Authenticated but not authorized
 
-**Symptom:** The dashboard says your email is signed in but is not authorized.
+**Symptom:** The dashboard says your email is signed in but is not authorized, or you accepted an invitation but still see the unauthorized screen.
 
-**Likely cause:** Your email is not in `lib/admin-emails.ts`, `firestore.rules`, and `storage.rules`.
+**Likely causes:**
+
+- Your custom claim has not been refreshed after a role change or invitation acceptance.
+- Your account is disabled.
+- You signed in with a different email than the one that was invited.
 
 **Fix:**
 
-- Ask an owner to add your email to all three files, redeploy the rules, and rebuild the site.
+1. Sign out and sign back in to refresh your ID token.
+2. Confirm you are using the exact invited email address.
+3. Ask a superadmin to check your status in the **Access** tab.
 
 ### Expired session
 

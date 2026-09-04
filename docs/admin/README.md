@@ -13,18 +13,30 @@ The admin dashboard lets authorized users:
 - Upload beer card and hero images to Firebase Storage.
 - Trigger a site rebuild so static pages (such as the beer listing and Where to Buy page) show the latest content.
 
-It does **not** currently let you delete beer or venue records directly. To remove something from public view, uncheck the **Public** checkbox and save.
+In addition, users with the **superadmin** role can:
+
+- Invite, edit, disable, reactivate, and revoke other administrators.
+- View pending invitations and administrator audit logs in Firestore.
+
+The dashboard does **not** let you delete beer or venue records directly. To remove something from public view, uncheck the **Public** checkbox and save.
 
 ## Who should have access
 
-Only a small set of trusted Deep Dive Brewing Co staff should be admins. Access is granted through an email allow-list stored in the codebase and in Firebase Security Rules. If someone needs access, an existing owner must add their Google email to both places and redeploy the rules. See [Login and access](./login-and-access.md#how-owner-grants-or-removes-access) for the exact steps.
+Only a small set of trusted Deep Dive Brewing Co staff should be administrators. There are two roles:
+
+- **superadmin** — Full access, including the ability to manage other administrators.
+- **admin** — Can manage beers, venues, images, and trigger rebuilds, but cannot add or remove administrators.
+
+Access is granted through **Firebase custom claims** and stored in the `adminUsers` Firestore collection. The claims are the authoritative source of authorization; the UI simply hides controls that a user is not allowed to use.
 
 ## How to reach the admin login
 
 1. Go to https://deepdivebrewing.com/admin.
-2. You will see a sign-in screen with a **Sign in with Google** button.
-3. Click the button and choose your authorized Google account.
-4. If the account is on the allow-list, the full dashboard appears.
+2. Click **Sign in with Google**.
+3. Choose the Google account that has been invited or configured as the bootstrap superadmin.
+4. If your account has the right claims, the full dashboard appears.
+
+> The first time the bootstrap superadmin signs in, they must click **Complete Superadmin Setup**. This is a one-time step.
 
 ## What a successful login looks like
 
@@ -33,9 +45,9 @@ After signing in, the dashboard shows:
 - Your email address at the top.
 - A **Rebuild Site** button.
 - The last rebuild information.
-- Two tabs: **Beers** and **Venues**.
+- Tabs for **Beers**, **Venues**, and, if you are a superadmin, **Access**.
 
-If you see a message saying your email is not authorized, you are signed in to Google but not on the allow-list. Sign out and contact an owner.
+If you see a message saying your account is not authorized, you are signed in to Google but do not have valid admin claims. Sign out and contact a superadmin.
 
 ## How to sign out
 
@@ -46,8 +58,9 @@ Click the **Sign out** button in the top-right area of the dashboard. After sign
 If you need admin access:
 
 1. Make sure you have a Google account you can use.
-2. Ask an existing owner to add your email address to the admin allow-list. The owner will update `lib/admin-emails.ts`, `firestore.rules`, and `storage.rules`, then redeploy the rules.
-3. Once that is done, sign in at https://deepdivebrewing.com/admin.
+2. Ask an existing superadmin to invite your email address from the **Access** tab.
+3. Once the invitation is created, sign in at https://deepdivebrewing.com/admin with that Google account.
+4. Click **Accept Invitation** when prompted, then sign out and sign back in.
 
 ## Recommended browser and troubleshooting
 
@@ -62,6 +75,7 @@ For detailed login troubleshooting, see [Login and access](./login-and-access.md
 ## Task-specific guides
 
 - [Login and access](./login-and-access.md)
+- [Managing access](./managing-access.md)
 - [Managing beers](./managing-beers.md)
 - [Managing locations](./managing-locations.md)
 - [Images and storage](./images-and-storage.md)

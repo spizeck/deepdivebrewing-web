@@ -41,11 +41,16 @@ Run this checklist after every production deployment or after any significant co
 - [ ] The Google Maps embed renders and shows the brewery location.
 - [ ] WhatsApp, email, hours, and address information are correct.
 
-## Admin login
+## Admin login and access management
 
 - [ ] `https://deepdivebrewing.com/admin` shows the sign-in button.
 - [ ] Clicking **Sign in with Google** opens the Google popup without CSP errors.
-- [ ] An authorized account reaches the dashboard.
+- [ ] A non-approved Google account is rejected.
+- [ ] The bootstrap superadmin can complete setup and reach the dashboard.
+- [ ] A superadmin sees the **Access** tab.
+- [ ] A regular admin does not see the **Access** tab and cannot reach access-management APIs.
+- [ ] A superadmin can invite, disable, reactivate, and revoke a test administrator.
+- [ ] The protected bootstrap superadmin cannot be disabled, demoted, or revoked.
 - [ ] No `frame-src` or `connect-src` CSP violations appear in the console.
 
 ## Trade page

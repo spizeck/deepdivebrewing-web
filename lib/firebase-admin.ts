@@ -1,8 +1,9 @@
 import "server-only";
 import { App, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
 
-let adminApp: App;
+let adminApp: App | undefined;
 
 function getPrivateKey() {
   const key = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
@@ -45,4 +46,8 @@ export function getFirebaseAdminApp(): App {
 
 export function getFirebaseAdminAuth() {
   return getAuth(getFirebaseAdminApp());
+}
+
+export function getFirebaseAdminDb() {
+  return getFirestore(getFirebaseAdminApp());
 }

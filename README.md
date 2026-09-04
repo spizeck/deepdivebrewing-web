@@ -88,6 +88,7 @@ See `.env.local.example` for the complete list. Key variables include:
 - `FIREBASE_ADMIN_CLIENT_EMAIL`
 - `FIREBASE_ADMIN_PRIVATE_KEY`
 - `ADMIN_REBUILD_COOLDOWN_MS` (optional, default `600000`)
+- `SUPER_ADMIN_EMAIL` (server-only; the verified Google account that receives the bootstrap superadmin role)
 
 Never commit real values to source control. `.env.local` is already ignored by Git.
 
@@ -95,7 +96,7 @@ Never commit real values to source control. `.env.local` is already ignored by G
 
 - **Firestore** — beer records, venue records, trade leads metadata, and rebuild audit metadata.
 - **Firebase Storage** — beer card and hero images.
-- **Firebase Authentication** — Google sign-in restricted to an allow-list of admin emails.
+- **Firebase Authentication** — Google sign-in with role-based admin access controlled by Firebase custom claims.
 
 ## Development commands
 
@@ -106,11 +107,11 @@ Never commit real values to source control. `.env.local` is already ignored by G
 | `npm run start` | Start the production server locally |
 | `npm run lint` | Run ESLint |
 | `npx tsc --noEmit` | Run TypeScript type-checking |
+| `npm test` | Run the Node.js test suite |
 | `npm run optimize-assets` | Recompress hero image and generate OG image |
 | `npm run seed:beers` | Seed sample beer data (developer script) |
 | `npm run seed:venues` | Seed sample venue data (developer script) |
-
-> There is no automated test suite currently. Type-checking and linting provide static verification.
+| `npm run bootstrap-superadmin` | Grant the initial superadmin role to `SUPER_ADMIN_EMAIL` (see docs first)
 
 ## Deployment overview
 
@@ -128,6 +129,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 
 - [Admin handbook](./docs/admin/README.md)
 - [Login and access](./docs/admin/login-and-access.md)
+- [Managing access](./docs/admin/managing-access.md)
 - [Managing beers](./docs/admin/managing-beers.md)
 - [Managing locations](./docs/admin/managing-locations.md)
 - [Images and storage](./docs/admin/images-and-storage.md)
@@ -143,7 +145,8 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 
 - No secrets, API keys, or private keys are stored in source control.
 - All sensitive configuration is injected via environment variables.
-- Firebase client configuration values prefixed with `NEXT_PUBLIC_` are safe to expose in the browser; access is controlled by Firebase Security Rules and the admin allow-list.
+- Firebase client configuration values prefixed with `NEXT_PUBLIC_` are safe to expose in the browser; access is controlled by Firebase Security Rules and Firebase custom claims.
+- The bootstrap superadmin email (`SUPER_ADMIN_EMAIL`) is a server-only environment variable and must never be exposed to the browser.
 - The Firebase service-account key (`FIREBASE_ADMIN_PRIVATE_KEY`) must stay in Vercel environment variables and local `.env.local` only.
 
 If you discover a security vulnerability, email **info@deepdivebrewing.com** instead of opening a public issue.

@@ -70,6 +70,7 @@ Examples:
 - `FIREBASE_ADMIN_CLIENT_EMAIL`
 - `FIREBASE_ADMIN_PRIVATE_KEY`
 - `ADMIN_REBUILD_COOLDOWN_MS`
+- `SUPER_ADMIN_EMAIL` — the verified Google account that receives the initial superadmin role
 
 ## How to verify a preview with populated Firebase data
 
@@ -98,7 +99,7 @@ These redirects are defined in `next.config.ts`.
 The admin dashboard has a **Rebuild Site** button. When clicked:
 
 1. The dashboard sends a Firebase ID token to `POST /api/admin/rebuild`.
-2. The server verifies the user is in the admin allow-list.
+2. The server verifies the token and confirms the user has an `admin: true` custom claim and an active `adminUsers` record.
 3. The server calls the Vercel Deploy Hook configured in `VERCEL_DEPLOY_HOOK_URL`.
 4. Vercel starts a new production build.
 5. A cooldown prevents repeated rebuilds. The default cooldown is 10 minutes (`ADMIN_REBUILD_COOLDOWN_MS=600000`).
@@ -114,6 +115,46 @@ The rebuild is needed because the following pages are static and only update at 
 - `sitemap.xml`
 
 Beer detail pages (`/beers/<slug>`) are rendered on demand, so they reflect Firestore changes without a rebuild.
+
+## Initial superadmin migration
+
+After a fresh deployment or before removing the legacy email allow-list, you must establish the bootstrap superadmin using the server-only `SUPER_ADMIN_EMAIL` value.
+
+### Prerequisites
+
+- The `SUPER_ADMIN_EMAIL` environment variable is set in Vercel (or your local `.env.local`).
+- The bootstrap account has already signed in to Google at least once, so it exists in Firebase Authentication.
+- The bootstrap account's email is verified in Firebase Authentication.
+- You have the Firebase Admin SDK credentials configured locally (`FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY`).
+
+### Dry run
+
+```bash
+npm run bootstrap-superadmin -- --dry-run
+```
+
+### Real run
+
+```bash
+npm run bootstrap-superadmin
+```
+
+The script will:
+
+1. Look up the Firebase user whose email matches `SUPER_ADMIN_EMAIL`.
+2. Fail safely if the user does not exist, is not verified, or multiple unexpected issues occur.
+3. Set the custom claim `{ admin: true, role: "superadmin" }`.
+4. Create or update the `adminUsers/{uid}` record as an active superadmin.
+
+After running the script, the bootstrap user must sign out and sign back in at https://deepdivebrewing.com/admin.
+
+### Rollback of the migration
+
+If the wrong account receives superadmin access, a developer can:
+
+1. Use the Firebase Admin SDK or Firebase CLI to clear custom claims for that UID.
+2. Update or delete the corresponding `adminUsers` record in Firestore.
+3. Set the correct `SUPER_ADMIN_EMAIL`, re-run the migration, and ask that user to sign out and back in.
 
 ## Rollback procedure
 

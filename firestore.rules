@@ -6,15 +6,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAuthorizedAdmin() {
-      return isSignedIn() &&
-        request.auth.token.email in [
-          "chadnuttall1@gmail.com",
-          "chad@seasaba.com",
-          "katy@seasaba.com",
-          "knuttall05@gmail.com",
-          "timschwenck@gmail.com"
-        ];
+    function hasAdminClaim() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function hasSuperAdminClaim() {
+      return isSignedIn()
+        && request.auth.token.admin == true
+        && request.auth.token.role == 'superadmin';
     }
 
     function isPublicDoc() {
@@ -22,13 +21,13 @@ service cloud.firestore {
     }
 
     match /beers/{beerId} {
-      allow read: if isPublicDoc() || isAuthorizedAdmin();
-      allow create, update, delete: if isAuthorizedAdmin();
+      allow read: if isPublicDoc() || hasAdminClaim();
+      allow create, update, delete: if hasAdminClaim();
     }
 
     match /venues/{venueId} {
-      allow read: if isPublicDoc() || isAuthorizedAdmin();
-      allow create, update, delete: if isAuthorizedAdmin();
+      allow read: if isPublicDoc() || hasAdminClaim();
+      allow create, update, delete: if hasAdminClaim();
     }
 
     match /tradeLeads/{leadId} {
@@ -49,11 +48,26 @@ service cloud.firestore {
         && request.resource.data.venueType is string
         && request.resource.data.message is string
         && request.resource.data.status == "new";
-      allow read, update, delete: if isAuthorizedAdmin();
+      allow read, update, delete: if hasAdminClaim();
     }
 
     match /meta/{docId} {
-      allow read, write: if isAuthorizedAdmin();
+      allow read, write: if hasAdminClaim();
+    }
+
+    match /adminUsers/{userId} {
+      allow read, write: if hasSuperAdminClaim();
+    }
+
+    match /adminInvitations/{invitationId} {
+      allow read, write: if hasSuperAdminClaim();
+    }
+
+    match /adminAuditLogs/{logId} {
+      allow create: if hasSuperAdminClaim();
+      allow read: if hasSuperAdminClaim();
+      // Audit logs must never be edited or deleted by clients.
+      allow update, delete: if false;
     }
 
     match /{document=**} {
