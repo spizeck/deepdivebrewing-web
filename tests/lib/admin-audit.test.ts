@@ -30,4 +30,19 @@ describe("dropUndefinedValues", () => {
     assert.strictEqual(dropUndefinedValues(null), null);
     assert.strictEqual(dropUndefinedValues(undefined), undefined);
   });
+
+  it("preserves class instances instead of destructuring them", () => {
+    const date = new Date("2025-01-01T00:00:00.000Z");
+    class Box {
+      constructor(public value: unknown) {}
+    }
+    const box = new Box("keep");
+    const result = dropUndefinedValues({
+      date,
+      box,
+      removed: undefined,
+    }) as { date: Date; box: Box };
+    assert.strictEqual(result.date, date);
+    assert.strictEqual(result.box, box);
+  });
 });
