@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
 import type { AdminRole, AdminUserView, AdminInvitationView } from "@/lib/types";
 import type { User } from "firebase/auth";
 
@@ -72,17 +73,68 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
         },
         body: JSON.stringify({ email, role: inviteRole }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        emailSent?: boolean;
+        warning?: string;
+        error?: string;
+      };
       if (!res.ok || !data.ok) {
         onStatusMessage(data.error ?? "Invitation failed.");
         return;
       }
       setInviteEmail("");
-      onStatusMessage(`Invitation sent to ${email} as ${inviteRole}.`);
+      if (data.warning) {
+        onStatusMessage(data.warning);
+      } else if (data.emailSent) {
+        onStatusMessage(`Invitation created and email sent to ${email} as ${inviteRole}.`);
+      } else {
+        onStatusMessage("Invitation created, but the email could not be sent.");
+      }
       await load();
     } catch (error) {
       console.error(error);
       onStatusMessage("Invitation failed. Please try again.");
+    } finally {
+      setActionInProgress(null);
+    }
+  }
+
+  async function resend(invitation: AdminInvitationView) {
+    if (invitation.status !== "pending") return;
+    const actionKey = `resend-${invitation.id}`;
+    if (actionInProgress === actionKey) return;
+
+    setActionInProgress(actionKey);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/admin/invitations/${invitation.id}/resend`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        emailResent?: boolean;
+        warning?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        onStatusMessage(data.error ?? "Resend failed.");
+        return;
+      }
+      if (data.warning) {
+        onStatusMessage(data.warning);
+      } else if (data.emailResent) {
+        onStatusMessage("Invitation email resent.");
+      } else {
+        onStatusMessage(
+          "The email could not be resent. The invitation remains pending."
+        );
+      }
+      await load();
+    } catch (error) {
+      console.error(error);
+      onStatusMessage("Resend failed. Please try again.");
     } finally {
       setActionInProgress(null);
     }
@@ -289,15 +341,34 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
             {invitations.map((invitation) => (
               <li
                 key={invitation.id}
-                className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
                   <p className="font-medium">{invitation.email}</p>
                   <p className="text-sm text-muted-foreground">
-                    Role: {invitation.role} • Invited: {new Date(invitation.createdAt).toLocaleDateString()}
+                    Role: {invitation.role} • Invited: {formatAdminDate(invitation.createdAt)}
+                    {invitation.lastEmailAttemptAt ? (
+                      <>
+                        {" "}
+                        • Last email: {formatAdminDateTime(invitation.lastEmailAttemptAt)}
+                        {invitation.emailStatus ? ` (${invitation.emailStatus})` : ""}
+                      </>
+                    ) : null}
                   </p>
                 </div>
-                <Badge variant="outline">Pending</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">Pending</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={actionInProgress === `resend-${invitation.id}`}
+                    onClick={() => resend(invitation)}
+                  >
+                    {actionInProgress === `resend-${invitation.id}`
+                      ? "Sending..."
+                      : "Resend email"}
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

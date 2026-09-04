@@ -25,6 +25,9 @@ export interface AdminInvitation {
   createdAt: Timestamp;
   acceptedAt?: Timestamp;
   acceptedBy?: string;
+  emailStatus?: "pending" | "sent" | "failed";
+  lastEmailAttemptAt?: Timestamp;
+  messageId?: string;
 }
 
 export interface AdminAuditRecord {
@@ -32,6 +35,7 @@ export interface AdminAuditRecord {
     | "bootstrap"
     | "accept_invitation"
     | "create_invitation"
+    | "resend_invitation"
     | "cancel_invitation"
     | "update_admin"
     | "revoke_admin"
