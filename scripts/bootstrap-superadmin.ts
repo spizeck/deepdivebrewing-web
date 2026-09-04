@@ -96,41 +96,90 @@ async function main() {
     process.exit(0);
   }
 
+  // Set the custom claim first. If the Firestore write/audit fails afterwards,
+  // we roll the claim back to the previous value so the bootstrap is not left
+  // half-applied.
+  const previousClaims = userRecord.customClaims ?? null;
+
   if (needsClaim) {
-    await auth.setCustomUserClaims(userRecord.uid, {
-      admin: true,
-      role: "superadmin",
-    });
-    console.log("Custom claim set.");
+    try {
+      await auth.setCustomUserClaims(userRecord.uid, {
+        admin: true,
+        role: "superadmin",
+      });
+      console.log("Custom claim set.");
+    } catch (error) {
+      console.error(
+        "Failed to set custom claim:",
+        error instanceof Error ? error.message : error
+      );
+      process.exit(1);
+    }
   }
 
-  const now = Timestamp.now();
-  const recordUpdate = {
-    email,
-    role: "superadmin",
-    status: "active",
-    createdAt: recordData?.createdAt ?? now,
-    createdBy: recordData?.createdBy ?? userRecord.uid,
-    updatedAt: now,
-    updatedBy: userRecord.uid,
-    lastLoginAt: now,
-  };
-  await recordRef.set(dropUndefinedValues(recordUpdate) as Record<string, unknown>, { merge: true });
-  console.log("adminUsers record updated.");
+  // Commit the adminUsers record and the audit log in a single Firestore
+  // transaction so an audit-write failure cannot leave the record updated
+  // without an accompanying audit entry.
+  try {
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(recordRef);
+      const currentData = snap.data();
+      const now = Timestamp.now();
 
-  const auditRecord = {
-    action: "bootstrap" as const,
-    targetUid: userRecord.uid,
-    targetEmail: email,
-    newRole: "superadmin" as const,
-    newStatus: "active" as const,
-    actingUid: userRecord.uid,
-    actingEmail: email,
-    metadata: { source: "bootstrap-script" },
-    timestamp: now,
-  };
-  await db.collection("adminAuditLogs").add(dropUndefinedValues(auditRecord) as Record<string, unknown>);
-  console.log("Audit log written.");
+      const recordUpdate = {
+        email,
+        role: "superadmin",
+        status: "active",
+        createdAt: currentData?.createdAt ?? now,
+        createdBy: currentData?.createdBy ?? userRecord.uid,
+        updatedAt: now,
+        updatedBy: userRecord.uid,
+        lastLoginAt: now,
+      };
+      t.set(
+        recordRef,
+        dropUndefinedValues(recordUpdate) as Record<string, unknown>,
+        { merge: true }
+      );
+
+      const auditRef = db.collection("adminAuditLogs").doc();
+      const auditRecord = {
+        action: "bootstrap" as const,
+        targetUid: userRecord.uid,
+        targetEmail: email,
+        newRole: "superadmin" as const,
+        newStatus: "active" as const,
+        actingUid: userRecord.uid,
+        actingEmail: email,
+        metadata: { source: "bootstrap-script", needsClaim },
+        timestamp: now,
+      };
+      t.set(auditRef, dropUndefinedValues(auditRecord) as Record<string, unknown>);
+    });
+    console.log("adminUsers record and audit log written atomically.");
+  } catch (error) {
+    console.error(
+      "Failed to write admin record and audit log:",
+      error instanceof Error ? error.message : error
+    );
+
+    if (needsClaim) {
+      try {
+        await auth.setCustomUserClaims(userRecord.uid, previousClaims);
+        console.log("Rolled back custom claim to previous value.");
+      } catch (rollbackError) {
+        console.error(
+          "Custom claim rollback also failed:",
+          rollbackError instanceof Error ? rollbackError.message : rollbackError
+        );
+        console.error(
+          "The superadmin claim may still be set without a matching adminUsers record or audit log."
+        );
+      }
+    }
+
+    process.exit(1);
+  }
 
   console.log(
     "Bootstrap complete. Ask the superadmin to sign out and sign back in to refresh their ID token."
