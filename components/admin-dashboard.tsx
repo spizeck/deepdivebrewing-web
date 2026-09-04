@@ -99,6 +99,12 @@ export function AdminDashboard() {
   const [role, setRole] = useState<AdminRole | null>(null);
   const [showBootstrap, setShowBootstrap] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const [pendingInvitation, setPendingInvitation] = useState<{
+    id: string;
+    email: string;
+    role: AdminRole;
+  } | null>(null);
+  const [isAcceptingInvitation, setIsAcceptingInvitation] = useState(false);
 
   const beerOptions = useMemo(
     () => beers.map((beer) => ({ slug: beer.slug, name: beer.name })),
@@ -133,7 +139,7 @@ export function AdminDashboard() {
             await loadRebuildMeta();
           } else {
             // The user is signed in but has no admin claim yet. Check whether this account
-            // matches the configured bootstrap superadmin email.
+            // matches the configured bootstrap superadmin email or has a pending invitation.
             const idToken = await nextUser.getIdToken();
             const res = await fetch("/api/admin/me", {
               headers: { Authorization: `Bearer ${idToken}` },
@@ -141,9 +147,12 @@ export function AdminDashboard() {
             const me = (await res.json()) as {
               isAdmin?: boolean;
               isBootstrapEmail?: boolean;
+              pendingInvitation?: { id: string; email: string; role: AdminRole } | null;
             };
             if (!me.isAdmin && me.isBootstrapEmail) {
               setShowBootstrap(true);
+            } else if (!me.isAdmin && me.pendingInvitation) {
+              setPendingInvitation(me.pendingInvitation);
             }
           }
         } catch (error) {
@@ -236,6 +245,7 @@ export function AdminDashboard() {
     setStatusMessage("");
     setRole(null);
     setShowBootstrap(false);
+    setPendingInvitation(null);
   }
 
   async function handleBootstrap() {
@@ -264,6 +274,35 @@ export function AdminDashboard() {
       setStatusMessage("Bootstrap failed. Please try again.");
     } finally {
       setIsBootstrapping(false);
+    }
+  }
+
+  async function handleAcceptInvitation() {
+    if (!user || !pendingInvitation) return;
+    setIsAcceptingInvitation(true);
+    setStatusMessage("");
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/admin/invitations/accept", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = (await res.json()) as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok || !data.ok) {
+        setStatusMessage(data.error ?? "Failed to accept invitation.");
+        return;
+      }
+      setStatusMessage(
+        data.message ?? "Invitation accepted. Sign out and sign back in to continue."
+      );
+      setPendingInvitation(null);
+      // Force a token refresh so the next session will pick up the new claims.
+      await user.getIdToken(true);
+    } catch (error) {
+      console.error(error);
+      setStatusMessage("Failed to accept invitation. Please try again.");
+    } finally {
+      setIsAcceptingInvitation(false);
     }
   }
 
@@ -520,6 +559,7 @@ export function AdminDashboard() {
   }
 
   if (!isAuthorized) {
+    const isActionVisible = showBootstrap || pendingInvitation;
     return (
       <div className="rounded-lg border border-stone bg-paper p-6">
         <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
@@ -537,6 +577,19 @@ export function AdminDashboard() {
               {isBootstrapping ? "Completing setup..." : "Complete Superadmin Setup"}
             </Button>
           </>
+        ) : pendingInvitation ? (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">
+              You have a pending administrator invitation ({pendingInvitation.role}).
+            </p>
+            <Button
+              onClick={handleAcceptInvitation}
+              disabled={isAcceptingInvitation}
+              className="mt-4"
+            >
+              {isAcceptingInvitation ? "Accepting..." : "Accept Invitation"}
+            </Button>
+          </>
         ) : (
           <p className="mt-2 text-sm text-ember">
             {user.email} is not authorized for admin access.
@@ -546,7 +599,7 @@ export function AdminDashboard() {
           Sign out
         </Button>
         {statusMessage && (
-          <p className={`mt-3 text-sm ${showBootstrap ? "text-ocean" : "text-ember"}`}>
+          <p className={`mt-3 text-sm ${isActionVisible ? "text-ocean" : "text-ember"}`}>
             {statusMessage}
           </p>
         )}

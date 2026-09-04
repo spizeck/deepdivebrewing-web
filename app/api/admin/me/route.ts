@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getAdminClaims, verifyAdminIdToken } from "@/lib/admin-auth";
 import { getProtectedAdminEmail, isProtectedAdmin } from "@/lib/admin-common";
 import { getAdminUser } from "@/lib/admin-users";
+import { getPendingInvitationByEmail } from "@/lib/admin-invitations";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
@@ -33,16 +34,24 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // No admin claim yet; indicate whether this account is the configured bootstrap email.
+    // No admin claim yet; indicate whether this account is the configured bootstrap email
+    // or has a pending invitation.
     const isBootstrapEmail =
       !!decoded.email_verified &&
       !!getProtectedAdminEmail() &&
       isProtectedAdmin(decoded.email);
+    const pendingInvitation =
+      decoded.email_verified && decoded.email
+        ? await getPendingInvitationByEmail(decoded.email)
+        : null;
 
     return NextResponse.json({
       ok: true,
       isAdmin: false,
       isBootstrapEmail,
+      pendingInvitation: pendingInvitation
+        ? { id: pendingInvitation.id, email: pendingInvitation.email, role: pendingInvitation.role }
+        : null,
       email: decoded.email,
     });
   } catch (error) {

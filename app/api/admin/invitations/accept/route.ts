@@ -58,14 +58,22 @@ export async function POST(req: NextRequest) {
       role: invitation.role,
     });
 
-    const record = await ensureAdminUser(
-      decoded.uid,
-      decoded.email!,
-      invitation.role,
-      decoded.uid,
-      decoded.name
-    );
-    await markInvitationAccepted(invitation.id, decoded.uid);
+    let record;
+    try {
+      record = await ensureAdminUser(
+        decoded.uid,
+        decoded.email!,
+        invitation.role,
+        decoded.uid,
+        decoded.name
+      );
+      await markInvitationAccepted(invitation.id, decoded.uid);
+    } catch (error) {
+      // Roll back the claim change if we could not create the record or mark the
+      // invitation accepted, so access is not granted without a matching record.
+      await auth.setCustomUserClaims(decoded.uid, null);
+      throw error;
+    }
 
     await logAdminAudit({
       action: "accept_invitation",

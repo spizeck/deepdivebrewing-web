@@ -86,18 +86,26 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     await updateAdminUser(targetUid, updates, decoded.uid);
 
-    // Update custom claims when role or status changes.
-    const auth = getFirebaseAdminAuth();
+    // Synchronize custom claims with the resulting role/status. If the claim change
+    // fails, roll back the Firestore record so claims and record stay consistent.
     if (desiredRole || desiredStatus) {
-      if (desiredStatus === "disabled" || desiredRole === undefined) {
-        // Keep current role in record but remove privileged claims when disabled.
-        // If desiredRole is admin and status active, set admin true.
-        if (desiredStatus === "disabled") {
+      const auth = getFirebaseAdminAuth();
+      const resultingStatus = desiredStatus ?? target.status;
+      const resultingRole = desiredRole ?? target.role;
+
+      try {
+        if (resultingStatus === "disabled") {
           await auth.setCustomUserClaims(targetUid, null);
+        } else {
+          await auth.setCustomUserClaims(targetUid, { admin: true, role: resultingRole });
         }
-      }
-      if (desiredStatus !== "disabled" && desiredRole) {
-        await auth.setCustomUserClaims(targetUid, { admin: true, role: desiredRole });
+      } catch (error) {
+        await updateAdminUser(
+          targetUid,
+          { role: target.role, status: target.status },
+          decoded.uid
+        );
+        throw error;
       }
     }
 
