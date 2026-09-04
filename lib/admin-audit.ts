@@ -1,38 +1,19 @@
 import "server-only";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { dropUndefinedValues } from "@/lib/admin-audit-common";
+import type { AdminAuditRecord } from "@/lib/admin-types";
 import { Timestamp } from "firebase-admin/firestore";
-import type { AdminRole, AdminStatus } from "@/lib/types";
-
-export interface AdminAuditRecord {
-  action:
-    | "bootstrap"
-    | "accept_invitation"
-    | "create_invitation"
-    | "cancel_invitation"
-    | "update_admin"
-    | "revoke_admin"
-    | "refresh_claims";
-  targetUid?: string;
-  targetEmail?: string;
-  oldRole?: AdminRole | null;
-  newRole?: AdminRole | null;
-  oldStatus?: AdminStatus | null;
-  newStatus?: AdminStatus | null;
-  actingUid: string;
-  actingEmail?: string;
-  metadata?: Record<string, unknown>;
-  timestamp: FirebaseFirestore.Timestamp;
-}
 
 const COLLECTION = "adminAuditLogs";
 
 export async function logAdminAudit(
   record: Omit<AdminAuditRecord, "timestamp">
 ): Promise<void> {
+  const sanitized = dropUndefinedValues(record) as Omit<AdminAuditRecord, "timestamp">;
   await getFirebaseAdminDb()
     .collection(COLLECTION)
     .add({
-      ...record,
+      ...sanitized,
       timestamp: Timestamp.now(),
     });
 }

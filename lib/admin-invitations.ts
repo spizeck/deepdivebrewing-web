@@ -1,19 +1,8 @@
 import "server-only";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin";
 import { normalizeEmail } from "@/lib/admin-common";
-import type { AdminRole } from "@/lib/types";
+import type { AdminInvitation, AdminRole } from "@/lib/admin-types";
 import { Timestamp } from "firebase-admin/firestore";
-
-export interface AdminInvitation {
-  id: string;
-  email: string;
-  role: AdminRole;
-  status: "pending" | "accepted" | "cancelled";
-  invitedBy: string;
-  createdAt: FirebaseFirestore.Timestamp;
-  acceptedAt?: FirebaseFirestore.Timestamp;
-  acceptedBy?: string;
-}
 
 const COLLECTION = "adminInvitations";
 

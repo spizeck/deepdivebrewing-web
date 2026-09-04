@@ -11,8 +11,8 @@ import {
   countActiveSuperAdmins,
   getAdminUser,
   updateAdminUser,
-  type AdminUserRecord,
 } from "@/lib/admin-users";
+import type { AdminUserRecord } from "@/lib/admin-types";
 import {
   badRequestResponse,
   getBearerToken,

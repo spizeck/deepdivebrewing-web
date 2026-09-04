@@ -1,21 +1,11 @@
 import "server-only";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin";
-import { normalizeEmail } from "@/lib/admin-common";
-import type { AdminRole, AdminStatus } from "@/lib/types";
+import {
+  buildExistingAdminLoginUpdate,
+  buildNewAdminUserRecord,
+} from "@/lib/admin-users-common";
+import type { AdminRole, AdminUserRecord } from "@/lib/admin-types";
 import { Timestamp } from "firebase-admin/firestore";
-
-export interface AdminUserRecord {
-  uid: string;
-  email: string;
-  displayName?: string;
-  role: AdminRole;
-  status: AdminStatus;
-  createdAt: FirebaseFirestore.Timestamp;
-  createdBy?: string;
-  updatedAt?: FirebaseFirestore.Timestamp;
-  updatedBy?: string;
-  lastLoginAt?: FirebaseFirestore.Timestamp;
-}
 
 const COLLECTION = "adminUsers";
 
@@ -47,26 +37,15 @@ export async function ensureAdminUser(
   const ref = getAdminUsersCollection().doc(uid);
   const existing = await ref.get();
   const now = Timestamp.now();
+
   if (!existing.exists) {
-    const record: Omit<AdminUserRecord, "uid"> = {
-      email: normalizeEmail(email),
-      displayName,
-      role,
-      status: "active",
-      createdAt: now,
-      createdBy: actorUid,
-      updatedAt: now,
-      updatedBy: actorUid,
-      lastLoginAt: now,
-    };
+    const record = buildNewAdminUserRecord(email, role, actorUid, now, displayName);
     await ref.set(record);
     return { uid, ...record };
   }
-  await ref.update({
-    lastLoginAt: now,
-    updatedAt: now,
-    updatedBy: actorUid,
-  });
+
+  const existingData = existing.data() as Partial<AdminUserRecord> | undefined;
+  await ref.update(buildExistingAdminLoginUpdate(existingData, actorUid, now, displayName));
   return getAdminUser(uid) as Promise<AdminUserRecord>;
 }
 
@@ -77,11 +56,27 @@ export async function updateAdminUser(
 ): Promise<void> {
   const ref = getAdminUsersCollection().doc(uid);
   const now = Timestamp.now();
-  await ref.update({
-    ...updates,
+  const payload: Record<string, unknown> = {
     updatedAt: now,
     updatedBy: actorUid,
-  });
+  };
+
+  if (updates.role !== undefined) {
+    payload.role = updates.role;
+  }
+  if (updates.status !== undefined) {
+    payload.status = updates.status;
+  }
+  if (updates.displayName !== undefined) {
+    const trimmed = updates.displayName.trim();
+    if (trimmed) {
+      payload.displayName = trimmed;
+    } else {
+      payload.displayName = "";
+    }
+  }
+
+  await ref.update(payload);
 }
 
 export async function countActiveSuperAdmins(): Promise<number> {
