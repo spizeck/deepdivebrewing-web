@@ -72,4 +72,9 @@ export interface AdminInvitationView {
   status: "pending" | "accepted" | "cancelled";
   invitedBy: string;
   createdAt: string;
+  acceptedAt?: string;
+  acceptedBy?: string;
+  emailStatus?: "pending" | "sent" | "failed";
+  lastEmailAttemptAt?: string;
+  messageId?: string;
 }

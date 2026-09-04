@@ -52,6 +52,29 @@ export async function listPendingInvitations(): Promise<AdminInvitation[]> {
   }));
 }
 
+export async function getInvitationById(
+  id: string
+): Promise<AdminInvitation | null> {
+  const doc = await getAdminInvitationsCollection().doc(id).get();
+  if (!doc.exists) return null;
+  return { id: doc.id, ...(doc.data() as Omit<AdminInvitation, "id">) };
+}
+
+export async function recordInvitationEmailAttempt(
+  id: string,
+  status: "sent" | "failed",
+  messageId?: string
+): Promise<void> {
+  const payload: Record<string, unknown> = {
+    emailStatus: status,
+    lastEmailAttemptAt: Timestamp.now(),
+  };
+  if (messageId) {
+    payload.messageId = messageId;
+  }
+  await getAdminInvitationsCollection().doc(id).update(payload);
+}
+
 export async function markInvitationAccepted(
   invitationId: string,
   acceptedByUid: string

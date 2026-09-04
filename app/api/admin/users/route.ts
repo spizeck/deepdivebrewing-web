@@ -6,11 +6,18 @@ import {
   verifyAdminIdToken,
 } from "@/lib/admin-auth";
 import { logAdminAudit } from "@/lib/admin-audit";
+import { getAdminSiteUrl, sendAdminInvitationEmail } from "@/lib/admin-invitation-email";
 import {
   createInvitation,
+  getInvitationById,
   listPendingInvitations,
+  recordInvitationEmailAttempt,
 } from "@/lib/admin-invitations";
 import { listAdminUsers } from "@/lib/admin-users";
+import {
+  serializeAdminInvitation,
+  serializeAdminUser,
+} from "@/lib/admin-serializers";
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -37,7 +44,11 @@ export async function GET(req: NextRequest) {
       listPendingInvitations(),
     ]);
 
-    return NextResponse.json({ ok: true, users, invitations });
+    return NextResponse.json({
+      ok: true,
+      users: users.map(serializeAdminUser),
+      invitations: invitations.map(serializeAdminInvitation),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load administrators.";
     const status = (error as { status?: number }).status ?? 500;
@@ -75,16 +86,51 @@ export async function POST(req: NextRequest) {
 
     const invitation = await createInvitation(email, role, decoded.uid);
 
+    const emailResult = await sendAdminInvitationEmail(invitation.email, invitation.role);
+
+    await recordInvitationEmailAttempt(
+      invitation.id,
+      emailResult.ok ? "sent" : "failed",
+      emailResult.ok ? emailResult.messageId : undefined
+    );
+
+    const updatedInvitation = await getInvitationById(invitation.id);
+    const view = updatedInvitation
+      ? serializeAdminInvitation(updatedInvitation)
+      : serializeAdminInvitation(invitation);
+
     await logAdminAudit({
       action: "create_invitation",
       targetEmail: email,
       newRole: role,
       actingUid: decoded.uid,
       actingEmail: normalizeEmail(decoded.email),
-      metadata: { invitationId: invitation.id },
+      metadata: {
+        invitationId: invitation.id,
+        emailSent: emailResult.ok,
+        messageId: emailResult.ok ? emailResult.messageId : undefined,
+      },
     });
 
-    return NextResponse.json({ ok: true, invitation });
+    if (emailResult.ok) {
+      return NextResponse.json({
+        ok: true,
+        invitationCreated: true,
+        emailSent: true,
+        invitation: view,
+        adminUrl: `${getAdminSiteUrl()}/admin`,
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      invitationCreated: true,
+      emailSent: false,
+      warning:
+        "Invitation created, but the email could not be delivered. The invitation remains pending.",
+      invitation: view,
+      adminUrl: `${getAdminSiteUrl()}/admin`,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create invitation.";
     const status = (error as { status?: number }).status ?? 500;
