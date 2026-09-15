@@ -118,7 +118,7 @@ Beer detail pages (`/beers/<slug>`) are rendered on demand, so they reflect Fire
 
 ## Initial superadmin migration
 
-After a fresh deployment or before removing the legacy email allow-list, you must establish the bootstrap superadmin using the server-only `SUPER_ADMIN_EMAIL` value.
+On a fresh deployment — or after changing `SUPER_ADMIN_EMAIL` — you must establish the bootstrap superadmin using the server-only `SUPER_ADMIN_EMAIL` value.
 
 ### Prerequisites
 
@@ -195,5 +195,6 @@ You can also check the response headers of the live site for build information, 
 ## Related guides
 
 - [Post-deployment checklist](./post-deployment-checklist.md)
+- [Credential rotation runbook](./credential-rotation.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Admin handbook](../admin/README.md)

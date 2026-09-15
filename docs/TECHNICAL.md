@@ -91,8 +91,9 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   explicit deploy-hook call from the admin dashboard. There is no deployment
   step in CI itself.
 - **Rebuild/deploy-hook behavior.** `app/api/admin/rebuild/route.ts` accepts a
-  Bearer ID token, verifies it with the Admin SDK, requires an active admin
-  (`admin: true` claim plus an enabled `adminUsers` record), applies a
+  Bearer ID token, verifies it with the Admin SDK, requires an `admin: true`
+  claim, and rejects the request when the caller's `adminUsers` record exists
+  with `status === "disabled"` (a missing record is allowed — see §16/#29), applies a
   process-local in-memory cooldown (`ADMIN_REBUILD_COOLDOWN_MS`), and POSTs to
   `VERCEL_DEPLOY_HOOK_URL` (falling back to `VERCEL_REBUILD_DEPLOY_HOOK_URL`)
   with trigger email/role metadata. The cooldown only updates after a
@@ -302,8 +303,9 @@ API routes (with rollback on partial failure — see §7/§8).
   and referenced by path fields (`images.heroPath`, `imagePath`) resolved
   through `beerImageUrl`/the public download URL pattern.
 - **Authentication:** Google sign-in only. Admin status is **not** the Auth
-  account itself — it is the combination of (a) custom claims on the ID token
-  and (b) a matching, enabled `adminUsers` document.
+  account itself — it derives from custom claims on the ID token, with the
+  `adminUsers` document maintained alongside and consulted per-request only
+  by `/api/admin/me` and `/api/admin/rebuild` (see §7).
 - **Security rules** (`firestore.rules`, `storage.rules`): `hasAdminClaim()`
   checks `request.auth.token.admin == true`; `hasSuperAdminClaim()` adds
   `role == 'superadmin'`; `isPublicDoc()` gates public reads of
@@ -330,10 +332,14 @@ The real admin security flow:
    `admin === true` and `role` of `"admin"` or `"superadmin"`. Role gates:
    `admin` may use the dashboard content tools and rebuild; `superadmin` may
    additionally manage administrators and invitations.
-4. **`adminUsers` record:** after claim verification, routes re-check that a
-   matching `adminUsers` doc exists and `status` is `"active"` — a disabled
-   record blocks access even if stale claims remain (claims are also removed on
-   disable, but the record check closes the propagation gap).
+4. **`adminUsers` record:** enforced at grant/revoke time rather than
+   uniformly per request. Bootstrap and invitation acceptance create the
+   record and claims together; disable/revoke clears claims (revoke also
+   revokes refresh tokens). Per request, only `/api/admin/me` and
+   `/api/admin/rebuild` read the caller's record — rejecting
+   `status === "disabled"` — while a *missing* record is allowed, and the
+   superadmin mutation routes rely on claims alone and never read the
+   actor's record. This asymmetry is tracked as a hardening gap — see §16.
 5. **Bootstrap:** `POST /api/admin/bootstrap` with a signed-in user whose email
    equals `SUPER_ADMIN_EMAIL` creates/reconciles the first `superadmin` record
    and sets claims. It attempts to roll back the claim change if Firestore
@@ -428,7 +434,7 @@ All of these live in `components/admin-dashboard.tsx` (client) plus
 | Save beer / venue | Client SDK `setDoc(doc(db, "beers"|"venues", slug), payload, { merge: true })` — doc id is the slug | `hasAdminClaim` in `firestore.rules` |
 | Upload images | Client SDK `uploadBytes` to Storage | `hasAdminClaim` in `storage.rules` |
 | Update rebuild metadata | Client SDK `setDoc` merge on `meta/siteRebuild` (`contentUpdatedAt/By`, `lastTriggeredAt/By`, `cooldownUntil`) | rules gate `meta` to admins |
-| Trigger rebuild | `POST /api/admin/rebuild` with Bearer token | Server: claims + active `adminUsers` + in-memory cooldown → POST to Vercel deploy hook |
+| Trigger rebuild | `POST /api/admin/rebuild` with Bearer token | Server: claims + disabled-`adminUsers` rejection + in-memory cooldown → POST to Vercel deploy hook |
 | Check own status | `GET /api/admin/me` | Server: token verification |
 | Bootstrap first superadmin | `POST /api/admin/bootstrap` | Server: `SUPER_ADMIN_EMAIL` match + claim/record reconcile |
 | Accept invitation | `POST /api/admin/invitations/accept` | Server: transaction + claim assignment + rollback |
@@ -590,20 +596,21 @@ validation); this document describes current behavior only.
 
 | Boundary | Mechanism |
 | --- | --- |
-| Admin identity | Firebase Auth + custom claims (`admin`, `role`) + enabled `adminUsers` record — both checked server-side per request. |
+| Admin identity | Firebase Auth + custom claims (`admin`, `role`) checked server-side per request; the actor's `adminUsers` record is additionally consulted by `/me` and `/rebuild` only (disabled → rejected; missing → allowed — #29). |
 | Privileged server access | Admin SDK in `server-only` modules, initialized from `FIREBASE_ADMIN_*`; never shipped to the client. |
 | Client SDK writes | `firestore.rules` / `storage.rules`: `hasAdminClaim` gates content writes; `adminUsers`/`adminInvitations`/`adminAuditLogs` require `hasSuperAdminClaim` (audit logs immutable — no client update/delete); catch-all denies everything else. |
-| Protected API routes | Every `/api/admin/*` route verifies the Bearer ID token, re-checks claims and `adminUsers` status, applies `admin-policy` guards (superadmin-only mutations, last-superadmin protection). |
-| Rebuild authorization | Same token/claims/record check before the Vercel hook is called; hook URL is a server secret. |
+| Protected API routes | Every `/api/admin/*` route verifies the Bearer ID token and re-checks claims; admin-mutation routes apply `admin-policy` guards (superadmin-only mutations, last-superadmin protection). Only `/me` and `/rebuild` consult the actor's `adminUsers` record. |
+| Rebuild authorization | Token + `admin` claim + disabled-record rejection before the Vercel hook is called; a missing record is permitted today (#29); hook URL is a server secret. |
 | Environment secrets | Server-only vars never prefixed `NEXT_PUBLIC_`; CI uses dummies; `.env.local` is gitignored. |
 | Security headers / CSP | `next.config.ts` `headers()` sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security`, and a CSP allowing self + Firebase/GA/Vercel origins; `redirects()` forces HTTPS + apex domain. |
 | Audit trail | `adminAuditLogs` records sensitive admin actions (best-effort writes). |
 | Spam boundary | Trade form honeypot (fake success) + per-instance in-memory IP rate limit (5/10 min); unauthenticated endpoint writes nothing. |
 
-`SECURITY.md` documents the reporting/rotation policy but is known-stale
-(references a retired email-allowlist model and a maintenance-mode header) —
-**Issue #12** owns that rewrite; this section intentionally only summarizes the
-implemented boundaries.
+`SECURITY.md` documents the vulnerability-reporting policy and the
+public-vs-secret configuration split;
+[`docs/operations/credential-rotation.md`](./operations/credential-rotation.md)
+is the operational rotation/recovery runbook; this section intentionally only
+summarizes the implemented boundaries.
 
 ## 16. Known architecture debt / follow-up work
 
@@ -630,6 +637,12 @@ fixed in this PR.
   coordinate across serverless instances, and the cooldown differs from the
   persisted `meta/siteRebuild.cooldownUntil` bookkeeping. Acceptable at
   current scale; worth revisiting under **#18/#20** follow-ups.
+- **`adminUsers` record is not a uniform per-request invariant**: only
+  `/api/admin/me` and `/api/admin/rebuild` consult the actor's record, and
+  only to reject `status === "disabled"` — a missing record is allowed.
+  The superadmin mutation routes rely on claims alone. A deleted record
+  therefore leaves a claims-holder operational, and a stale token keeps
+  working on claims-only routes until expiry. **Covered by #29.**
 - **`content/` is a dead directory** (`.gitkeep` only); MDX lives under
   `app/(pages)`. Minor cleanup candidate.
 - **No ISR/revalidation strategy**: public content is fully build-time; every
@@ -640,7 +653,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 
 | Issue | Area |
 | --- | --- |
-| #12 | `SECURITY.md` rewrite / credential-rotation docs (stale allowlist + maintenance-mode references confirmed) |
+| #12 | `SECURITY.md` rewrite / credential-rotation docs — **resolved**: `SECURITY.md` rewritten and `docs/operations/credential-rotation.md` added |
 | #13 | Contribution templates |
 | #14 | Dependabot |
 | #16 | Node/runtime normalization — **resolved**: Node 24 via `.nvmrc` + `engines.node` (see §2) |
@@ -651,3 +664,4 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #22 | SEO |
 | #23 | Performance |
 | #24 | Analytics-quality audit |
+| #29 | Harden admin authorization: enforce an active `adminUsers` record (or decide claims-only is intentional) across all protected admin routes |

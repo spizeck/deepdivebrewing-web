@@ -1,57 +1,247 @@
 # Security Policy
 
-> Applies to release **1.01** (`1.0.1`) while project is in maintenance mode.
+This repository is the actively maintained production website and
+content-management application for Deep Dive Brewing Co., live at
+<https://deepdivebrewing.com>. This policy describes the current
+implementation; the code is the final source of truth, and
+[docs/TECHNICAL.md](docs/TECHNICAL.md) is the detailed architecture
+reference.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in this project, please report it responsibly.
+If you discover a security vulnerability, please report it responsibly.
 
-**Do not open a public issue.**
+**Do not open a public GitHub issue, pull request, or discussion for a
+suspected vulnerability.** This is a public repository; a public report
+discloses the issue before it can be fixed.
 
-Instead, contact us directly at the email address associated with this repository. We will acknowledge receipt within 48 hours and work to resolve the issue promptly.
+Instead, email **info@deepdivebrewing.com**.
 
-## Supported Versions
+A useful report includes:
 
-Only the latest deployed version of this site is actively maintained.
+- A description of the vulnerability and its potential impact.
+- The affected area — a URL, route, or component (for example
+  `/api/admin/*`, `firestore.rules`, `storage.rules`, or the trade-inquiry
+  form).
+- Steps to reproduce, including the access level used (anonymous,
+  signed-in non-admin, admin, superadmin).
+- Relevant request/response details, console output, or error messages —
+  with any credentials, tokens, or private keys **redacted**.
+- Whether you were able to read or modify data you should not have been
+  able to.
+
+Never include real secret values in a report.
+
+### What to expect
+
+- We will acknowledge receipt and investigate the report.
+- We may follow up for clarification or reproduction details.
+- We will deploy a fix to production once confirmed and validated.
+- Please allow a reasonable window for investigation and remediation
+  before any public disclosure.
 
 ## Scope
 
 This policy covers:
 
-- The Deep Dive Brewing Co website application
-- Firebase security rules and configuration
-- Environment variable handling
-- Third-party dependency vulnerabilities
+- The Next.js application, including its API routes under `app/api/`.
+- Firebase Authentication, Firestore, and Storage security configuration.
+- The admin access model: custom claims, `adminUsers`, invitations, and
+  audit logs.
+- Environment-variable and secret handling in local development, CI, and
+  Vercel.
+- Third-party dependency vulnerabilities that affect this application.
 
-## Security Practices
+## Security architecture summary
 
-### Environment Variables
+- **Authentication:** Firebase Authentication, Google sign-in only.
+  Signing in proves identity; by itself it grants no access.
+- **Authorization:** custom claims on the Firebase ID token —
+  `{ admin: true, role: "admin" | "superadmin" }` — are the primary
+  per-request check. Every protected API route verifies the Bearer ID
+  token with the Firebase Admin SDK and asserts the required claim. The
+  `adminUsers` record is enforced at grant time (bootstrap and invitation
+  acceptance create the record and the claims together); per request,
+  only `/api/admin/me` and `/api/admin/rebuild` consult the actor's
+  record, and only to reject it when `status === "disabled"` — a missing
+  record is currently treated as authorized (see
+  [Known gaps](#known-gaps)).
+- **Roles:** `admin` manages content and can trigger rebuilds;
+  `superadmin` additionally manages administrators and invitations.
+  Policy guards prevent demoting, disabling, or revoking the last active
+  superadmin and the protected `SUPER_ADMIN_EMAIL` bootstrap account.
+- **Invitations:** `adminInvitations` records track
+  pending/accepted/cancelled state. Superadmins create invitations through
+  `/api/admin/users`; the invite email is sent via Resend; acceptance at
+  `/api/admin/invitations/accept` creates the `adminUsers` record and sets
+  custom claims transactionally, with rollback on partial failure.
+- **Audit trail:** administrative actions are appended to
+  `adminAuditLogs`. Rules allow superadmin create/read but deny all client
+  updates and deletes, so the trail is immutable to clients.
+- **Admin SDK boundary:** `lib/firebase-admin.ts` and the server-side
+  `lib/admin-*.ts` modules are `server-only`. The Admin SDK bypasses
+  Firestore and Storage security rules, so it must never run in client
+  code or be initialized from client-visible configuration.
+- **Client SDK boundary:** public reads of `isPublic` beer/venue
+  documents, plus the admin dashboard's content writes (beers, venues,
+  `meta/siteRebuild`, Storage uploads), are authorized by
+  `firestore.rules` and `storage.rules` via `hasAdminClaim()` /
+  `hasSuperAdminClaim()`. A catch-all rule denies everything else.
+- **Protected admin APIs:** all `/api/admin/*` routes require a verified
+  ID token and valid claims; administrator-mutation routes (`users`,
+  `users/[uid]`, `invitations/[id]/resend`) additionally require the
+  `superadmin` claim and rely on claims alone for the acting user.
+- **Rebuild authorization:** `POST /api/admin/rebuild` verifies the ID
+  token, requires an admin claim, and rejects the caller's `adminUsers`
+  record when `status === "disabled"` before calling the Vercel deploy
+  hook (a *missing* record is permitted today — see
+  [Known gaps](#known-gaps)). The hook URL is a server-only secret, and a
+  per-instance cooldown (`ADMIN_REBUILD_COOLDOWN_MS`) limits trigger
+  frequency.
+- **Security headers:** `next.config.ts` sets a Content-Security-Policy,
+  `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, and HSTS, and enforces HTTPS + apex-domain 308
+  redirects.
+- **UI is not authorization:** the dashboard hides controls a user cannot
+  use, but that is convenience only — enforcement lives in the API routes
+  and the Firebase security rules.
 
-- All Firebase credentials are stored in `.env.local` and never committed to version control.
-- `.env.local` is listed in `.gitignore`.
-- The `.env.local.example` file contains only placeholder keys with no real values.
+See `docs/TECHNICAL.md` §6–§8 and §15 for the full description.
 
-### Firebase
+## Public vs. secret configuration
 
-- Firestore security rules restrict read/write access appropriately.
-- Firebase Admin SDK service account keys (`*firebase-adminsdk*.json`) are excluded from version control via `.gitignore`.
-- Client-side writes are limited to the trade lead inquiry form only.
-- Admin users can write content and update `meta/siteRebuild` for rebuild/audit state.
+### Public client configuration (`NEXT_PUBLIC_*`)
 
-### Dependencies
+These values are embedded in the client bundle and are intentionally
+visible to browsers. They identify the Firebase and analytics projects;
+**they are not authorization secrets** and do not need rotation merely
+because they are publicly visible:
 
-- Dependencies are reviewed and updated regularly.
-- `npm audit` is run as part of routine maintenance.
+- `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`,
+  `NEXT_PUBLIC_FIREBASE_PROJECT_ID`,
+  `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`,
+  `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`,
+  `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
+- `NEXT_PUBLIC_SITE_URL`
+- `NEXT_PUBLIC_GA_ID`
 
-### Deployment
+### Server-only secrets
 
-- Production deployments are managed through Vercel.
-- Environment variables are configured in the Vercel dashboard, not in source code.
-- Rebuilds can be triggered from `/admin` via a protected server endpoint using Firebase ID token verification.
-- Rebuild endpoint security depends on: `VERCEL_DEPLOY_HOOK_URL`, Firebase Admin credentials, and admin email allowlist.
+True secrets and capability URLs. Disclosure of any of these warrants
+rotation — see
+[docs/operations/credential-rotation.md](docs/operations/credential-rotation.md):
 
-## Maintenance / Shelving Expectations
+- `FIREBASE_ADMIN_PRIVATE_KEY` — service-account private key (PEM; stored
+  with `\n` escapes). Grants full Firebase Admin access.
+- `RESEND_API_KEY` — Resend API key. Authorizes sending email.
+- `VERCEL_DEPLOY_HOOK_URL` — capability URL: anyone holding it can trigger
+  a production deploy.
+- `VERCEL_REBUILD_DEPLOY_HOOK_URL` — legacy fallback deploy-hook variable,
+  still supported by the rebuild route; treat identically.
 
-- Keep admin email allowlist current before reactivating edits.
-- Rotate Firebase Admin credentials if repository access changes.
-- Confirm cooldown behavior on the rebuild endpoint after long inactivity.
+### Server-only configuration (sensitive, not credentials)
+
+Not cryptographic secrets, but they must stay out of the client bundle,
+documentation, tests, and logs:
+
+- `FIREBASE_ADMIN_PROJECT_ID` — Admin SDK project id (falls back to
+  `NEXT_PUBLIC_FIREBASE_PROJECT_ID`).
+- `FIREBASE_ADMIN_CLIENT_EMAIL` — service-account email paired with the
+  private key.
+- `SUPER_ADMIN_EMAIL` — the only account `/api/admin/bootstrap` will
+  promote and the email protected from demotion/disable/revocation.
+- `TRADE_INQUIRY_TO_EMAIL` — trade-inquiry recipient inbox.
+- `RESEND_FROM_EMAIL` — trade email sender; fallback invitation sender.
+- `ADMIN_INVITE_FROM_EMAIL` — preferred invitation sender.
+- `ADMIN_REBUILD_COOLDOWN_MS` — rebuild cooldown (default `600000`).
+- `ADMIN_INVITE_RESEND_COOLDOWN_MS` — invitation resend cooldown (default
+  `60000`).
+
+Names and roles are also listed in `.env.local.example` (names only) and
+`docs/TECHNICAL.md` §13. Values are never committed.
+
+## Logging and sensitive data
+
+Never log:
+
+- API keys (`RESEND_API_KEY` or any provider key).
+- Firebase Admin credentials, especially `FIREBASE_ADMIN_PRIVATE_KEY`.
+- Firebase ID tokens, session tokens, or `Authorization` header values.
+- Deploy-hook URLs (`VERCEL_DEPLOY_HOOK_URL`,
+  `VERCEL_REBUILD_DEPLOY_HOOK_URL`).
+- Raw environment dumps (`process.env`, `env`, `printenv`, `.env.local`
+  contents).
+- Customer or private data beyond what an operation genuinely needs
+  (trade-inquiry contents, admin email addresses in unrelated logging).
+
+Accidental-disclosure surfaces to watch: build caches (`.next/`,
+Turbopack/webpack caches), terminal output and scrollback, CI logs,
+screenshots and screen recordings, and AI/agent transcripts. If a secret
+reaches any of these, follow the incident checklist in
+[docs/operations/credential-rotation.md](docs/operations/credential-rotation.md#f-accidental-disclosure-response).
+
+## Local development security
+
+- `.env.local` must remain gitignored. `.gitignore` covers `.env*` and
+  service-account JSON files; only `.env.local.example` (names and
+  placeholders) is committed.
+- Restore a lost or stale `.env.local` from authoritative sources —
+  `vercel env pull` / the Vercel dashboard, the Firebase console, and the
+  Resend dashboard — per
+  [docs/operations/credential-rotation.md](docs/operations/credential-rotation.md#e-local-envlocal-restore).
+- Do not treat `.next/` caches, shell history, or tool output as secret
+  stores; values recovered from them may be stale and should be treated as
+  potentially exposed.
+- Never paste production credentials into committed example files, tests,
+  or fixtures.
+
+## CI security posture
+
+- CI (`.github/workflows/ci.yml`) is intentionally **secret-free**: it
+  runs typecheck, lint, tests, build, and the Markdown-link check with
+  `permissions: contents: read` and no secrets.
+- The build step supplies non-secret dummy values for
+  `NEXT_PUBLIC_FIREBASE_*` and `RESEND_API_KEY` because `next build`
+  evaluates modules that construct Firebase and Resend clients. Do not add
+  real Firebase Admin, Resend, or Vercel secrets to CI merely to make it
+  pass.
+- Issue [#18](https://github.com/spizeck/deepdivebrewing-web/issues/18)
+  owns reducing the need for those dummy build values.
+
+## Firebase security boundaries
+
+- The public `NEXT_PUBLIC_FIREBASE_*` client config only identifies the
+  project. Possessing it grants nothing; `firestore.rules` and
+  `storage.rules` are the authorization boundary for all client SDK
+  traffic.
+- The Admin SDK bypasses security rules entirely, so its credentials and
+  every module that uses them must remain server-only.
+- Admin access is authorized by custom claims on every protected request;
+  the `adminUsers` record is written alongside the claims at grant time
+  and is consulted per-request only by `/api/admin/me` and
+  `/api/admin/rebuild`, where a `disabled` record blocks access. A missing
+  record does not currently block a claims-holder.
+- UI visibility (hidden buttons/tabs) is never an authorization boundary.
+
+### Known gaps
+
+- A deleted or missing `adminUsers` record does not revoke access while
+  the user's custom claims remain valid — and the superadmin mutation
+  routes never read the actor's record, so stale tokens keep working there
+  until expiry. Tracked as a hardening task in issue
+  [#29](https://github.com/spizeck/deepdivebrewing-web/issues/29).
+
+## Dependency and vulnerability maintenance
+
+- CI gates every pull request to `main`: `tsc --noEmit`, ESLint, the
+  `node:test` suite, a production build, and the Markdown-link check.
+- `npm audit` is part of routine dependency maintenance; enabling
+  Dependabot for automated alerts/PRs is tracked under issue
+  [#14](https://github.com/spizeck/deepdivebrewing-web/issues/14).
+
+## Credential rotation and secret recovery
+
+Step-by-step procedures for rotating Resend, Firebase Admin, Vercel
+deploy-hook, and bootstrap configuration — plus `.env.local` recovery and
+accidental-disclosure response — live in
+[docs/operations/credential-rotation.md](docs/operations/credential-rotation.md).
