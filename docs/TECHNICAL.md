@@ -113,20 +113,21 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |
 | `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `trade-leads.ts`, `analytics.ts`, `types.ts`, `utils.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
+| `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
 | `scripts/` | Local/manual tooling: Playwright checks (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `seed-beers.ts`, `seed-venues.ts`. None run in CI except `check-md-links.mjs`. |
 | `docs/` | Admin handbook (`docs/admin/`), operations guides (`docs/operations/`: deployment, troubleshooting, post-deploy checklist), and this file. |
 | `content/` | Legacy placeholder (`.gitkeep` only). MDX content is co-located under `app/(pages)/`; do not add files here expecting them to render. |
 | `firestore.rules`, `storage.rules` | Firebase security rules — see §6/§15. |
 | `firebase.json`, `.firebaserc`, `firestore.indexes.json` | Firebase project config (`deepdive-brewing` project), rules file mapping, and (empty) index config. |
-| `.github/workflows/ci.yml` | CI — Node from `.nvmrc` (24), `npm ci`, typecheck, lint, tests, build, Markdown-link check. |
+| `.github/workflows/ci.yml` | CI — Node from `.nvmrc` (24), `npm ci`, typecheck, lint, unit tests, emulator rules tests (`test:rules`), build, Markdown-link check. |
 | `.env.local.example` | Documented environment variable names (values are never committed). |
 
 **Intentional exception:** `components/admin-dashboard.tsx` performs
 authenticated *client* SDK writes (`setDoc` on `beers`, `venues`,
 `meta/siteRebuild`, and `uploadBytes` to Storage). This is deliberate — it is
-gated by `hasAdminClaim` in the security rules — and is documented in
-`AGENTS.md`. Do not "clean it up" by moving it into `lib/` or API routes
-without an explicit issue.
+gated by the active-admin rules (`hasActiveAdmin`) in `firestore.rules` and
+`storage.rules` — and is documented in `AGENTS.md`. Do not "clean it up" by
+moving it into `lib/` or API routes without an explicit issue.
 
 ## 4. Routing and page model
 
@@ -182,10 +183,11 @@ in code are listed.
 - **Reads:** public server components via client SDK (`lib/beers.ts`:
   `getBeers` — `where("isPublic","==",true)` + `orderBy("sortOrder")`;
   `getBeerBySlug` — `slug` + `isPublic` filters; `beerImageUrl`). Rules allow
-  public reads only of `isPublic` docs; admin-claimed clients can read all,
-  which is how the dashboard lists non-public docs ordered by `sortOrder`.
+  public reads only of `isPublic` docs; active admins (claim + active matching
+  `adminUsers` record) can read all, which is how the dashboard lists
+  non-public docs ordered by `sortOrder`.
 - **Writes:** admin dashboard `setDoc(doc(db,"beers", slug), payload, {merge:true})`
-  (client SDK) — requires `hasAdminClaim` per `firestore.rules`.
+  (client SDK) — requires `hasActiveAdmin` per `firestore.rules`.
 - **Visibility:** public read of `isPublic` docs; admin read-all/write.
 
 ### `venues`
@@ -211,7 +213,7 @@ in code are listed.
   collection via the client SDK, but **no code path calls it** — the form posts
   to `/api/trade-inquiry` which only emails. `firestore.rules` grants
   unauthenticated `create` restricted to exactly the documented fields with
-  `status == "new"`, and `read`/`update`/`delete` to `hasAdminClaim` — so the
+  `status == "new"`, and `read`/`update`/`delete` to `hasActiveAdmin` — so the
   collection is writable by the client if the helper were wired in, but in
   production today it is effectively unused. This is dead-code/discrepancy
   debt — see §11 and §16.
@@ -226,7 +228,7 @@ in code are listed.
   fields when disabled.
 - **Reads/writes:** in practice server-side only via Admin SDK
   (`lib/admin-users.ts` and `app/api/admin/users*`). Rules technically allow
-  `hasSuperAdminClaim()` client read/write, but no client code uses it.
+  `hasActiveSuperAdmin()` client read/write, but no client code uses it.
 - **Visibility:** private (superadmin-only by rules).
 
 ### `adminInvitations`
@@ -239,7 +241,7 @@ in code are listed.
   `lastEmailAttemptAt`, `messageId`).
 - **Reads/writes:** in practice server-side only via Admin SDK
   (`lib/admin-invitations.ts`, `lib/admin-invitation-resend-core.ts`, and the
-  invitation API routes). Rules allow `hasSuperAdminClaim()` client read/write,
+  invitation API routes). Rules allow `hasActiveSuperAdmin()` client read/write,
   but no client code uses it.
 - **Visibility:** private (superadmin-only by rules).
 
@@ -294,24 +296,32 @@ API routes (with rollback on partial failure — see §7/§8).
   access that bypasses security rules.
 - **Firestore:** `beers`/`venues` are publicly readable only where
   `isPublic == true` and admin-writable; `meta` is admin-only; `adminUsers`,
-  `adminInvitations`, and `adminAuditLogs` are superadmin-claim-only in rules
+  `adminInvitations`, and `adminAuditLogs` are superadmin-only in rules
   (audit logs additionally immutable — `update, delete: if false`); in practice
   only Admin SDK server code touches admin collections; `tradeLeads` allows a
   schema-validated public `create`. A catch-all rule denies everything else.
-- **Storage:** `storage.rules` allows public reads and admin writes
-  (`hasAdminClaim`); images are stored under the `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- **Storage:** `storage.rules` allows public reads and active-admin writes
+  (`hasActiveAdmin`); images are stored under the `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
   and referenced by path fields (`images.heroPath`, `imagePath`) resolved
   through `beerImageUrl`/the public download URL pattern.
 - **Authentication:** Google sign-in only. Admin status is **not** the Auth
   account itself — it is the combination of (a) custom claims on the ID token
   and (b) a matching, active `adminUsers` document for the acting user,
-  enforced per request on every privileged route (see §7).
+  enforced per request on every privileged route and client-rules path
+  (see §7).
 - **Security rules** (`firestore.rules`, `storage.rules`): `hasAdminClaim()`
   checks `request.auth.token.admin == true`; `hasSuperAdminClaim()` adds
   `role == 'superadmin'`; `isPublicDoc()` gates public reads of
-  `beers`/`venues`. Storage: world-readable, admin-writable. Rules are the
-  enforcement boundary for client SDK traffic; API routes enforce separately
-  via Admin SDK verification in `lib/admin-auth.ts`.
+  `beers`/`venues`. `hasActiveAdminRecord()` then loads
+  `adminUsers/{request.auth.uid}` via `get()` and requires
+  `status == 'active'` and `role == request.auth.token.role`, composing into
+  `hasActiveAdmin()`/`hasActiveSuperAdmin()` — so the rules enforce the same
+  stale-claim invariant as the API routes. Storage does the equivalent with a
+  cross-service `firestore.get()` against the `(default)` database (deploying
+  it requires granting the Storage service account Firestore read access —
+  the CLI/console prompts on first deploy). Rules are the enforcement
+  boundary for client SDK traffic; API routes enforce separately via Admin
+  SDK verification in `lib/admin-auth.ts`.
 - **Client vs. server boundary:** anything a browser can do directly is
   limited to public reads, admin content writes, and auth. Anything sensitive
   (claim changes, invitations, user listing/disablement, rebuild) goes through
@@ -353,7 +363,13 @@ The real admin security flow:
    (e.g. only superadmins mutate admins; the last active superadmin cannot be
    demoted/disabled).
 7. **Rules enforcement:** client SDK writes from the dashboard are authorized
-   by `hasAdminClaim` in `firestore.rules`/`storage.rules`.
+   by `hasActiveAdmin`/`hasActiveSuperAdmin` in `firestore.rules` (and the
+   cross-service equivalent in `storage.rules`), which require the claim
+   **and** an existing, active, role-matching `adminUsers` record for the
+   acting user. Each privileged request performs one cached `adminUsers`
+   document lookup; batched writes stay well under the per-request access-call
+   limits (10 single-doc / 20 batched in Firestore, 2 cross-service in
+   Storage).
 8. **UI is not a boundary:** the dashboard hides controls based on claims, but
    that is convenience only — an attacker replaying API calls or SDK writes is
    stopped by the server/rules layers, which is why both exist.
@@ -434,10 +450,10 @@ All of these live in `components/admin-dashboard.tsx` (client) plus
 
 | Operation | Mechanism | Enforcement |
 | --- | --- | --- |
-| Load beers/venues | Client SDK reads (all docs, `sortOrder` asc — including non-public) | Rules: public sees `isPublic` only; admin claim reads all |
-| Save beer / venue | Client SDK `setDoc(doc(db, "beers"|"venues", slug), payload, { merge: true })` — doc id is the slug | `hasAdminClaim` in `firestore.rules` |
-| Upload images | Client SDK `uploadBytes` to Storage | `hasAdminClaim` in `storage.rules` |
-| Update rebuild metadata | Client SDK `setDoc` merge on `meta/siteRebuild` (`contentUpdatedAt/By`, `lastTriggeredAt/By`, `cooldownUntil`) | rules gate `meta` to admins |
+| Load beers/venues | Client SDK reads (all docs, `sortOrder` asc — including non-public) | Rules: public sees `isPublic` only; active admin (claim + matching record) reads all |
+| Save beer / venue | Client SDK `setDoc(doc(db, "beers"|"venues", slug), payload, { merge: true })` — doc id is the slug | `hasActiveAdmin` in `firestore.rules` (claim + active matching `adminUsers` record) |
+| Upload images | Client SDK `uploadBytes` to Storage | `hasActiveAdmin` in `storage.rules` (claim + cross-service `firestore.get()` active-record check) |
+| Update rebuild metadata | Client SDK `setDoc` merge on `meta/siteRebuild` (`contentUpdatedAt/By`, `lastTriggeredAt/By`, `cooldownUntil`) | rules gate `meta` to active admins |
 | Trigger rebuild | `POST /api/admin/rebuild` with Bearer token | Server: `requireAdminActor` (claims + active matching `adminUsers` record) + in-memory cooldown → POST to Vercel deploy hook |
 | Check own status | `GET /api/admin/me` | Server: token verification |
 | Bootstrap first superadmin | `POST /api/admin/bootstrap` | Server: `SUPER_ADMIN_EMAIL` match + claim/record reconcile |
@@ -574,18 +590,26 @@ validation); this document describes current behavior only.
   `node --test "tests/**/*.test.ts"`). The glob requires Node ≥ 21 — satisfied
   by the repository's Node 24 runtime (on Node 20 the pattern silently matched
   zero files, which is why the runtime was normalized).
-- **Coverage (79 tests, all in `tests/`):** admin auth/claim parsing
+- **Coverage (87 tests, all in `tests/`):** admin auth/claim parsing
   (`admin-auth`), admin-users record building/serialization, invitation
   policy/email/resend/cooldown logic, audit helpers, `admin-policy` mutation
-  guards, and **rules-content tests** that read `firestore.rules` and
-  `storage.rules` as text and assert required patterns (e.g. `hasAdminClaim`,
-  public-read/admin-write on `beers`/`venues`, admin-collection lockdown,
-  `tradeLeads` create rule). They verify rule *contents*, not live evaluation
-  (no emulator).
+  guards and the `checkAdminActorRecord` active-record policy, and
+  **rules-content tests** that read `firestore.rules` and `storage.rules` as
+  text and assert required patterns.
+- **Emulator rules tests (`rules-tests/`, 27 tests):** `npm run test:rules`
+  wraps `firebase emulators:exec --only firestore,storage` and evaluates the
+  real rules via `@firebase/rules-unit-testing` — active/disabled/missing
+  `adminUsers` records, role mismatches in both directions, unauthenticated
+  and non-admin callers, public reads, the `tradeLeads` schema, superadmin
+  collections, audit immutability, and the Storage cross-service lookup. Each
+  test file uses its own `demo-*` project so parallel `node:test` files never
+  share emulator state. (`firebase-tools` and `@firebase/rules-unit-testing`
+  are devDependencies; Java is required locally for the emulator.)
 - **CI (`.github/workflows/ci.yml`):** on PRs to `main` and pushes to `main` —
-  `npm ci`, `npx tsc --noEmit`, `npm run lint`, `npm test`, `npm run build`
-  (with dummy env), `npm run check:md-links`. `permissions: contents: read`;
-  no secrets, no deploy step.
+  `npm ci`, `npx tsc --noEmit`, `npm run lint`, `npm test`,
+  `npm run test:rules` (Firestore/Storage emulators, no credentials — `demo-*`
+  project IDs), `npm run build` (with dummy env), `npm run check:md-links`.
+  `permissions: contents: read`; no secrets, no deploy step.
 - **Local-only scripts (`scripts/`):** Playwright-based checks
   (`console-check`, `screenshot-check`, `overflow-check`, `hero-video-*`,
   `analytics-check`, `local-admin-check`, `preview-admin-auth-check`),
@@ -602,7 +626,7 @@ validation); this document describes current behavior only.
 | --- | --- |
 | Admin identity | Firebase Auth + custom claims (`admin`, `role`) + an existing, active `adminUsers` record whose role matches the claims — all checked server-side per privileged request via `requireAdminActor`/`requireSuperAdminActor`. |
 | Privileged server access | Admin SDK in `server-only` modules, initialized from `FIREBASE_ADMIN_*`; never shipped to the client. |
-| Client SDK writes | `firestore.rules` / `storage.rules`: `hasAdminClaim` gates content writes; `adminUsers`/`adminInvitations`/`adminAuditLogs` require `hasSuperAdminClaim` (audit logs immutable — no client update/delete); catch-all denies everything else. |
+| Client SDK writes | `firestore.rules` / `storage.rules`: `hasActiveAdmin` gates content reads/writes (claim + existing, active, role-matching `adminUsers` record via `get()`/`firestore.get()`); `adminUsers`/`adminInvitations`/`adminAuditLogs` require `hasActiveSuperAdmin` (audit logs immutable — no client update/delete); catch-all denies everything else. |
 | Protected API routes | Every privileged `/api/admin/*` operation verifies the Bearer ID token, re-checks claims, and requires the actor's `adminUsers` record to be active and role-consistent; admin-mutation routes apply `admin-policy` guards (superadmin-only mutations, last-superadmin protection). Bootstrap and invitation-accept are documented lifecycle exceptions. |
 | Rebuild authorization | `requireAdminActor` check (token + `admin` claim + active matching record) before the Vercel hook is called; hook URL is a server secret. |
 | Environment secrets | Server-only vars never prefixed `NEXT_PUBLIC_`; CI uses dummies; `.env.local` is gitignored. |
@@ -663,3 +687,4 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #23 | Performance |
 | #24 | Analytics-quality audit |
 | #29 | Harden admin authorization — **resolved**: privileged routes now require an active `adminUsers` record with role agreement via `requireAdminActor`/`requireSuperAdminActor` |
+| #30 | Harden Firebase client-write authorization — **resolved**: `firestore.rules`/`storage.rules` now require an active, role-matching `adminUsers` record in addition to claims (Storage via cross-service `firestore.get()`); covered by emulator rules tests |

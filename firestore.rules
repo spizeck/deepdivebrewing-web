@@ -16,18 +16,39 @@ service cloud.firestore {
         && request.auth.token.role == 'superadmin';
     }
 
+    // Client-side mirror of the server invariant in lib/admin-policy.ts
+    // (checkAdminActorRecord): the acting user's adminUsers record must exist,
+    // be active, and carry the same role as the token claims. Embedded token
+    // claims lag server-side role/status changes until the token refreshes, so
+    // a stale claim alone must not authorize a privileged request. A missing
+    // record makes .data null; the field access then errors and the request
+    // is denied. get() calls to the same document are cached within a single
+    // request evaluation, so this costs one document read per request.
+    function hasActiveAdminRecord() {
+      let record = get(/databases/$(database)/documents/adminUsers/$(request.auth.uid)).data;
+      return record.status == 'active' && record.role == request.auth.token.role;
+    }
+
+    function hasActiveAdmin() {
+      return hasAdminClaim() && hasActiveAdminRecord();
+    }
+
+    function hasActiveSuperAdmin() {
+      return hasSuperAdminClaim() && hasActiveAdminRecord();
+    }
+
     function isPublicDoc() {
       return resource.data.isPublic == true;
     }
 
     match /beers/{beerId} {
-      allow read: if isPublicDoc() || hasAdminClaim();
-      allow create, update, delete: if hasAdminClaim();
+      allow read: if isPublicDoc() || hasActiveAdmin();
+      allow create, update, delete: if hasActiveAdmin();
     }
 
     match /venues/{venueId} {
-      allow read: if isPublicDoc() || hasAdminClaim();
-      allow create, update, delete: if hasAdminClaim();
+      allow read: if isPublicDoc() || hasActiveAdmin();
+      allow create, update, delete: if hasActiveAdmin();
     }
 
     match /tradeLeads/{leadId} {
@@ -48,24 +69,24 @@ service cloud.firestore {
         && request.resource.data.venueType is string
         && request.resource.data.message is string
         && request.resource.data.status == "new";
-      allow read, update, delete: if hasAdminClaim();
+      allow read, update, delete: if hasActiveAdmin();
     }
 
     match /meta/{docId} {
-      allow read, write: if hasAdminClaim();
+      allow read, write: if hasActiveAdmin();
     }
 
     match /adminUsers/{userId} {
-      allow read, write: if hasSuperAdminClaim();
+      allow read, write: if hasActiveSuperAdmin();
     }
 
     match /adminInvitations/{invitationId} {
-      allow read, write: if hasSuperAdminClaim();
+      allow read, write: if hasActiveSuperAdmin();
     }
 
     match /adminAuditLogs/{logId} {
-      allow create: if hasSuperAdminClaim();
-      allow read: if hasSuperAdminClaim();
+      allow create: if hasActiveSuperAdmin();
+      allow read: if hasActiveSuperAdmin();
       // Audit logs must never be edited or deleted by clients.
       allow update, delete: if false;
     }

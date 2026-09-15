@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "test:rules": "firebase emulators:exec --only firestore,storage --project demo-deepdivebrewing-web \"node --import tsx --test rules-tests/*.test.ts\"",
     "check:md-links": "node scripts/check-md-links.mjs",
     "seed:beers": "tsx scripts/seed-beers.ts",
     "seed:venues": "tsx scripts/seed-venues.ts",
@@ -38,6 +39,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24",
     "@types/react": "^19",
@@ -45,6 +47,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.2.10",
     "firebase-admin": "^13.10.0",
+    "firebase-tools": "15.29.0",
     "playwright": "^1.62.1",
     "server-only": "^0.0.1",
     "shadcn": "^3.8.4",

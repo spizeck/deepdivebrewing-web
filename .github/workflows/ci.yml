@@ -35,6 +35,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Security rules tests (Firestore/Storage emulators)
+        run: npm run test:rules
+
       - name: Build
         run: npm run build
         env:

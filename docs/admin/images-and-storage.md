@@ -159,6 +159,12 @@ firebase deploy --only storage
 
 or ask a developer to deploy the rules.
 
+> `storage.rules` uses a cross-service `firestore.get()` call to check the
+> uploader's `adminUsers` record. The **first** deploy of these rules prompts
+> (in the CLI or console) to grant the Cloud Storage service account read
+> access to Firestore documents — approve that once, or Storage writes will be
+> denied for everyone.
+
 ### Invalid URL
 
 **Symptom:** The browser tries to load a malformed image URL, or the URL does not point to an existing object.
