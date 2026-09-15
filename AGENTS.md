@@ -31,15 +31,19 @@ Deep Dive Brews, BV.
 - `app/` — App Router routes. `app/(pages)/` holds the public site
   (`/`, `/beers`, `/beers/[slug]`, `/where-to-buy`, `/about`, `/contact`,
   `/privacy`, `/terms`, `/trade`, `/admin`) plus reserved `/trade/*`
-  placeholders. MDX pages are co-located as `page.mdx`.
+  placeholders. Long-form content may be authored in MDX co-located as
+  `page.mdx` (e.g., `/about`); note `/trade` currently contains both
+  `page.tsx` and `page.mdx`, so verify which file actually serves a route
+  before editing.
 - `app/api/` — server routes: `admin/*` (bootstrap, me, users, invitations,
   rebuild) and `trade-inquiry`.
 - `components/` — site and admin UI; `components/ui/` is shadcn primitives.
 - `lib/` — **all** data access and domain logic: Firebase client
   (`firebase.ts`), server-only Admin SDK (`firebase-admin.ts`), data helpers
   (`beers.ts`, `venues.ts`, `trade-leads.ts`), admin domain modules
-  (`admin-*.ts`), analytics, types, utilities. Never put Firestore logic in
-  components.
+  (`admin-*.ts`), analytics, types, utilities. Shared Firestore logic
+  belongs here — the established exception is
+  `components/admin-dashboard.tsx` (see Coding expectations).
 - `content/` — reserved for future standalone content (currently unused).
 - `docs/` — administrator handbook (`docs/admin/`) and operations guides
   (`docs/operations/`). Keep these authoritative.
@@ -74,8 +78,12 @@ Deep Dive Brews, BV.
 - Follow existing TypeScript patterns: explicit types/interfaces for Firestore
   documents, strict mode, avoid `any`, prefer named exports, keep components
   small.
-- Prefer Server Components and static rendering; keep Firestore reads
-  server-side. Client-side writes are limited to the trade-lead form.
+- Prefer Server Components and static rendering; keep public Firestore
+  reads server-side. Client-side writes exist in exactly two places: the
+  trade-lead form and `components/admin-dashboard.tsx`, which intentionally
+  uses the authenticated client SDK (beer/venue saves, rebuild metadata,
+  Storage uploads) gated by `hasAdminClaim` security rules. Do not migrate
+  or "fix" that pattern unless an issue explicitly calls for it.
 - Avoid new abstractions unless they clearly pay for themselves.
 
 ## Security boundaries
