@@ -600,10 +600,11 @@ validation); this document describes current behavior only.
 | Audit trail | `adminAuditLogs` records sensitive admin actions (best-effort writes). |
 | Spam boundary | Trade form honeypot (fake success) + per-instance in-memory IP rate limit (5/10 min); unauthenticated endpoint writes nothing. |
 
-`SECURITY.md` documents the reporting/rotation policy but is known-stale
-(references a retired email-allowlist model and a maintenance-mode header) —
-**Issue #12** owns that rewrite; this section intentionally only summarizes the
-implemented boundaries.
+`SECURITY.md` documents the vulnerability-reporting policy and the
+public-vs-secret configuration split;
+[`docs/operations/credential-rotation.md`](./operations/credential-rotation.md)
+is the operational rotation/recovery runbook; this section intentionally only
+summarizes the implemented boundaries.
 
 ## 16. Known architecture debt / follow-up work
 
@@ -640,7 +641,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 
 | Issue | Area |
 | --- | --- |
-| #12 | `SECURITY.md` rewrite / credential-rotation docs (stale allowlist + maintenance-mode references confirmed) |
+| #12 | `SECURITY.md` rewrite / credential-rotation docs — **resolved**: `SECURITY.md` rewritten and `docs/operations/credential-rotation.md` added |
 | #13 | Contribution templates |
 | #14 | Dependabot |
 | #16 | Node/runtime normalization — **resolved**: Node 24 via `.nvmrc` + `engines.node` (see §2) |

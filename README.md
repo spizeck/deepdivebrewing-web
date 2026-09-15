@@ -141,6 +141,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 
 - [Technical architecture reference](./docs/TECHNICAL.md)
 - [Deployment guide](./docs/operations/deployment.md)
+- [Credential rotation runbook](./docs/operations/credential-rotation.md)
 - [Troubleshooting guide](./docs/operations/troubleshooting.md)
 - [Post-deployment checklist](./docs/operations/post-deployment-checklist.md)
 
@@ -152,7 +153,9 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 - The bootstrap superadmin email (`SUPER_ADMIN_EMAIL`) is a server-only environment variable and must never be exposed to the browser.
 - The Firebase service-account key (`FIREBASE_ADMIN_PRIVATE_KEY`) must stay in Vercel environment variables and local `.env.local` only.
 
-If you discover a security vulnerability, email **info@deepdivebrewing.com** instead of opening a public issue.
+For rotating secrets or responding to accidental exposure, follow the [credential rotation runbook](./docs/operations/credential-rotation.md).
+
+If you discover a security vulnerability, email **info@deepdivebrewing.com** instead of opening a public issue. See [SECURITY.md](./SECURITY.md) for the full policy.
 
 ## Public repository notice
 
