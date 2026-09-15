@@ -69,12 +69,14 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   still build with fallback/empty states — see the code paths in `lib/beers.ts`
   and `lib/venues.ts` and the `Next.js prerendering error` / `permission-denied`
   warnings observed in build logs.
-- **Node runtime.** `README.md` documents Node.js 20+ for local development;
-  `.github/workflows/ci.yml` runs Node 22 because `node --test` glob expansion
-  (used by `npm test`) requires Node ≥ 21 to actually discover tests — on Node
-  20 the pattern matches nothing and the test step silently passes. **This
-  Node-version inconsistency is known debt tracked by Issue #16; this document
-  does not resolve it.**
+- **Node runtime.** The repository is normalized on **Node 24** (active LTS):
+  `.nvmrc` declares `24` and is the single source of truth — CI reads it via
+  `actions/setup-node`'s `node-version-file`, `package.json` declares
+  `engines.node: "24.x"` (also consumed by Vercel), and the Vercel project
+  runs Node 24.x. Node 24 was chosen because it satisfies every dependency
+  floor (`next` ≥ 20.9, `resend` ≥ 20, `firebase-admin` ≥ 18), matches the
+  Vercel production runtime, and correctly expands the `node --test` glob —
+  Node 20 silently matched zero test files. `npm` is the package manager.
 - **Hosting.** Vercel, `deepdivebrewing.com` (and the `www` apex) in front of the
   Next.js app. `next.config.ts` also issues permanent 308 redirects
   (HTTP→HTTPS and `www.`→apex) based on `x-forwarded-proto`/host.
@@ -115,7 +117,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `content/` | Legacy placeholder (`.gitkeep` only). MDX content is co-located under `app/(pages)/`; do not add files here expecting them to render. |
 | `firestore.rules`, `storage.rules` | Firebase security rules — see §6/§15. |
 | `firebase.json`, `.firebaserc`, `firestore.indexes.json` | Firebase project config (`deepdive-brewing` project), rules file mapping, and (empty) index config. |
-| `.github/workflows/ci.yml` | CI — Node 22, `npm ci`, typecheck, lint, tests, build, Markdown-link check. |
+| `.github/workflows/ci.yml` | CI — Node from `.nvmrc` (24), `npm ci`, typecheck, lint, tests, build, Markdown-link check. |
 | `.env.local.example` | Documented environment variable names (values are never committed). |
 
 **Intentional exception:** `components/admin-dashboard.tsx` performs
@@ -559,8 +561,9 @@ validation); this document describes current behavior only.
 ## 14. Testing and verification strategy
 
 - **Runner:** Node's built-in `node:test` with `tsx` (`npm test` runs
-  `node --test "tests/**/*.test.ts"`). The glob requires Node ≥ 21 — one reason
-  CI pins Node 22.
+  `node --test "tests/**/*.test.ts"`). The glob requires Node ≥ 21 — satisfied
+  by the repository's Node 24 runtime (on Node 20 the pattern silently matched
+  zero files, which is why the runtime was normalized).
 - **Coverage (79 tests, all in `tests/`):** admin auth/claim parsing
   (`admin-auth`), admin-users record building/serialization, invitation
   policy/email/resend/cooldown logic, audit helpers, `admin-policy` mutation
@@ -621,8 +624,6 @@ fixed in this PR.
   forces every build to provide a `RESEND_API_KEY` (reason for CI dummies).
   Covered by **#18** (environment/service-init hardening); the invitation
   email module already does lazy init and is the existing pattern to copy.
-- **Node version drift**: README says Node 20+, CI runs Node 22 (test glob
-  needs ≥ 21), no `engines`/`volta`/`.nvmrc` pin. Owned by **#16**.
 - **In-memory, per-instance state**: the rebuild cooldown in
   `/api/admin/rebuild` and the trade-inquiry rate limiter are both
   process-local (`Map`/module state) — they reset on cold start, do not
@@ -642,7 +643,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #12 | `SECURITY.md` rewrite / credential-rotation docs (stale allowlist + maintenance-mode references confirmed) |
 | #13 | Contribution templates |
 | #14 | Dependabot |
-| #16 | Node/runtime normalization (see above) |
+| #16 | Node/runtime normalization — **resolved**: Node 24 via `.nvmrc` + `engines.node` (see §2) |
 | #17 | Deterministic browser smoke tests in CI (Playwright scripts are local-only today) |
 | #18 | Environment/service-initialization hardening (dummy-env build, top-level `new Resend`) |
 | #20 | Observability (only `console.*` logging today; no error tracking/alerts) |

@@ -44,7 +44,8 @@ See the [docs/](./docs/) directory for detailed guides.
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 24 (`.nvmrc` is authoritative — run `nvm use` or `nvm install` to
+  activate it, or install Node 24.x manually)
 - npm
 - A Firebase project with Firestore and Storage enabled
 - Vercel project (for deployment)
