@@ -1,6 +1,6 @@
 import "server-only";
-import { Resend } from "resend";
 import { buildAdminInvitationEmail } from "@/lib/admin-invitation-email-common";
+import { getResendClient } from "@/lib/resend";
 import type {
   ResendEmailResult,
   FailedEmailResult,
@@ -43,7 +43,7 @@ export const sendAdminInvitationEmail: SendEmailFunction = async (
     return { ok: false, error: "Invitation sender email is not configured." };
   }
 
-  const resend = new Resend(apiKey);
+  const resend = getResendClient();
   const adminUrl = `${getAdminSiteUrl()}/admin`;
 
   const { to, from: fromAddress, subject, html, text } = buildAdminInvitationEmail(

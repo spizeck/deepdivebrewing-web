@@ -1,10 +1,10 @@
 import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getFirebaseDb } from "@/lib/firebase";
 import type { Venue } from "@/lib/types";
 
 export async function getVenues(): Promise<Venue[]> {
   const q = query(
-    collection(db, "venues"),
+    collection(getFirebaseDb(), "venues"),
     where("isPublic", "==", true),
     orderBy("sortOrder", "asc")
   );

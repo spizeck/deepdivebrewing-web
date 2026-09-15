@@ -21,7 +21,11 @@ import {
 import { ref, uploadBytes } from "firebase/storage";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { auth, db, storage } from "@/lib/firebase";
+import {
+  getFirebaseAuth,
+  getFirebaseDb,
+  getFirebaseStorage,
+} from "@/lib/firebase";
 import { AdminAccessPanel } from "@/components/admin-access";
 import type { AdminRole, Beer, Venue } from "@/lib/types";
 
@@ -121,7 +125,7 @@ export function AdminDashboard() {
     (!rebuildMeta.lastTriggeredAt || rebuildMeta.contentUpdatedAt > rebuildMeta.lastTriggeredAt);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (nextUser) => {
+    const unsub = onAuthStateChanged(getFirebaseAuth(), async (nextUser) => {
       setUser(nextUser);
       setShowBootstrap(false);
       setRole(null);
@@ -196,8 +200,12 @@ export function AdminDashboard() {
 
   async function loadData() {
     const [beerSnap, venueSnap] = await Promise.all([
-      getDocs(query(collection(db, "beers"), orderBy("sortOrder", "asc"))),
-      getDocs(query(collection(db, "venues"), orderBy("sortOrder", "asc"))),
+      getDocs(
+        query(collection(getFirebaseDb(), "beers"), orderBy("sortOrder", "asc"))
+      ),
+      getDocs(
+        query(collection(getFirebaseDb(), "venues"), orderBy("sortOrder", "asc"))
+      ),
     ]);
 
     const nextBeers = beerSnap.docs.map((d) => d.data() as Beer);
@@ -215,7 +223,7 @@ export function AdminDashboard() {
   }
 
   async function loadRebuildMeta() {
-    const metaSnap = await getDoc(doc(db, "meta", "siteRebuild"));
+    const metaSnap = await getDoc(doc(getFirebaseDb(), "meta", "siteRebuild"));
     if (!metaSnap.exists()) {
       setRebuildMeta({});
       return;
@@ -233,7 +241,7 @@ export function AdminDashboard() {
   async function handleGoogleSignIn() {
     setStatusMessage("");
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider());
     } catch (error) {
       console.error(error);
       setStatusMessage("Sign-in failed. Please try again.");
@@ -241,7 +249,7 @@ export function AdminDashboard() {
   }
 
   async function handleSignOut() {
-    await signOut(auth);
+    await signOut(getFirebaseAuth());
     setStatusMessage("");
     setRole(null);
     setShowBootstrap(false);
@@ -341,7 +349,7 @@ export function AdminDashboard() {
     const email = user?.email ?? "unknown";
 
     await setDoc(
-      doc(db, "meta", "siteRebuild"),
+      doc(getFirebaseDb(), "meta", "siteRebuild"),
       {
         contentUpdatedAt: now,
         contentUpdatedBy: email,
@@ -398,7 +406,7 @@ export function AdminDashboard() {
 
       const lastTriggeredAt = Date.now();
       await setDoc(
-        doc(db, "meta", "siteRebuild"),
+        doc(getFirebaseDb(), "meta", "siteRebuild"),
         {
           cooldownUntil: result.cooldownUntil ?? lastTriggeredAt,
           lastTriggeredAt,
@@ -436,7 +444,9 @@ export function AdminDashboard() {
         ...beerForm,
         tastingNotes: csvToArray(beerTastingNotesInput),
       };
-      await setDoc(doc(db, "beers", payload.slug), payload, { merge: true });
+      await setDoc(doc(getFirebaseDb(), "beers", payload.slug), payload, {
+        merge: true,
+      });
 
       let metadataWarning = "";
       try {
@@ -472,7 +482,9 @@ export function AdminDashboard() {
         tapBeerSlugs: venueTapSelection,
         canBeerSlugs: venueCanSelection,
       };
-      await setDoc(doc(db, "venues", payload.slug), payload, { merge: true });
+      await setDoc(doc(getFirebaseDb(), "venues", payload.slug), payload, {
+        merge: true,
+      });
 
       let metadataWarning = "";
       try {
@@ -506,7 +518,7 @@ export function AdminDashboard() {
 
     setStatusMessage(`Uploading ${kind} image...`);
     try {
-      await uploadBytes(ref(storage, objectPath), file);
+      await uploadBytes(ref(getFirebaseStorage(), objectPath), file);
       setBeerForm((prev) => ({
         ...prev,
         images: {

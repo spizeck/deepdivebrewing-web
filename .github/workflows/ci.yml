@@ -45,20 +45,11 @@ jobs:
         run: npm run test:rules
 
       - name: Build
+        # Service clients initialize lazily, so `next build` needs no
+        # credentials or config placeholders. Firestore reads made during
+        # prerendering resolve empty (offline) when no project config is
+        # present, which is the intended CI behavior.
         run: npm run build
-        env:
-          # Non-secret placeholders: `next build` evaluates modules that
-          # construct Firebase and Resend clients at page-data collection
-          # time, so these values must be present but are never used to
-          # reach real services. No credentials are required for CI.
-          NEXT_PUBLIC_FIREBASE_API_KEY: ci-dummy-api-key
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-dummy.firebaseapp.com
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-dummy-project
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci-dummy.appspot.com
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
-          NEXT_PUBLIC_FIREBASE_APP_ID: 1:000000000000:web:cidummy
-          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: G-CIDUMMY123
-          RESEND_API_KEY: re_ci_dummy_key
 
       - name: Check Markdown links
         run: npm run check:md-links

@@ -5,7 +5,7 @@ import {
   where,
   orderBy,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getFirebaseDb } from "@/lib/firebase";
 import { storageDownloadUrl } from "@/lib/utils";
 import type { Beer } from "@/lib/types";
 
@@ -18,7 +18,7 @@ export function beerImageUrl(path: string): string {
 
 export async function getBeers(): Promise<Beer[]> {
   const q = query(
-    collection(db, "beers"),
+    collection(getFirebaseDb(), "beers"),
     where("isPublic", "==", true),
     orderBy("sortOrder", "asc")
   );
@@ -28,7 +28,7 @@ export async function getBeers(): Promise<Beer[]> {
 
 export async function getBeerBySlug(slug: string): Promise<Beer | null> {
   const q = query(
-    collection(db, "beers"),
+    collection(getFirebaseDb(), "beers"),
     where("slug", "==", slug),
     where("isPublic", "==", true)
   );

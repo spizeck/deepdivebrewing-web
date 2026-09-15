@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
+import { getResendClient } from "@/lib/resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
 const requestLogByIp = new Map<string, number[]>();
@@ -131,7 +130,7 @@ export async function POST(req: NextRequest) {
       </table>
     `;
 
-    const { error } = await resend.emails.send({
+    const { error } = await getResendClient().emails.send({
       from: process.env.RESEND_FROM_EMAIL || "Deep Dive Brewing <DeepDiveBrewing@mail.seasaba.com>",
       to: toEmail,
       replyTo: email,
