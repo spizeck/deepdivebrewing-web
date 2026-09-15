@@ -10,9 +10,28 @@ service firebase.storage {
       return isSignedIn() && request.auth.token.admin == true;
     }
 
+    // Cross-service equivalent of the Firestore/server invariant: the acting
+    // user needs an adminUsers record that exists, is active, and carries the
+    // same role as the token claims. A missing record evaluates .data to null;
+    // the field access then errors and the request is denied. The lookup only
+    // runs after the claim check passes, so unauthenticated requests never
+    // reach Firestore. Only firestore.get() is used — the per-request limit
+    // for cross-service calls is 2, and repeated get() calls to the same
+    // document are cached within one evaluation and count once.
+    // Requires the Storage service account to have Firestore read permission —
+    // the Firebase CLI/console prompts to grant this on first deploy.
+    function adminRecordAllows() {
+      let record = firestore.get(/databases/(default)/documents/adminUsers/$(request.auth.uid)).data;
+      return record.status == 'active' && record.role == request.auth.token.role;
+    }
+
+    function hasActiveAdmin() {
+      return hasAdminClaim() && adminRecordAllows();
+    }
+
     match /{allPaths=**} {
       allow read: if true;
-      allow write: if hasAdminClaim();
+      allow write: if hasActiveAdmin();
     }
   }
 }

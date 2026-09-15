@@ -50,3 +50,10 @@ next-env.d.ts
 # verification screenshots generated locally
 /screenshots
 
+# firebase emulator artifacts
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+firebase-export-*/
+

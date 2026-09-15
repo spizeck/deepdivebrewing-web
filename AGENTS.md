@@ -84,8 +84,10 @@ Deep Dive Brews, BV.
   reads server-side. Client-side writes exist in exactly two places: the
   trade-lead form and `components/admin-dashboard.tsx`, which intentionally
   uses the authenticated client SDK (beer/venue saves, rebuild metadata,
-  Storage uploads) gated by `hasAdminClaim` security rules. Do not migrate
-  or "fix" that pattern unless an issue explicitly calls for it.
+  Storage uploads) gated by the active-admin security rules
+  (`hasActiveAdmin`: claims plus an existing, active, role-matching
+  `adminUsers` record). Do not migrate or "fix" that pattern unless an
+  issue explicitly calls for it.
 - Avoid new abstractions unless they clearly pay for themselves.
 
 ## Security boundaries
@@ -146,6 +148,7 @@ requests and pushes to `main`:
 npx tsc --noEmit        # TypeScript
 npm run lint            # ESLint
 npm test                # node:test suite
+npm run test:rules      # Firestore/Storage emulator rules tests (needs Java)
 npm run build           # production build (needs env values; dummies suffice)
 npm run check:md-links  # relative Markdown links
 ```

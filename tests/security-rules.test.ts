@@ -34,6 +34,24 @@ describe("firestore.rules", () => {
     );
   });
 
+  it("requires an existing active adminUsers record for privileged access", () => {
+    assert.ok(
+      rules.includes("adminUsers/$(request.auth.uid)"),
+      "Expected rules to look up the acting user's adminUsers record"
+    );
+    assert.ok(
+      rules.includes("record.status == 'active'"),
+      "Expected an active-status check on the adminUsers record"
+    );
+  });
+
+  it("requires the adminUsers record role to match the token role", () => {
+    assert.ok(
+      rules.includes("record.role == request.auth.token.role"),
+      "Expected role agreement between record and token claims"
+    );
+  });
+
   it("restricts administrator management to superadmins", () => {
     assert.ok(
       rules.includes("request.auth.token.role == 'superadmin'"),
@@ -63,6 +81,25 @@ describe("storage.rules", () => {
     assert.ok(
       rules.includes("request.auth.token.admin == true"),
       "Expected admin claim check for Storage writes"
+    );
+  });
+
+  it("cross-checks the acting user's active adminUsers record in Firestore", () => {
+    assert.ok(
+      rules.includes("firestore.get("),
+      "Expected cross-service firestore.get() in Storage rules"
+    );
+    assert.ok(
+      rules.includes("adminUsers/$(request.auth.uid)"),
+      "Expected Storage rules to look up the acting user's adminUsers record"
+    );
+    assert.ok(
+      rules.includes("record.status == 'active'"),
+      "Expected an active-status check on the adminUsers record"
+    );
+    assert.ok(
+      rules.includes("record.role == request.auth.token.role"),
+      "Expected role agreement between record and token claims"
     );
   });
 

@@ -88,8 +88,12 @@ This policy covers:
 - **Client SDK boundary:** public reads of `isPublic` beer/venue
   documents, plus the admin dashboard's content writes (beers, venues,
   `meta/siteRebuild`, Storage uploads), are authorized by
-  `firestore.rules` and `storage.rules` via `hasAdminClaim()` /
-  `hasSuperAdminClaim()`. A catch-all rule denies everything else.
+  `firestore.rules` and `storage.rules`. The rules enforce the same
+  invariant as the API routes: valid claims **plus** an existing, active
+  `adminUsers` record whose role matches the claims — so a stale token
+  cannot keep writing after an admin is disabled or demoted. Storage
+  rules do this through a cross-service `firestore.get()` lookup against
+  the `(default)` database. A catch-all rule denies everything else.
 - **Protected admin APIs:** every privileged `/api/admin/*` operation
   requires a verified ID token, valid claims, and an active `adminUsers`
   record for the acting user; administrator-mutation routes (`users`,
@@ -221,7 +225,10 @@ reaches any of these, follow the incident checklist in
   every module that uses them must remain server-only.
 - Admin access requires both valid custom claims and an existing, active
   `adminUsers` record whose role matches the claims; either alone is
-  insufficient on the protected API routes.
+  insufficient — on the protected API routes (`lib/admin-auth.ts`) and in
+  the Firestore/Storage security rules alike. Each privileged request
+  reads the acting user's `adminUsers` document once (repeated lookups to
+  the same document are cached within a single rules evaluation).
 - UI visibility (hidden buttons/tabs) is never an authorization boundary.
 
 ## Dependency and vulnerability maintenance
