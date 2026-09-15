@@ -138,6 +138,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 
 ### For developers and operators
 
+- [Technical architecture reference](./docs/TECHNICAL.md)
 - [Deployment guide](./docs/operations/deployment.md)
 - [Troubleshooting guide](./docs/operations/troubleshooting.md)
 - [Post-deployment checklist](./docs/operations/post-deployment-checklist.md)

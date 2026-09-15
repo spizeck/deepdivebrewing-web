@@ -65,6 +65,7 @@ Deep Dive Brews, BV.
 - **Security/auth rules** must be verified against `firestore.rules`,
   `storage.rules`, and `lib/admin-*.ts` before any modification.
 - High-level docs: `README.md` (overview, setup, commands),
+  `docs/TECHNICAL.md` (detailed architecture reference),
   `docs/` (admin + operations), `SECURITY.md` (vulnerability reporting).
 
 ## Coding expectations
