@@ -22,7 +22,8 @@ Deep Dive Brews, BV.
 - **MDX** via `@next/mdx` for long-form pages
 - **Resend** for transactional email (trade inquiries, admin invitations)
 - **Vercel** hosting, Analytics, and Speed Insights; **GA4** via gtag
-- **Node 20+** required (`npm`, not pnpm/yarn). CI runs on Node 22.
+- **Node 24** required — `.nvmrc` is authoritative (`npm`, not pnpm/yarn).
+  CI and Vercel production run Node 24 as well.
 - **Tests:** Node's built-in `node:test` runner + `tsx` (`tests/**/*.test.ts`)
 - **Lint:** ESLint 9 flat config (`eslint.config.mjs`, `eslint-config-next`)
 
