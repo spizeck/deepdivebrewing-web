@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "check:md-links": "node scripts/check-md-links.mjs",
     "seed:beers": "tsx scripts/seed-beers.ts",
     "seed:venues": "tsx scripts/seed-venues.ts",
     "optimize-assets": "node scripts/optimize-assets.mjs",
