@@ -108,6 +108,7 @@ Never commit real values to source control. `.env.local` is already ignored by G
 | `npm run lint` | Run ESLint |
 | `npx tsc --noEmit` | Run TypeScript type-checking |
 | `npm test` | Run the Node.js test suite |
+| `npm run check:md-links` | Check relative Markdown links resolve |
 | `npm run optimize-assets` | Recompress hero image and generate OG image |
 | `npm run seed:beers` | Seed sample beer data (developer script) |
 | `npm run seed:venues` | Seed sample venue data (developer script) |
