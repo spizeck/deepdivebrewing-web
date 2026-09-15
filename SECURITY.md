@@ -57,15 +57,18 @@ This policy covers:
 - **Authentication:** Firebase Authentication, Google sign-in only.
   Signing in proves identity; by itself it grants no access.
 - **Authorization:** custom claims on the Firebase ID token —
-  `{ admin: true, role: "admin" | "superadmin" }` — are the primary
-  per-request check. Every protected API route verifies the Bearer ID
-  token with the Firebase Admin SDK and asserts the required claim. The
-  `adminUsers` record is enforced at grant time (bootstrap and invitation
-  acceptance create the record and the claims together); per request,
-  only `/api/admin/me` and `/api/admin/rebuild` consult the actor's
-  record, and only to reject it when `status === "disabled"` — a missing
-  record is currently treated as authorized (see
-  [Known gaps](#known-gaps)).
+  `{ admin: true, role: "admin" | "superadmin" }` — plus a matching
+  `adminUsers` record for the acting user that exists, has
+  `status === "active"`, and carries the same role as the claims. Every
+  privileged API route enforces this per request via
+  `requireAdminActor`/`requireSuperAdminActor` in `lib/admin-auth.ts`.
+  Role agreement is required because embedded token claims lag server-side
+  role changes until the token is refreshed — a demoted admin holding a
+  stale token must not keep elevated access. Two lifecycle routes are
+  deliberate exceptions: `/api/admin/bootstrap` (creates the first
+  superadmin, gated by `SUPER_ADMIN_EMAIL`) and
+  `/api/admin/invitations/accept` (creates the record on acceptance, gated
+  by a pending invitation and verified email).
 - **Roles:** `admin` manages content and can trigger rebuilds;
   `superadmin` additionally manages administrators and invitations.
   Policy guards prevent demoting, disabling, or revoking the last active
@@ -87,17 +90,17 @@ This policy covers:
   `meta/siteRebuild`, Storage uploads), are authorized by
   `firestore.rules` and `storage.rules` via `hasAdminClaim()` /
   `hasSuperAdminClaim()`. A catch-all rule denies everything else.
-- **Protected admin APIs:** all `/api/admin/*` routes require a verified
-  ID token and valid claims; administrator-mutation routes (`users`,
+- **Protected admin APIs:** every privileged `/api/admin/*` operation
+  requires a verified ID token, valid claims, and an active `adminUsers`
+  record for the acting user; administrator-mutation routes (`users`,
   `users/[uid]`, `invitations/[id]/resend`) additionally require the
-  `superadmin` claim and rely on claims alone for the acting user.
-- **Rebuild authorization:** `POST /api/admin/rebuild` verifies the ID
-  token, requires an admin claim, and rejects the caller's `adminUsers`
-  record when `status === "disabled"` before calling the Vercel deploy
-  hook (a *missing* record is permitted today — see
-  [Known gaps](#known-gaps)). The hook URL is a server-only secret, and a
-  per-instance cooldown (`ADMIN_REBUILD_COOLDOWN_MS`) limits trigger
-  frequency.
+  `superadmin` role. (`/api/admin/me` also exposes a non-privileged probe
+  path that reports bootstrap eligibility or a pending invitation to
+  signed-in users without claims.)
+- **Rebuild authorization:** `POST /api/admin/rebuild` requires the same
+  token + claims + active-record check before calling the Vercel deploy
+  hook. The hook URL is a server-only secret, and a per-instance cooldown
+  (`ADMIN_REBUILD_COOLDOWN_MS`) limits trigger frequency.
 - **Security headers:** `next.config.ts` sets a Content-Security-Policy,
   `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
   `Permissions-Policy`, and HSTS, and enforces HTTPS + apex-domain 308
@@ -216,20 +219,10 @@ reaches any of these, follow the incident checklist in
   traffic.
 - The Admin SDK bypasses security rules entirely, so its credentials and
   every module that uses them must remain server-only.
-- Admin access is authorized by custom claims on every protected request;
-  the `adminUsers` record is written alongside the claims at grant time
-  and is consulted per-request only by `/api/admin/me` and
-  `/api/admin/rebuild`, where a `disabled` record blocks access. A missing
-  record does not currently block a claims-holder.
+- Admin access requires both valid custom claims and an existing, active
+  `adminUsers` record whose role matches the claims; either alone is
+  insufficient on the protected API routes.
 - UI visibility (hidden buttons/tabs) is never an authorization boundary.
-
-### Known gaps
-
-- A deleted or missing `adminUsers` record does not revoke access while
-  the user's custom claims remain valid — and the superadmin mutation
-  routes never read the actor's record, so stale tokens keep working there
-  until expiry. Tracked as a hardening task in issue
-  [#29](https://github.com/spizeck/deepdivebrewing-web/issues/29).
 
 ## Dependency and vulnerability maintenance
 

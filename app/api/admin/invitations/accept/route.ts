@@ -15,6 +15,11 @@ import {
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
 import { Timestamp } from "firebase-admin/firestore";
 
+// Lifecycle exception: this route intentionally does NOT require an existing
+// active adminUsers record — its purpose is to create that record (and set
+// claims) when an invited user accepts. Authorization is the verified-email +
+// pending-invitation policy in evaluateInvitationAcceptance instead, which
+// still rejects an existing disabled record.
 export async function POST(req: NextRequest) {
   const idToken = getBearerToken(req);
   if (!idToken) return unauthorizedResponse();

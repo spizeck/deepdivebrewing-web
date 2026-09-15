@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { canModifyAdministrator, canRevokeAdministrator } from "@/lib/admin-policy";
+import {
+  canModifyAdministrator,
+  canRevokeAdministrator,
+  checkAdminActorRecord,
+} from "@/lib/admin-policy";
+import type { AdminClaims } from "@/lib/admin-common";
+import type { AdminUserRecord } from "@/lib/admin-types";
 import type { AdminRole, AdminStatus } from "@/lib/types";
 
 const actingUid = "acting-123";
@@ -115,6 +121,83 @@ describe("canRevokeAdministrator", () => {
 
   it("requires superadmin privileges", () => {
     const result = canRevokeAdministrator(ctx({ actingRole: "admin" }));
+    assert.strictEqual(result.allowed, false);
+  });
+});
+
+describe("checkAdminActorRecord", () => {
+  function claims(role: AdminRole): AdminClaims {
+    return { admin: true, role };
+  }
+
+  function record(
+    role: AdminRole,
+    status: AdminStatus = "active"
+  ): Pick<AdminUserRecord, "role" | "status"> {
+    return { role, status };
+  }
+
+  it("allows an active admin record matching admin claims", () => {
+    const result = checkAdminActorRecord({
+      claims: claims("admin"),
+      record: record("admin"),
+    });
+    assert.strictEqual(result.allowed, true);
+  });
+
+  it("allows an active superadmin record matching superadmin claims", () => {
+    const result = checkAdminActorRecord({
+      claims: claims("superadmin"),
+      record: record("superadmin"),
+    });
+    assert.strictEqual(result.allowed, true);
+  });
+
+  it("denies stale admin claims when the record is disabled", () => {
+    const result = checkAdminActorRecord({
+      claims: claims("admin"),
+      record: record("admin", "disabled"),
+    });
+    assert.strictEqual(result.allowed, false);
+    if (!result.allowed) {
+      assert.ok(result.error.toLowerCase().includes("disabled"));
+    }
+  });
+
+  it("denies stale superadmin claims when the record is disabled", () => {
+    const result = checkAdminActorRecord({
+      claims: claims("superadmin"),
+      record: record("superadmin", "disabled"),
+    });
+    assert.strictEqual(result.allowed, false);
+  });
+
+  it("denies admin claims when the record is missing", () => {
+    const result = checkAdminActorRecord({ claims: claims("admin"), record: null });
+    assert.strictEqual(result.allowed, false);
+  });
+
+  it("denies superadmin claims when the record is missing", () => {
+    const result = checkAdminActorRecord({
+      claims: claims("superadmin"),
+      record: null,
+    });
+    assert.strictEqual(result.allowed, false);
+  });
+
+  it("denies a stale elevated superadmin token after demotion to admin", () => {
+    const result = checkAdminActorRecord({
+      claims: claims("superadmin"),
+      record: record("admin"),
+    });
+    assert.strictEqual(result.allowed, false);
+  });
+
+  it("denies a stale admin token after promotion to superadmin", () => {
+    const result = checkAdminActorRecord({
+      claims: claims("admin"),
+      record: record("superadmin"),
+    });
     assert.strictEqual(result.allowed, false);
   });
 });

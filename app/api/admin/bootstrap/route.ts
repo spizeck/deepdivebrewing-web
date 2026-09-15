@@ -9,6 +9,10 @@ import { logAdminAudit } from "@/lib/admin-audit";
 import { ensureAdminUser, updateAdminUser } from "@/lib/admin-users";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
 
+// Lifecycle exception: this route intentionally does NOT require an existing
+// active adminUsers record — its purpose is to create/reconcile the very first
+// superadmin record. Authorization is the verified-email + SUPER_ADMIN_EMAIL
+// match in assertBootstrapEligible instead.
 export async function POST(req: NextRequest) {
   const idToken = getBearerToken(req);
   if (!idToken) {

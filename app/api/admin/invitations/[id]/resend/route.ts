@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
-  assertSuperAdmin,
   normalizeEmail,
-  verifyAdminIdToken,
+  requireSuperAdminActor,
 } from "@/lib/admin-auth";
 import { logAdminAudit } from "@/lib/admin-audit";
 import {
@@ -48,8 +47,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { id: invitationId } = await params;
-    const decoded = await verifyAdminIdToken(idToken);
-    assertSuperAdmin(decoded);
+    const actor = await requireSuperAdminActor(idToken);
 
     const db = getFirebaseAdminDb();
     const invitationRef = db.collection("adminInvitations").doc(invitationId);
@@ -111,8 +109,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           action: "resend_invitation",
           targetEmail: normalizeEmail(invitation.email),
           newRole: invitation.role,
-          actingUid: decoded.uid,
-          actingEmail: normalizeEmail(decoded.email),
+          actingUid: actor.token.uid,
+          actingEmail: normalizeEmail(actor.token.email),
           metadata,
         }),
       logError: console.error,

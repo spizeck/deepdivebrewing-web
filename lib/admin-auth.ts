@@ -7,6 +7,9 @@ import {
   normalizeEmail,
   type AdminClaims,
 } from "@/lib/admin-common";
+import { checkAdminActorRecord } from "@/lib/admin-policy";
+import { getAdminUser } from "@/lib/admin-users";
+import type { AdminUserRecord } from "@/lib/admin-types";
 import type { DecodedIdToken } from "firebase-admin/auth";
 
 export { getAdminClaims, isProtectedAdmin, normalizeEmail };
@@ -41,6 +44,43 @@ export function assertSuperAdmin(token: DecodedIdToken): void {
   if (!claims || claims.role !== "superadmin") {
     throw new AdminAuthError("This action requires superadmin access.", 403);
   }
+}
+
+export interface AdminActor {
+  token: DecodedIdToken;
+  claims: AdminClaims;
+  record: AdminUserRecord;
+}
+
+async function resolveActiveAdminActor(token: DecodedIdToken): Promise<AdminActor> {
+  const claims = getAdminClaims(token);
+  if (!claims) {
+    throw new AdminAuthError("This action requires administrator access.", 403);
+  }
+
+  const record = await getAdminUser(token.uid);
+  const check = checkAdminActorRecord({ claims, record });
+  if (!check.allowed) {
+    throw new AdminAuthError(check.error, 403);
+  }
+
+  return { token, claims, record: record! };
+}
+
+// Central per-request authorization for privileged routes: verified ID token,
+// valid admin claim, and an existing, active adminUsers record whose role
+// matches the claims. Future protected routes should use these helpers rather
+// than re-checking claims alone.
+export async function requireAdminActor(idToken: string): Promise<AdminActor> {
+  const token = await verifyAdminIdToken(idToken);
+  assertAnyAdmin(token);
+  return resolveActiveAdminActor(token);
+}
+
+export async function requireSuperAdminActor(idToken: string): Promise<AdminActor> {
+  const token = await verifyAdminIdToken(idToken);
+  assertSuperAdmin(token);
+  return resolveActiveAdminActor(token);
 }
 
 export function assertBootstrapEligible(token: DecodedIdToken): void {

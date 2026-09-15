@@ -1,4 +1,5 @@
-import { isProtectedAdmin, normalizeEmail } from "@/lib/admin-common";
+import { isProtectedAdmin, normalizeEmail, type AdminClaims } from "@/lib/admin-common";
+import type { AdminUserRecord } from "@/lib/admin-types";
 import type { AdminRole, AdminStatus } from "@/lib/types";
 
 export interface AdminMutationContext {
@@ -56,6 +57,38 @@ export function canModifyAdministrator(ctx: AdminMutationContext): AdminMutation
     };
   }
 
+  return { allowed: true };
+}
+
+export interface AdminActorRecordCheck {
+  claims: AdminClaims;
+  record: Pick<AdminUserRecord, "role" | "status"> | null;
+}
+
+export type AdminActorRecordResult =
+  | { allowed: true }
+  | { allowed: false; error: string };
+
+// Per-request invariant for privileged routes: the acting user's claims must be
+// backed by an adminUsers record that exists, is active, and carries the same
+// role as the claims. Role agreement matters because embedded token claims lag
+// server-side role changes until the token is refreshed — a demoted superadmin
+// holding a stale superadmin token must not retain elevated access.
+export function checkAdminActorRecord(
+  check: AdminActorRecordCheck
+): AdminActorRecordResult {
+  if (!check.record) {
+    return { allowed: false, error: "Administrator access is no longer active." };
+  }
+  if (check.record.status !== "active") {
+    return { allowed: false, error: "Administrator account is disabled." };
+  }
+  if (check.record.role !== check.claims.role) {
+    return {
+      allowed: false,
+      error: "Administrator role is out of date. Sign out and sign back in.",
+    };
+  }
   return { allowed: true };
 }
 

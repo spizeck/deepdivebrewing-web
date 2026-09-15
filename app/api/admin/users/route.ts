@@ -1,9 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
-  assertSuperAdmin,
   isProtectedAdmin,
   normalizeEmail,
-  verifyAdminIdToken,
+  requireSuperAdminActor,
 } from "@/lib/admin-auth";
 import { logAdminAudit } from "@/lib/admin-audit";
 import { getAdminSiteUrl, sendAdminInvitationEmail } from "@/lib/admin-invitation-email";
@@ -37,8 +36,7 @@ export async function GET(req: NextRequest) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    const decoded = await verifyAdminIdToken(idToken);
-    assertSuperAdmin(decoded);
+    await requireSuperAdminActor(idToken);
 
     const [users, invitations] = await Promise.all([
       listAdminUsers(),
@@ -69,8 +67,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const decoded = await verifyAdminIdToken(idToken);
-    assertSuperAdmin(decoded);
+    const actor = await requireSuperAdminActor(idToken);
 
     const email = normalizeEmail(String(body.email ?? ""));
     const role = body.role;
@@ -85,7 +82,7 @@ export async function POST(req: NextRequest) {
       return forbiddenResponse("The protected bootstrap superadmin cannot be invited again.");
     }
 
-    const invitation = await createInvitation(email, role, decoded.uid);
+    const invitation = await createInvitation(email, role, actor.token.uid);
 
     const emailResult = await sendAdminInvitationEmail(invitation.email, invitation.role);
 
@@ -117,8 +114,8 @@ export async function POST(req: NextRequest) {
         action: "create_invitation",
         targetEmail: email,
         newRole: role,
-        actingUid: decoded.uid,
-        actingEmail: normalizeEmail(decoded.email),
+        actingUid: actor.token.uid,
+        actingEmail: normalizeEmail(actor.token.email),
         metadata: {
           invitationId: invitation.id,
           emailSent: emailResult.ok,

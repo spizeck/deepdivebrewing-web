@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertAnyAdmin, getAdminClaims, normalizeEmail, verifyAdminIdToken } from "@/lib/admin-auth";
-import { getAdminUser } from "@/lib/admin-users";
+import { normalizeEmail, requireAdminActor } from "@/lib/admin-auth";
 import { getBearerToken } from "@/lib/api-auth";
 
 const REBUILD_COOLDOWN_MS = Number(
@@ -51,26 +50,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const decoded = await verifyAdminIdToken(idToken);
-    assertAnyAdmin(decoded);
-
-    const adminRecord = await getAdminUser(decoded.uid);
-    if (adminRecord?.status === "disabled") {
-      return NextResponse.json(
-        { ok: false, error: "Administrator account is disabled." },
-        { status: 403 }
-      );
-    }
-
-    const claims = getAdminClaims(decoded)!;
-    const email = normalizeEmail(decoded.email);
+    // Verified token + admin claim + existing active adminUsers record with a
+    // matching role (see requireAdminActor).
+    const actor = await requireAdminActor(idToken);
+    const email = normalizeEmail(actor.token.email);
 
     const hookResponse = await fetch(deployHookUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ trigger: "admin-dashboard", email, role: claims.role }),
+      body: JSON.stringify({ trigger: "admin-dashboard", email, role: actor.claims.role }),
     });
 
     if (!hookResponse.ok) {
