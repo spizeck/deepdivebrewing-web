@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getAdminClaims, verifyAdminIdToken } from "@/lib/admin-auth";
 import { getProtectedAdminEmail, isProtectedAdmin } from "@/lib/admin-common";
+import { checkAdminActorRecord } from "@/lib/admin-policy";
 import { getAdminUser } from "@/lib/admin-users";
 import { getPendingInvitationByEmail } from "@/lib/admin-invitations";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
@@ -17,9 +18,18 @@ export async function GET(req: NextRequest) {
     const adminRecord = await getAdminUser(decoded.uid);
 
     if (claims) {
-      if (adminRecord?.status === "disabled") {
+      // Claims alone are not sufficient: the record must exist, be active, and
+      // agree on role (same invariant as requireAdminActor).
+      const check = checkAdminActorRecord({ claims, record: adminRecord });
+      if (!check.allowed) {
         return NextResponse.json(
-          { ok: false, isAdmin: false, disabled: true, email: decoded.email },
+          {
+            ok: false,
+            isAdmin: false,
+            disabled: adminRecord?.status === "disabled",
+            error: check.error,
+            email: decoded.email,
+          },
           { status: 403 }
         );
       }

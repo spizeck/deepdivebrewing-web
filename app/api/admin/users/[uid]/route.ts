@@ -1,9 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
-  assertSuperAdmin,
-  getAdminClaims,
   normalizeEmail,
-  verifyAdminIdToken,
+  requireSuperAdminActor,
 } from "@/lib/admin-auth";
 import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
 import { logAdminAudit } from "@/lib/admin-audit";
@@ -37,10 +35,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { uid: targetUid } = await params;
-    const decoded = await verifyAdminIdToken(idToken);
-    assertSuperAdmin(decoded);
+    const actor = await requireSuperAdminActor(idToken);
 
-    const actingClaims = getAdminClaims(decoded)!;
+    const actingClaims = actor.claims;
     const target = await getAdminUser(targetUid);
     if (!target) {
       return badRequestResponse("Administrator record not found.");
@@ -61,7 +58,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         : await countActiveSuperAdmins();
 
       const mutation = canModifyAdministrator({
-        actingUid: decoded.uid,
+        actingUid: actor.token.uid,
         actingRole: actingClaims.role,
         targetUid: target.uid,
         targetEmail: target.email,
@@ -84,7 +81,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (desiredRole) updates.role = desiredRole;
     if (desiredStatus) updates.status = desiredStatus;
 
-    await updateAdminUser(targetUid, updates, decoded.uid);
+    await updateAdminUser(targetUid, updates, actor.token.uid);
 
     // Synchronize custom claims with the resulting role/status. If the claim change
     // fails, roll back the Firestore record so claims and record stay consistent.
@@ -103,7 +100,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         await updateAdminUser(
           targetUid,
           { role: target.role, status: target.status },
-          decoded.uid
+          actor.token.uid
         );
         throw error;
       }
@@ -117,8 +114,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       newRole: desiredRole ?? target.role,
       oldStatus: target.status,
       newStatus: desiredStatus ?? target.status,
-      actingUid: decoded.uid,
-      actingEmail: normalizeEmail(decoded.email),
+      actingUid: actor.token.uid,
+      actingEmail: normalizeEmail(actor.token.email),
     });
 
     return NextResponse.json({ ok: true });
@@ -135,10 +132,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { uid: targetUid } = await params;
-    const decoded = await verifyAdminIdToken(idToken);
-    assertSuperAdmin(decoded);
+    const actor = await requireSuperAdminActor(idToken);
 
-    const actingClaims = getAdminClaims(decoded)!;
+    const actingClaims = actor.claims;
     const target = await getAdminUser(targetUid);
     if (!target) {
       return badRequestResponse("Administrator record not found.");
@@ -146,7 +142,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const activeSuperAdminCount = await countActiveSuperAdmins();
     const mutation = canRevokeAdministrator({
-      actingUid: decoded.uid,
+      actingUid: actor.token.uid,
       actingRole: actingClaims.role,
       targetUid: target.uid,
       targetEmail: target.email,
@@ -162,7 +158,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const auth = getFirebaseAdminAuth();
     await auth.setCustomUserClaims(targetUid, null);
     await auth.revokeRefreshTokens(targetUid);
-    await updateAdminUser(targetUid, { status: "disabled" }, decoded.uid);
+    await updateAdminUser(targetUid, { status: "disabled" }, actor.token.uid);
 
     await logAdminAudit({
       action: "revoke_admin",
@@ -171,8 +167,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       oldRole: target.role,
       oldStatus: target.status,
       newStatus: "disabled",
-      actingUid: decoded.uid,
-      actingEmail: normalizeEmail(decoded.email),
+      actingUid: actor.token.uid,
+      actingEmail: normalizeEmail(actor.token.email),
     });
 
     return NextResponse.json({ ok: true });

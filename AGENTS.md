@@ -110,9 +110,15 @@ identifies the project; access is enforced by `firestore.rules`,
 Admin access uses **Firebase Authentication (Google sign-in)** on the client
 plus **server-enforced authorization**: API routes verify the Firebase ID
 token with the Admin SDK and require custom claims
-(`{ admin: true, role: "admin" | "superadmin" }`), backed by the `adminUsers`,
-`adminInvitations`, and `adminAuditLogs` Firestore collections and matching
-security rules. Bootstrap is gated by the server-only `SUPER_ADMIN_EMAIL`.
+(`{ admin: true, role: "admin" | "superadmin" }`) **plus an existing, active
+`adminUsers` record for the acting user whose role matches the claims** —
+enforced centrally by `requireAdminActor`/`requireSuperAdminActor` in
+`lib/admin-auth.ts` (`checkAdminActorRecord` in `lib/admin-policy.ts`), backed
+by the `adminUsers`, `adminInvitations`, and `adminAuditLogs` Firestore
+collections and matching security rules. Bootstrap is gated by the
+server-only `SUPER_ADMIN_EMAIL`; `admin/bootstrap` and
+`admin/invitations/accept` are documented lifecycle exceptions that create
+the record.
 
 The following are security-sensitive and require **tests** when changed:
 custom-claim checks, superadmin/admin role boundaries, the invitation
