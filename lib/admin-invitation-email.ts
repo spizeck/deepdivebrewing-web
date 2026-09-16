@@ -1,6 +1,7 @@
 import "server-only";
 import { buildAdminInvitationEmail } from "@/lib/admin-invitation-email-common";
 import { getResendClient } from "@/lib/resend";
+import { logError } from "@/lib/log";
 import type {
   ResendEmailResult,
   FailedEmailResult,
@@ -34,12 +35,16 @@ export const sendAdminInvitationEmail: SendEmailFunction = async (
   const from = getAdminInviteFromEmail();
 
   if (!apiKey) {
-    console.error("Resend API key is not configured.");
+    logError("admin_invitation_email.misconfigured", undefined, {
+      missing: "RESEND_API_KEY",
+    });
     return { ok: false, error: "Email service is not configured." };
   }
 
   if (!from) {
-    console.error("Admin invitation sender email is not configured.");
+    logError("admin_invitation_email.misconfigured", undefined, {
+      missing: "ADMIN_INVITE_FROM_EMAIL or RESEND_FROM_EMAIL",
+    });
     return { ok: false, error: "Invitation sender email is not configured." };
   }
 
@@ -65,7 +70,7 @@ export const sendAdminInvitationEmail: SendEmailFunction = async (
     });
 
     if (error) {
-      console.error("Resend invitation email error:", error);
+      logError("admin_invitation_email.send_rejected", error);
       return { ok: false, error: "Resend rejected the email request." };
     }
 
@@ -75,7 +80,7 @@ export const sendAdminInvitationEmail: SendEmailFunction = async (
 
     return { ok: true, messageId: data.id };
   } catch (sendError) {
-    console.error("Resend invitation send exception:", sendError);
+    logError("admin_invitation_email.send_exception", sendError);
     return {
       ok: false,
       error: "An unexpected error occurred while sending the invitation email.",

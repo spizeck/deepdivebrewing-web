@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeEmail, requireAdminActor } from "@/lib/admin-auth";
 import { getBearerToken } from "@/lib/api-auth";
+import { apiErrorResponse } from "@/lib/api-error";
+import { getRequestId, logError, logInfo } from "@/lib/log";
 
 const REBUILD_COOLDOWN_MS = Number(
   process.env.ADMIN_REBUILD_COOLDOWN_MS ?? 10 * 60 * 1000
@@ -8,12 +10,18 @@ const REBUILD_COOLDOWN_MS = Number(
 let cooldownUntil = 0;
 
 export async function POST(req: NextRequest) {
+  const requestId = getRequestId(req.headers);
   try {
     const deployHookUrl =
       process.env.VERCEL_DEPLOY_HOOK_URL?.trim() ||
       process.env.VERCEL_REBUILD_DEPLOY_HOOK_URL?.trim() ||
       "";
     if (!deployHookUrl) {
+      // Names only — never log the hook URL value itself.
+      logError("admin_rebuild.misconfigured", undefined, {
+        missing: "VERCEL_DEPLOY_HOOK_URL",
+        requestId,
+      });
       return NextResponse.json(
         {
           ok: false,
@@ -64,12 +72,16 @@ export async function POST(req: NextRequest) {
     });
 
     if (!hookResponse.ok) {
-      const errorText = await hookResponse.text();
+      // Log only the upstream status — the response body could echo the
+      // deploy-hook URL and is not needed for diagnosis.
+      logError("admin_rebuild.hook_failed", undefined, {
+        upstreamStatus: hookResponse.status,
+        requestId,
+      });
       return NextResponse.json(
         {
           ok: false,
           error: "Vercel deploy hook failed.",
-          details: errorText,
         },
         { status: 502 }
       );
@@ -78,15 +90,22 @@ export async function POST(req: NextRequest) {
     const nextCooldownUntil = Date.now() + REBUILD_COOLDOWN_MS;
     cooldownUntil = nextCooldownUntil;
 
+    logInfo("admin_rebuild.triggered", {
+      uid: actor.token.uid,
+      role: actor.claims.role,
+      requestId,
+    });
+
     return NextResponse.json({
       ok: true,
       cooldownUntil: nextCooldownUntil,
       message: "Rebuild triggered successfully.",
     });
   } catch (error) {
-    console.error("Rebuild trigger error:", error);
-    const message = error instanceof Error ? error.message : "Failed to trigger rebuild.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to trigger rebuild.",
+      event: "admin_rebuild.unexpected",
+      context: { requestId },
+    });
   }
 }
