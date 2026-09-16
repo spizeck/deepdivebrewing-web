@@ -13,8 +13,8 @@ credential rotation unless a procedure below explicitly says so.
 
 | Value | Authoritative source |
 | --- | --- |
-| `RESEND_API_KEY` | Resend dashboard (or the Vercel-managed Resend integration, if the project uses it) |
-| `RESEND_FROM_EMAIL`, `ADMIN_INVITE_FROM_EMAIL` | Verified sender domain in Resend + Vercel env vars |
+| `RESEND_API_KEY` | Vercel-managed Resend integration (injected into the project; managed from the integration's Resend settings) |
+| `RESEND_FROM_EMAIL`, `ADMIN_INVITE_FROM_EMAIL` | Verified sender domain (`mail.deepdivebrewing.com`) + Vercel env vars |
 | `FIREBASE_ADMIN_*` | Firebase console → Project settings → Service accounts (key pair lives in Google Cloud IAM) |
 | `VERCEL_DEPLOY_HOOK_URL` | Vercel project → Settings → Git → Deploy Hooks |
 | `SUPER_ADMIN_EMAIL`, cooldowns, `TRADE_INQUIRY_TO_EMAIL` | Vercel environment variables (no external issuer) |
@@ -54,24 +54,29 @@ credential rotation unless a procedure below explicitly says so.
 ## A. Resend — `RESEND_API_KEY` and sender configuration
 
 **Consumers:** `app/api/trade-inquiry/route.ts` (trade inquiries) and
-`lib/admin-invitation-email.ts` (admin invitations). Sender identity comes
-from `RESEND_FROM_EMAIL` (trade; fallback for invitations) and
-`ADMIN_INVITE_FROM_EMAIL` (invitations, preferred).
+`lib/admin-invitation-email.ts` (admin invitations). Sender identity is
+resolved centrally in `lib/resend-config.ts`: `ADMIN_INVITE_FROM_EMAIL`
+(invitations, preferred) → `RESEND_FROM_EMAIL` (shared override) → the
+built-in default `noreply@mail.deepdivebrewing.com` on the verified
+sending domain.
 
-The project may use a standalone Resend account or the Vercel-managed
-Resend integration — the steps are the same either way; only the console
-location differs.
+`RESEND_API_KEY` is supplied by the **Vercel-managed Resend integration**,
+which also injects `RESEND_EMAIL_DOMAIN` (`mail.deepdivebrewing.com`) —
+the app intentionally does not consume it, since explicit sender
+addresses are clearer than composing one from the domain.
 
 ### Steps
 
-1. Create a **new** API key in the Resend console (or the Vercel
-   integration's Resend settings). Choose the least-privilege scope
-   available (sending only — the app never reads via the API).
-2. Update `RESEND_API_KEY` in the Vercel dashboard for every scope that
-   sends email — at minimum **Production**; Preview/Development as needed.
-   (Under the Vercel integration this may surface as a managed variable;
-   update it there.)
-3. Update `.env.local` on each development machine.
+1. Rotate the API key from the Vercel Resend integration's settings (the
+   integration manages `RESEND_API_KEY` for the project). Choose the
+   least-privilege scope available (sending only — the app never reads
+   via the API).
+2. Confirm the integration has re-synced the variable to every scope
+   that sends email — at minimum **Production**; Preview/Development as
+   needed.
+3. Update `.env.local` on each development machine (local dev still uses
+   a manually created key — the integration does not inject into
+   `.env.local`).
 4. Redeploy production (push to `main`, or trigger a rebuild) so the new
    value reaches the serverless functions.
 5. Verify (below), **then** revoke the old key in the Resend console.
@@ -81,6 +86,9 @@ location differs.
 - Verify the new sending domain/address in Resend **before** pointing
   `RESEND_FROM_EMAIL` or `ADMIN_INVITE_FROM_EMAIL` at it — unverified
   senders fail at send time.
+- If neither variable is set, mail sends from
+  `noreply@mail.deepdivebrewing.com` — valid only while that domain stays
+  verified in the Resend account.
 - Update the variables in Vercel and `.env.local`, redeploy, and verify
   both email flows.
 

@@ -140,7 +140,8 @@ rotation — see
 
 - `FIREBASE_ADMIN_PRIVATE_KEY` — service-account private key (PEM; stored
   with `\n` escapes). Grants full Firebase Admin access.
-- `RESEND_API_KEY` — Resend API key. Authorizes sending email.
+- `RESEND_API_KEY` — Resend API key. Authorizes sending email. Supplied by
+  the Vercel-managed Resend integration in deployed environments.
 - `VERCEL_DEPLOY_HOOK_URL` — capability URL: anyone holding it can trigger
   a production deploy.
 - `VERCEL_REBUILD_DEPLOY_HOOK_URL` — legacy fallback deploy-hook variable,
@@ -158,7 +159,9 @@ documentation, tests, and logs:
 - `SUPER_ADMIN_EMAIL` — the only account `/api/admin/bootstrap` will
   promote and the email protected from demotion/disable/revocation.
 - `TRADE_INQUIRY_TO_EMAIL` — trade-inquiry recipient inbox.
-- `RESEND_FROM_EMAIL` — trade email sender; fallback invitation sender.
+- `RESEND_FROM_EMAIL` — shared default sender (trade emails; fallback for
+  invitations). Optional — senders resolve to `noreply@mail.deepdivebrewing.com`
+  when unset.
 - `ADMIN_INVITE_FROM_EMAIL` — preferred invitation sender.
 - `ADMIN_REBUILD_COOLDOWN_MS` — rebuild cooldown (default `600000`).
 - `ADMIN_INVITE_RESEND_COOLDOWN_MS` — invitation resend cooldown (default
