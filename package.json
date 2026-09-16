@@ -13,6 +13,7 @@
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "test:rules": "firebase emulators:exec --only firestore,storage --project demo-deepdivebrewing-web \"node --import tsx --test rules-tests/*.test.ts\"",
     "check:md-links": "node scripts/check-md-links.mjs",
+    "check:react-versions": "node scripts/check-react-versions.mjs",
     "seed:beers": "tsx scripts/seed-beers.ts",
     "seed:venues": "tsx scripts/seed-venues.ts",
     "optimize-assets": "node scripts/optimize-assets.mjs",

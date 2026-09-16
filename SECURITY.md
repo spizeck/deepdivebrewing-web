@@ -233,13 +233,17 @@ reaches any of these, follow the incident checklist in
 ## Dependency and vulnerability maintenance
 
 - CI gates every pull request to `main`: `tsc --noEmit`, ESLint, the
-  `node:test` suite, Firebase emulator rules tests, a production build, and
-  the Markdown-link check.
+  `node:test` suite, Firebase emulator rules tests, a production build, the
+  Markdown-link check, and a check that `react`/`react-dom` declare the same
+  version (`npm run check:react-versions`).
 - Dependabot (`.github/dependabot.yml`) opens weekly npm and GitHub Actions
   update PRs on Mondays, labeled `type: dependencies`. Routine minor/patch
   tooling updates are grouped; production runtime packages and all major
-  updates arrive individually for manual review. Auto-merge is not enabled —
-  every update passes the same required CI as any other PR.
+  updates arrive individually for manual review. React and ReactDOM
+  minor/patch updates are grouped when both have releases available — the CI
+  version check, not Dependabot, enforces that their declared versions stay
+  aligned. Auto-merge is not enabled — every update passes the same required
+  CI as any other PR.
 - Dependabot **security** updates are a separate GitHub mechanism and may
   open PRs outside the weekly cadence; they are not disabled.
 - `npm audit` findings are triaged routinely; not every advisory is fixable

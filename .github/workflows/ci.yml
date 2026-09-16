@@ -26,6 +26,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check React versions
+        # react/react-dom must declare the same version; Dependabot grouping
+        # does not enforce this, so CI does.
+        run: npm run check:react-versions
+
       - name: TypeScript type check
         run: npx tsc --noEmit
 

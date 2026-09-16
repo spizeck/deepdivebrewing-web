@@ -685,7 +685,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | --- | --- |
 | #12 | `SECURITY.md` rewrite / credential-rotation docs — **resolved**: `SECURITY.md` rewritten and `docs/operations/credential-rotation.md` added |
 | #13 | Contribution templates |
-| #14 | Dependabot — **resolved**: weekly npm + GitHub Actions updates via `.github/dependabot.yml` (grouped minor/patch tooling, individual runtime/major PRs, `type: dependencies` label, no auto-merge) |
+| #14 | Dependabot — **resolved**: weekly npm + GitHub Actions updates via `.github/dependabot.yml` (grouped minor/patch tooling, individual runtime/major PRs, `type: dependencies` label, no auto-merge; react/react-dom declared-version alignment enforced in CI by `npm run check:react-versions`) |
 | #16 | Node/runtime normalization — **resolved**: Node 24 via `.nvmrc` + `engines.node` (see §2) |
 | #17 | Deterministic browser smoke tests in CI (Playwright scripts are local-only today) |
 | #18 | Environment/service-initialization hardening — **resolved**: lazy `getResendClient()` + `getFirebase*()` getters; `next build` needs no env (see §13) |

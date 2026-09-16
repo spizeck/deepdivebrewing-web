@@ -151,6 +151,7 @@ npm test                # node:test suite
 npm run test:rules      # Firestore/Storage emulator rules tests (needs Java)
 npm run build           # production build (needs no env values)
 npm run check:md-links  # relative Markdown links
+npm run check:react-versions  # react/react-dom declared versions must match
 ```
 
 `npm ci` is appropriate when validating from a clean dependency state.
