@@ -13,6 +13,8 @@ import {
   type InvitationAcceptanceCheck,
 } from "@/lib/admin-invitation-policy";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
+import { apiErrorResponse } from "@/lib/api-error";
+import { getRequestId, logError } from "@/lib/log";
 import { Timestamp } from "firebase-admin/firestore";
 
 // Lifecycle exception: this route intentionally does NOT require an existing
@@ -21,6 +23,7 @@ import { Timestamp } from "firebase-admin/firestore";
 // pending-invitation policy in evaluateInvitationAcceptance instead, which
 // still rejects an existing disabled record.
 export async function POST(req: NextRequest) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) return unauthorizedResponse();
 
@@ -117,7 +120,10 @@ export async function POST(req: NextRequest) {
           acceptedBy: null,
         });
       } catch (rollbackError) {
-        console.error("Failed to rollback invitation acceptance:", rollbackError);
+        logError("admin_invitation.accept_rollback_failed", rollbackError, {
+          invitationId: invitation!.id,
+          requestId,
+        });
       }
       throw error;
     }
@@ -140,9 +146,11 @@ export async function POST(req: NextRequest) {
       role: result.role,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to accept invitation.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to accept invitation.",
+      event: "admin_invitation.accept_failed",
+      context: { requestId },
+    });
   }
 }
 

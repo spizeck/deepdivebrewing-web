@@ -16,6 +16,8 @@ import {
   getBearerToken,
   unauthorizedResponse,
 } from "@/lib/api-auth";
+import { apiErrorResponse } from "@/lib/api-error";
+import { getRequestId, logError } from "@/lib/log";
 import { canModifyAdministrator, canRevokeAdministrator, isValidAdminRole, isValidAdminStatus } from "@/lib/admin-policy";
 
 interface RouteParams {
@@ -23,6 +25,7 @@ interface RouteParams {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) return unauthorizedResponse();
 
@@ -102,6 +105,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           { role: target.role, status: target.status },
           actor.token.uid
         );
+        logError("admin_users.claims_sync_rolled_back", error, {
+          targetUid,
+          requestId,
+        });
         throw error;
       }
     }
@@ -120,13 +127,16 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to update administrator.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to update administrator.",
+      event: "admin_users.update_failed",
+      context: { requestId },
+    });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) return unauthorizedResponse();
 
@@ -173,8 +183,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to revoke administrator access.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to revoke administrator access.",
+      event: "admin_users.revoke_failed",
+      context: { requestId },
+    });
   }
 }

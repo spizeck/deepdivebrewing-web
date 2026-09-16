@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getResendClient } from "@/lib/resend";
+import { getRequestId, logError } from "@/lib/log";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
@@ -52,8 +53,13 @@ function escapeHtml(input: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const requestId = getRequestId(req.headers);
   try {
     if (!process.env.RESEND_API_KEY) {
+      logError("trade_inquiry.misconfigured", undefined, {
+        missing: "RESEND_API_KEY",
+        requestId,
+      });
       return NextResponse.json(
         { ok: false, error: "Email service is not configured." },
         { status: 500 }
@@ -104,6 +110,10 @@ export async function POST(req: NextRequest) {
 
     const toEmail = process.env.TRADE_INQUIRY_TO_EMAIL;
     if (!toEmail) {
+      logError("trade_inquiry.misconfigured", undefined, {
+        missing: "TRADE_INQUIRY_TO_EMAIL",
+        requestId,
+      });
       return NextResponse.json(
         { ok: false, error: "Destination email is not configured." },
         { status: 500 }
@@ -139,7 +149,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
-      console.error("Trade inquiry email error:", error);
+      logError("trade_inquiry.send_failed", error, { requestId });
       return NextResponse.json(
         { ok: false, error: "Failed to send inquiry email." },
         { status: 502 }
@@ -148,7 +158,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Trade inquiry error:", error);
+    logError("trade_inquiry.unexpected", error, { requestId });
     return NextResponse.json(
       { ok: false, error: "Failed to submit inquiry." },
       { status: 500 }

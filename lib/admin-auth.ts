@@ -11,11 +11,16 @@ import { checkAdminActorRecord } from "@/lib/admin-policy";
 import { getAdminUser } from "@/lib/admin-users";
 import type { AdminUserRecord } from "@/lib/admin-types";
 import type { DecodedIdToken } from "firebase-admin/auth";
+import { logWarn } from "@/lib/log";
 
 export { getAdminClaims, isProtectedAdmin, normalizeEmail };
 export type { AdminClaims };
 
 export class AdminAuthError extends Error {
+  // Marks the message/status as safe to return to the caller — see
+  // lib/api-error.ts.
+  public readonly clientSafe = true;
+
   constructor(
     message: string,
     public status: number = 403
@@ -61,6 +66,10 @@ async function resolveActiveAdminActor(token: DecodedIdToken): Promise<AdminActo
   const record = await getAdminUser(token.uid);
   const check = checkAdminActorRecord({ claims, record });
   if (!check.allowed) {
+    // An authenticated user whose claims pass but whose adminUsers record
+    // fails the check is rare and security-relevant — worth an operation
+    // log (uid + reason only; no tokens, no email).
+    logWarn("admin_auth.denied", { uid: token.uid, reason: check.error });
     throw new AdminAuthError(check.error, 403);
   }
 

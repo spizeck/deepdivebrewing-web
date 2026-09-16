@@ -141,6 +141,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 
 - [Technical architecture reference](./docs/TECHNICAL.md)
 - [Deployment guide](./docs/operations/deployment.md)
+- [Observability & error handling](./docs/operations/observability.md)
 - [Credential rotation runbook](./docs/operations/credential-rotation.md)
 - [Troubleshooting guide](./docs/operations/troubleshooting.md)
 - [Post-deployment checklist](./docs/operations/post-deployment-checklist.md)
