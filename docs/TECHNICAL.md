@@ -696,3 +696,4 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #24 | Analytics-quality audit |
 | #29 | Harden admin authorization — **resolved**: privileged routes now require an active `adminUsers` record with role agreement via `requireAdminActor`/`requireSuperAdminActor` |
 | #30 | Harden Firebase client-write authorization — **resolved**: `firestore.rules`/`storage.rules` now require an active, role-matching `adminUsers` record in addition to claims (Storage via cross-service `firestore.get()`); covered by emulator rules tests |
+| #34 | Critical `next` advisories — **resolved**: `next`/`@next/mdx`/`eslint-config-next` 16.2.10 → 16.3.5 (vulnerable range `<=16.3.2`); transitive `sharp` 0.35.4, `postcss` 8.5.28 (override floor raised `^8.5.10` → `^8.5.23`), `nanoid` 3.3.19, `baseline-browser-mapping` 2.11.24. `npm audit --omit=dev` is clean; remaining findings are dev-only transitive deps |
