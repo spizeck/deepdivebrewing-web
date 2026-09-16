@@ -662,10 +662,9 @@ Findings are concrete and verified against code. Existing issues already cover
 most of them; new debt found here is listed for a future issue rather than
 fixed in this PR.
 
-- **`/trade` duplicate page sources** (`app/(pages)/trade/page.tsx` +
-  `page.mdx`): `page.tsx` wins by `pageExtensions` order; the MDX file is
-  unreachable duplicate content that can silently diverge (it already differs).
-  **Recommend a follow-up issue to delete `page.mdx`** (kept here per scope).
+- **~~`/trade` duplicate page sources~~** — resolved by **#46**: the tabled
+  `page.mdx` stub was removed after it proved to serve the route on Linux
+  builds; `page.tsx` is the sole canonical source (see §4).
 - **Unused `tradeLeads` persistence**: `lib/trade-leads.ts` (`submitTradeLead`)
   and the public-create `tradeLeads` rule exist but nothing calls them —
   inquiries are email-only and lost on Resend failure. Decide between wiring
