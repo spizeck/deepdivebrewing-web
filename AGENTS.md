@@ -165,6 +165,9 @@ npm run check:md-links  # relative Markdown links
 
 - Branch from current `main`; keep branches focused on one issue.
 - Keep commits and PR scope tied to the issue; open PRs against `main`.
+- Dependabot opens weekly dependency PRs (`.github/dependabot.yml`, label
+  `type: dependencies`); they go through the same CI and review — do not
+  auto-merge or batch them into feature work.
 - Do not merge your own PR unless explicitly instructed.
 - Report exact verification results and remaining concerns in the PR/final
   report.

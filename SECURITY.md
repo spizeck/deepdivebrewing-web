@@ -233,10 +233,17 @@ reaches any of these, follow the incident checklist in
 ## Dependency and vulnerability maintenance
 
 - CI gates every pull request to `main`: `tsc --noEmit`, ESLint, the
-  `node:test` suite, a production build, and the Markdown-link check.
-- `npm audit` is part of routine dependency maintenance; enabling
-  Dependabot for automated alerts/PRs is tracked under issue
-  [#14](https://github.com/spizeck/deepdivebrewing-web/issues/14).
+  `node:test` suite, Firebase emulator rules tests, a production build, and
+  the Markdown-link check.
+- Dependabot (`.github/dependabot.yml`) opens weekly npm and GitHub Actions
+  update PRs on Mondays, labeled `type: dependencies`. Routine minor/patch
+  tooling updates are grouped; production runtime packages and all major
+  updates arrive individually for manual review. Auto-merge is not enabled —
+  every update passes the same required CI as any other PR.
+- Dependabot **security** updates are a separate GitHub mechanism and may
+  open PRs outside the weekly cadence; they are not disabled.
+- `npm audit` findings are triaged routinely; not every advisory is fixable
+  by Dependabot (transitive/dev-only chains may need targeted work).
 
 ## Credential rotation and secret recovery
 

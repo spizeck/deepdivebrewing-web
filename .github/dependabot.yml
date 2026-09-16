@@ -1,0 +1,77 @@
+# Dependabot version updates.
+#
+# Cadence: weekly on Mondays. Groups capture routine minor/patch noise for
+# related tooling; every major update and every production runtime package
+# arrives as its own PR. All PRs run the full required CI and are reviewed
+# manually — auto-merge is intentionally not enabled.
+#
+# Dependabot security updates are a separate GitHub mechanism and may open
+# PRs outside this weekly cadence; they are not disabled by this file.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "type: dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    # Never run lifecycle scripts from dependency packages while updating.
+    insecure-external-code-execution: "never"
+    groups:
+      # Development tooling only — typecheck/lint/test/build helpers.
+      # dependency-type keeps any production dep out of this group even if a
+      # pattern matched it (e.g. @types/mdx is listed under dependencies).
+      dev-tooling:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "typescript"
+          - "eslint*"
+          - "@types/*"
+          - "tailwindcss"
+          - "@tailwindcss/*"
+          - "tw-animate-css"
+          - "tsx"
+          - "shadcn"
+          - "playwright"
+      # Firebase emulator/rules test toolchain (dev-only).
+      firebase-tooling:
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "firebase-tools"
+          - "@firebase/rules-unit-testing"
+      # react and react-dom must stay version-locked; bump them as a pair.
+      react:
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "react"
+          - "react-dom"
+    # Everything else — next, firebase, firebase-admin, resend, radix-ui,
+    # @vercel/*, @mdx-js/*, @next/mdx, embla, lucide-react, server-only,
+    # class-variance-authority, clsx, tailwind-merge — is intentionally
+    # ungrouped so production/runtime changes get individual review.
+    # Majors are allowed and always arrive individually because every group
+    # above is restricted to minor/patch.
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "type: dependencies"
+    commit-message:
+      prefix: "chore(deps)"
