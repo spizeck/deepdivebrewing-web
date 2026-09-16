@@ -106,7 +106,15 @@ test("admin renders the sign-in shell without credentials", async ({
   await expect(
     page.getByRole("heading", { name: "Admin Dashboard" })
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /sign in with google/i })
-  ).toBeVisible();
+  // The shell renders one of two healthy states: the Google sign-in control
+  // when Firebase is configured (local dev with env), or the explicit
+  // unavailable fallback in CI where no config exists. What must never
+  // appear is a crash page.
+  const signInButton = page.getByRole("button", {
+    name: /sign in with google/i,
+  });
+  const unavailableMessage = page.getByText(
+    "Sign-in is currently unavailable."
+  );
+  await expect(signInButton.or(unavailableMessage).first()).toBeVisible();
 });
