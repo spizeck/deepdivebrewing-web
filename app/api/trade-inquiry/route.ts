@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getResendClient } from "@/lib/resend";
+import { getDefaultFromEmail } from "@/lib/resend-config";
 import { getRequestId, logError } from "@/lib/log";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
@@ -141,7 +142,7 @@ export async function POST(req: NextRequest) {
     `;
 
     const { error } = await getResendClient().emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "Deep Dive Brewing <DeepDiveBrewing@mail.seasaba.com>",
+      from: getDefaultFromEmail(),
       to: toEmail,
       replyTo: email,
       subject,

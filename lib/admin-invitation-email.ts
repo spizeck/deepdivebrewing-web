@@ -1,6 +1,7 @@
 import "server-only";
 import { buildAdminInvitationEmail } from "@/lib/admin-invitation-email-common";
 import { getResendClient } from "@/lib/resend";
+import { getAdminInviteFromEmail } from "@/lib/resend-config";
 import { logError } from "@/lib/log";
 import type {
   ResendEmailResult,
@@ -14,13 +15,7 @@ export type SendAdminInvitationEmailResult =
 
 export type { ResendEmailResult, FailedEmailResult, SendEmailFunction };
 
-export function getAdminInviteFromEmail(): string | undefined {
-  return (
-    process.env.ADMIN_INVITE_FROM_EMAIL ??
-    process.env.RESEND_FROM_EMAIL ??
-    undefined
-  );
-}
+export { getAdminInviteFromEmail };
 
 export function getAdminSiteUrl(): string {
   const raw = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
@@ -39,13 +34,6 @@ export const sendAdminInvitationEmail: SendEmailFunction = async (
       missing: "RESEND_API_KEY",
     });
     return { ok: false, error: "Email service is not configured." };
-  }
-
-  if (!from) {
-    logError("admin_invitation_email.misconfigured", undefined, {
-      missing: "ADMIN_INVITE_FROM_EMAIL or RESEND_FROM_EMAIL",
-    });
-    return { ok: false, error: "Invitation sender email is not configured." };
   }
 
   const resend = getResendClient();

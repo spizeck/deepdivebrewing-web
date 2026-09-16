@@ -389,7 +389,8 @@ server-side.
    (`lib/resend.ts`, `import "server-only"`), which lazily constructs and
    caches the Resend client on first use. It returns a structured failure if
    `RESEND_API_KEY` is unset rather than throwing. It builds the invite link from `NEXT_PUBLIC_SITE_URL`, sends from
-   `ADMIN_INVITE_FROM_EMAIL` (falling back to `RESEND_FROM_EMAIL`), then
+   `ADMIN_INVITE_FROM_EMAIL` (falling back to `RESEND_FROM_EMAIL`, then the
+   shared default sender — see §13), then
    persists delivery state (`emailStatus`, `lastEmailAttemptAt`, `messageId`)
    back onto the invitation doc.
 3. **Failure / partial success** — if Resend send fails, the pending invitation
@@ -492,9 +493,9 @@ intentional, not an oversight.
    - HTML-escapes all submitted values before embedding them in the email
      template;
    - sends to `TRADE_INQUIRY_TO_EMAIL` (**required** — 500 "Destination email
-     is not configured" if unset) from `RESEND_FROM_EMAIL` (defaulting to a
-     hardcoded `Deep Dive Brewing <DeepDiveBrewing@mail.seasaba.com>`), with
-     `replyTo` set to the submitter's email.
+     is not configured" if unset) from `RESEND_FROM_EMAIL` (defaulting to the
+     shared `noreply@mail.deepdivebrewing.com` sender in
+     `lib/resend-config.ts`), with `replyTo` set to the submitter's email.
 3. **Persistence:** none. `lib/trade-leads.ts` (`submitTradeLead`) and the
    `tradeLeads` collection + public-create rule exist, but the helper has **zero
    call sites**. If lead persistence is desired it must be wired in (or the dead
@@ -561,10 +562,11 @@ Names only — never commit values. Source of truth for names:
 
 | Variable | Role | Required? |
 | --- | --- | --- |
-| `RESEND_API_KEY` | Resend client (lazy `getResendClient()`) | Runtime only — required when mail is actually sent; trade route returns 500 "Email service is not configured.", invitation send returns a structured failure |
+| `RESEND_API_KEY` | Resend client (lazy `getResendClient()`); supplied by the Vercel-managed Resend integration in deployed environments | Runtime only — required when mail is actually sent; trade route returns 500 "Email service is not configured.", invitation send returns a structured failure |
+| `RESEND_EMAIL_DOMAIN` | Injected by the Vercel Resend integration | **Not consumed** — explicit sender addresses are used instead |
 | `TRADE_INQUIRY_TO_EMAIL` | Trade inquiry recipient | **Required** — route returns 500 if unset |
-| `RESEND_FROM_EMAIL` | Sender for trade emails; fallback sender for invites | Optional — hardcoded default in the trade route |
-| `ADMIN_INVITE_FROM_EMAIL` | Invite sender (preferred) | Optional — falls back to `RESEND_FROM_EMAIL` |
+| `RESEND_FROM_EMAIL` | Shared default sender (trade emails; fallback for invites) | Optional — defaults to `Deep Dive Brewing <noreply@mail.deepdivebrewing.com>` (`DEFAULT_RESEND_FROM_EMAIL` in `lib/resend-config.ts`, on the verified sending domain) |
+| `ADMIN_INVITE_FROM_EMAIL` | Invite sender (preferred) | Optional — falls back to `RESEND_FROM_EMAIL`, then the shared default |
 | `FIREBASE_ADMIN_PROJECT_ID` | Admin SDK credential | Yes for all `/api/admin/*` |
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | Admin SDK credential | Yes for all `/api/admin/*` |
 | `FIREBASE_ADMIN_PRIVATE_KEY` | Admin SDK credential (PEM; stored with `\n` escapes) | Yes for all `/api/admin/*` |
@@ -598,12 +600,12 @@ either. No secrets or placeholder values exist anywhere in CI.
   `node --test "tests/**/*.test.ts"`). The glob requires Node ≥ 21 — satisfied
   by the repository's Node 24 runtime (on Node 20 the pattern silently matched
   zero files, which is why the runtime was normalized).
-- **Coverage (95 tests, all in `tests/`):** admin auth/claim parsing
+- **Coverage (104 tests, all in `tests/`):** admin auth/claim parsing
   (`admin-auth`), admin-users record building/serialization, invitation
   policy/email/resend/cooldown logic, audit helpers, `admin-policy` mutation
   guards and the `checkAdminActorRecord` active-record policy,
-  service-initialization config (`resend-config` key validation and
-  `lib/firebase.ts` import-time laziness/first-use caching), and
+  service-initialization config (`resend-config` key validation and sender
+  selection, `lib/firebase.ts` import-time laziness/first-use caching), and
   **rules-content tests** that read `firestore.rules` and `storage.rules` as
   text and assert required patterns.
 - **Emulator rules tests (`rules-tests/`, 27 tests):** `npm run test:rules`

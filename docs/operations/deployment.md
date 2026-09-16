@@ -63,7 +63,8 @@ These variables are used only by API routes or build-time scripts and must not b
 
 Examples:
 
-- `RESEND_API_KEY`
+- `RESEND_API_KEY` — injected by the Vercel-managed Resend integration (also sets `RESEND_EMAIL_DOMAIN`, which the app does not consume)
+- `RESEND_FROM_EMAIL`, `ADMIN_INVITE_FROM_EMAIL` — optional sender overrides; both default to `noreply@mail.deepdivebrewing.com` on the verified sending domain
 - `TRADE_INQUIRY_TO_EMAIL`
 - `VERCEL_DEPLOY_HOOK_URL`
 - `FIREBASE_ADMIN_PROJECT_ID`
