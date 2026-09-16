@@ -17,8 +17,8 @@ import { test as base, expect } from "playwright/test";
  * - console messages of type `error`, minus a tiny documented tolerate list
  * - same-origin network failures (`requestfailed`)
  * - same-origin 4xx/5xx subresource responses (missing chunks, assets, API
- *   calls). The document itself is excluded because its status is asserted
- *   per test (e.g. the deliberate not-found check).
+ *   calls) and any 5xx document response. 4xx documents are excluded because
+ *   the not-found test deliberately navigates to one and asserts its status.
  */
 const TOLERATED_CONSOLE_ERRORS: RegExp[] = [
   // Chrome's generic network log line for failed subresources and error-status
@@ -67,11 +67,10 @@ export const test = base.extend({
       }
     });
     page.on("response", (res) => {
-      if (
-        new URL(res.url()).origin === origin &&
-        res.status() >= 400 &&
-        res.request().resourceType() !== "document"
-      ) {
+      if (new URL(res.url()).origin !== origin) return;
+      const isDocument = res.request().resourceType() === "document";
+      const isProblem = isDocument ? res.status() >= 500 : res.status() >= 400;
+      if (isProblem) {
         problems.push(`HTTP ${res.status()}: ${res.url()}`);
       }
     });

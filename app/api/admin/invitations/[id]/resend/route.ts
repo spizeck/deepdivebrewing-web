@@ -21,6 +21,8 @@ import {
   getBearerToken,
   unauthorizedResponse,
 } from "@/lib/api-auth";
+import { apiErrorResponse } from "@/lib/api-error";
+import { getRequestId, logError } from "@/lib/log";
 import { Timestamp } from "firebase-admin/firestore";
 import type { AdminInvitation } from "@/lib/admin-types";
 
@@ -42,6 +44,7 @@ function mergeLatestEmailFields(
 }
 
 export async function POST(req: NextRequest, { params }: RouteParams) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) return unauthorizedResponse();
 
@@ -113,14 +116,22 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           actingEmail: normalizeEmail(actor.token.email),
           metadata,
         }),
-      logError: console.error,
+      logError: (message, error) =>
+        logError("admin_invitation.resend_step_failed", error, {
+          step: message,
+          invitationId: invitation.id,
+          requestId,
+        }),
     });
 
     let updatedInvitation: AdminInvitation | null = null;
     try {
       updatedInvitation = await getInvitationById(invitation.id);
     } catch (viewError) {
-      console.error("Failed to load invitation after resend:", viewError);
+      logError("admin_invitation.reload_failed", viewError, {
+        invitationId: invitation.id,
+        requestId,
+      });
     }
 
     const view = updatedInvitation
@@ -142,9 +153,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       adminUrl,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to resend invitation.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to resend invitation.",
+      event: "admin_invitation.resend_failed",
+      context: { requestId },
+    });
   }
 }

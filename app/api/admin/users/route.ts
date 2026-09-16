@@ -24,6 +24,8 @@ import {
   getBearerToken,
   unauthorizedResponse,
 } from "@/lib/api-auth";
+import { apiErrorResponse } from "@/lib/api-error";
+import { getRequestId, logError } from "@/lib/log";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -32,6 +34,7 @@ function isValidRole(role: unknown): role is "admin" | "superadmin" {
 }
 
 export async function GET(req: NextRequest) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) return unauthorizedResponse();
 
@@ -49,13 +52,16 @@ export async function GET(req: NextRequest) {
       invitations: invitations.map(serializeAdminInvitation),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load administrators.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to load administrators.",
+      event: "admin_users.list_failed",
+      context: { requestId },
+    });
   }
 }
 
 export async function POST(req: NextRequest) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) return unauthorizedResponse();
 
@@ -94,7 +100,10 @@ export async function POST(req: NextRequest) {
         emailResult.ok ? emailResult.messageId : undefined
       );
     } catch (recordError) {
-      console.error("Failed to record invitation email delivery:", recordError);
+      logError("admin_invitation.delivery_record_failed", recordError, {
+        invitationId: invitation.id,
+        requestId,
+      });
       deliveryRecorded = false;
     }
 
@@ -105,7 +114,10 @@ export async function POST(req: NextRequest) {
         ? serializeAdminInvitation(updatedInvitation)
         : serializeAdminInvitation(invitation);
     } catch (viewError) {
-      console.error("Failed to load invitation after email attempt:", viewError);
+      logError("admin_invitation.reload_failed", viewError, {
+        invitationId: invitation.id,
+        requestId,
+      });
       view = serializeAdminInvitation(invitation);
     }
 
@@ -124,7 +136,10 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch (auditError) {
-      console.error("Failed to log create_invitation audit:", auditError);
+      logError("admin_invitation.audit_failed", auditError, {
+        invitationId: invitation.id,
+        requestId,
+      });
     }
 
     const adminUrl = `${getAdminSiteUrl()}/admin`;
@@ -164,8 +179,10 @@ export async function POST(req: NextRequest) {
       adminUrl,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to create invitation.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to create invitation.",
+      event: "admin_users.create_failed",
+      context: { requestId },
+    });
   }
 }

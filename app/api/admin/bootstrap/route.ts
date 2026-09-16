@@ -8,12 +8,15 @@ import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
 import { logAdminAudit } from "@/lib/admin-audit";
 import { ensureAdminUser, updateAdminUser } from "@/lib/admin-users";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
+import { apiErrorResponse } from "@/lib/api-error";
+import { getRequestId } from "@/lib/log";
 
 // Lifecycle exception: this route intentionally does NOT require an existing
 // active adminUsers record — its purpose is to create/reconcile the very first
 // superadmin record. Authorization is the verified-email + SUPER_ADMIN_EMAIL
 // match in assertBootstrapEligible instead.
 export async function POST(req: NextRequest) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) {
     return unauthorizedResponse("Missing bearer token.");
@@ -75,8 +78,10 @@ export async function POST(req: NextRequest) {
       role: "superadmin",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to bootstrap admin access.";
-    const status = (error as { status?: number }).status ?? 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return apiErrorResponse(error, {
+      fallback: "Failed to bootstrap admin access.",
+      event: "admin_bootstrap.failed",
+      context: { requestId },
+    });
   }
 }

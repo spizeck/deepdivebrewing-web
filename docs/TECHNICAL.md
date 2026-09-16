@@ -523,14 +523,21 @@ intentional, not an oversight.
 - **Vercel Analytics & Speed Insights:** `@vercel/analytics/next` `<Analytics/>`
   and `@vercel/speed-insights/next` `<SpeedInsights/>` mounted in the root
   layout — no config, automatic page-view/Web-Vitals collection.
-- **Logging/diagnostics:** no structured logging or monitoring — server code
-  uses `console.error`/`console.warn` (e.g. audit-write failures, metadata
-  write failures, Firestore build-time permission errors). There are no
-  dashboards, alerts, or error-tracking integrations.
-- **Scope notes:** deeper observability (logging strategy, alerting, error
-  tracking) is owned by **Issue #20**; the analytics-quality audit (event
-  coverage, naming, conversion accuracy) is owned by **Issue #24**. Neither was
-  performed here.
+- **Logging/diagnostics:** server code emits single-line structured JSON via
+  `lib/log.ts` (`logInfo`/`logWarn`/`logError`, stable dot-namespaced event
+  names, `requestId` correlation via `x-vercel-id`, defensive sensitive-key
+  filtering). API catch blocks funnel through `apiErrorResponse`
+  (`lib/api-error.ts`): `clientSafe` errors (e.g. `AdminAuthError`) keep
+  their deliberate message/status; everything else is logged in full
+  server-side and answered with a generic 500. `app/error.tsx` and
+  `app/not-found.tsx` provide branded error/404 boundaries. There are no
+  dashboards, alerts, or error-tracking integrations — see
+  [docs/operations/observability.md](operations/observability.md) for the
+  event-name table, log-safety rules, and how to correlate user reports.
+- **Scope notes:** the observability audit landed under **Issue #20**
+  (structured logs, consistent API error shape, error/404 boundaries, smoke
+  suite now also fails on 5xx documents). The analytics-quality audit (event
+  coverage, naming, conversion accuracy) remains owned by **Issue #24**.
 
 ## 13. Environment configuration
 
@@ -698,7 +705,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #16 | Node/runtime normalization — **resolved**: Node 24 via `.nvmrc` + `engines.node` (see §2) |
 | #17 | Deterministic browser smoke tests in CI — **resolved**: `smoke-tests/` Playwright suite (Chromium) runs in Verify against the production build via `webServer` + `next start`; credential-free, externals intercepted (see §14) |
 | #18 | Environment/service-initialization hardening — **resolved**: lazy `getResendClient()` + `getFirebase*()` getters; `next build` needs no env (see §13) |
-| #20 | Observability (only `console.*` logging today; no error tracking/alerts) |
+| #20 | Observability — **resolved**: structured server logging (`lib/log.ts`), consistent API error responses (`lib/api-error.ts`), `x-vercel-id` request correlation in logs, branded `app/error.tsx`/`app/not-found.tsx` boundaries, smoke suite fails on 5xx documents (see §12 and `docs/operations/observability.md`) |
 | #21 | Accessibility |
 | #22 | SEO |
 | #23 | Performance |

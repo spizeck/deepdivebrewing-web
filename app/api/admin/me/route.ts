@@ -5,8 +5,11 @@ import { checkAdminActorRecord } from "@/lib/admin-policy";
 import { getAdminUser } from "@/lib/admin-users";
 import { getPendingInvitationByEmail } from "@/lib/admin-invitations";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
+import { isClientSafeError } from "@/lib/api-error";
+import { getRequestId, logError } from "@/lib/log";
 
 export async function GET(req: NextRequest) {
+  const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
   if (!idToken) {
     return unauthorizedResponse("Missing bearer token.");
@@ -65,7 +68,10 @@ export async function GET(req: NextRequest) {
       email: decoded.email,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Authentication failed.";
+    const message = isClientSafeError(error) ? error.message : "Authentication failed.";
+    if (!isClientSafeError(error)) {
+      logError("admin_me.unexpected", error, { requestId });
+    }
     return NextResponse.json({ ok: false, error: message }, { status: 401 });
   }
 }
