@@ -33,9 +33,9 @@ Deep Dive Brews, BV.
   (`/`, `/beers`, `/beers/[slug]`, `/where-to-buy`, `/about`, `/contact`,
   `/privacy`, `/terms`, `/trade`, `/admin`) plus reserved `/trade/*`
   placeholders. Long-form content may be authored in MDX co-located as
-  `page.mdx` (e.g., `/about`); note `/trade` currently contains both
-  `page.tsx` and `page.mdx`, so verify which file actually serves a route
-  before editing.
+  `page.mdx` (e.g., `/about`); every `(pages)` route has exactly one page
+  file — never add a second `page.*` to a route folder, since which file
+  wins is platform-dependent.
 - `app/api/` — server routes: `admin/*` (bootstrap, me, users, invitations,
   rebuild) and `trade-inquiry`.
 - `components/` — site and admin UI; `components/ui/` is shadcn primitives.

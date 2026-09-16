@@ -56,11 +56,13 @@ test("about page renders long-form MDX content", async ({ page }) => {
 
 test("trade page renders the inquiry form", async ({ page }) => {
   await page.goto("/trade");
-  // /trade has both page.tsx and page.mdx; which one serves the route differs
-  // by platform (Linux/CI resolves the MDX). "Get in Touch" is the heading and
-  // TradeInquiryForm the component that both variants share.
+  // Canonical page assertions — the h1 and "What to expect" section exist only
+  // in page.tsx, so this fails if the old tabled MDX stub ever returns.
   await expect(
-    page.getByRole("heading", { name: "Get in Touch" })
+    page.getByRole("heading", { name: "Trade & Wholesale", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "What to expect" })
   ).toBeVisible();
   await expect(page.getByLabel("Business Name")).toBeVisible();
   await expect(page.getByLabel("Contact Name")).toBeVisible();

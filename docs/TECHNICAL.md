@@ -107,7 +107,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | Path | Responsibility |
 | --- | --- |
 | `app/` | App Router routes. Root `layout.tsx` (header/footer shell, SEO defaults, favicon metadata pointing at `public/`, analytics wiring), `globals.css` (Tailwind v4 theme tokens), `robots.ts`, `sitemap.ts`, `page.tsx` (home). |
-| `app/(pages)/` | Route group for all content pages — `about` (MDX), `admin`, `beers` (+`[slug]`), `contact`, `privacy`, `terms`, `trade` (+ `login`/`order`/`orders` "coming soon" placeholders), `where-to-buy` — sharing a `SiteHeaderDefault` layout. Most pages are `.tsx`; `about` and `trade` also contain `.mdx` variants — see §4. |
+| `app/(pages)/` | Route group for all content pages — `about` (MDX), `admin`, `beers` (+`[slug]`), `contact`, `privacy`, `terms`, `trade` (+ `login`/`order`/`orders` "coming soon" placeholders), `where-to-buy` — sharing a `SiteHeaderDefault` layout. Pages are `.tsx`; `about` is authored as `page.mdx` — see §4. |
 | `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry`. |
 | `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx`, `admin-access.tsx`, `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |
@@ -139,7 +139,7 @@ moving it into `lib/` or API routes without an explicit issue.
 | `/where-to-buy` | `app/(pages)/where-to-buy/page.tsx` | Server (static) | `venues` + `beers` | Venue list grouped by island (Saba, SXM, Statia normalization in `islandDisplayName`), `VenueCard` entries. |
 | `/about` | `app/(pages)/about/page.mdx` | Server (static) | none | MDX content styled by `mdx-components.tsx`. |
 | `/contact` | `app/(pages)/contact/page.tsx` | Server (static) | none | Contact details; `TrackedAnchor` for click analytics. |
-| `/trade` | `app/(pages)/trade/page.tsx` **(authoritative)** | Server (static) | none | Wholesale/trade page hosting `TradeInquiryForm` (client). See the `/trade` note below. |
+| `/trade` | `app/(pages)/trade/page.tsx` | Server (static) | none | Wholesale/trade page hosting `TradeInquiryForm` (client). See the `/trade` note below. |
 | `/trade/login`, `/trade/order`, `/trade/orders` | `app/(pages)/trade/*/page.tsx` | Server (static) | none | Reserved "Coming soon" placeholders for a future trade portal. |
 | `/privacy`, `/terms` | `app/(pages)/{privacy,terms}/page.tsx` | Server (static) | none | Legal text via `MdxLayout` + TSX content. |
 | `/admin` | `app/(pages)/admin/page.tsx` | Server wrapper (`robots: noindex`) rendering the client `AdminDashboard` | Auth state, `beers`, `venues`, `meta/siteRebuild`, Storage | Admin dashboard. Auth checks happen client-side; real enforcement is in rules + APIs. |
@@ -147,23 +147,19 @@ moving it into `lib/` or API routes without an explicit issue.
 | `/api/trade-inquiry` | `app/api/trade-inquiry/route.ts` | Server (dynamic) | Resend | Validates the form payload and emails it; see §11. |
 | `/sitemap.xml`, `/robots.txt` | `app/sitemap.ts`, `app/robots.ts` | Server (static — generated at build) | `beers` | SEO metadata routes; sitemap enumerates beer slugs at build time. Favicons are static files in `public/` referenced from `app/layout.tsx` metadata. |
 
-### The `/trade` route: `page.tsx` vs `page.mdx`
+### The `/trade` route: single canonical `page.tsx`
 
-`app/(pages)/trade/` contains **both** `page.tsx` and `page.mdx`. Next.js
-resolves colliding page files in `pageExtensions` order
-(`["ts","tsx","md","mdx"]` in `next.config.ts`), so **`page.tsx` wins and
-`page.mdx` is unreachable dead code.** Verified against the built
-`.next/server/app/trade.html`: it contains the TSX-only strings ("What to
-expect", "Prefer email", the JSON-LD `schema.org` block, and the TSX metadata
-description) and none unique to the MDX file.
+`app/(pages)/trade/` previously contained **both** `page.tsx` and a tabled
+`page.mdx` stub. Resolution of colliding page files proved
+platform-dependent — Windows builds served `page.tsx` while Linux builds
+(CI, Vercel) served the MDX stub — so the MDX file was removed in Issue
+#46. `page.tsx` is the sole, canonical `/trade` implementation; the smoke
+suite asserts TSX-only markers (the `Trade & Wholesale` h1 and the
+"What to expect" section) so a regression is caught in CI.
 
-The two files overlap heavily — the MDX version is an older, shorter variant of
-the same page (both render `TradeInquiryForm`). This is tracked as technical
-debt: `page.mdx` should be removed in a dedicated cleanup issue, but per this
-issue's scope neither file was modified.
-
-The same collision pattern exists nowhere else: `about` has only `page.mdx`,
-and every other `(pages)` route has only `page.tsx`.
+No other route has a page-file collision: `about` has only `page.mdx`,
+and every other `(pages)` route has only `page.tsx`. Do not add a second
+`page.*` file to a route folder.
 
 ## 5. Data model and Firestore collections
 
@@ -666,10 +662,9 @@ Findings are concrete and verified against code. Existing issues already cover
 most of them; new debt found here is listed for a future issue rather than
 fixed in this PR.
 
-- **`/trade` duplicate page sources** (`app/(pages)/trade/page.tsx` +
-  `page.mdx`): `page.tsx` wins by `pageExtensions` order; the MDX file is
-  unreachable duplicate content that can silently diverge (it already differs).
-  **Recommend a follow-up issue to delete `page.mdx`** (kept here per scope).
+- **~~`/trade` duplicate page sources~~** — resolved by **#46**: the tabled
+  `page.mdx` stub was removed after it proved to serve the route on Linux
+  builds; `page.tsx` is the sole canonical source (see §4).
 - **Unused `tradeLeads` persistence**: `lib/trade-leads.ts` (`submitTradeLead`)
   and the public-create `tradeLeads` rule exist but nothing calls them —
   inquiries are email-only and lost on Resend failure. Decide between wiring
@@ -709,3 +704,4 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #29 | Harden admin authorization — **resolved**: privileged routes now require an active `adminUsers` record with role agreement via `requireAdminActor`/`requireSuperAdminActor` |
 | #30 | Harden Firebase client-write authorization — **resolved**: `firestore.rules`/`storage.rules` now require an active, role-matching `adminUsers` record in addition to claims (Storage via cross-service `firestore.get()`); covered by emulator rules tests |
 | #34 | Critical `next` advisories — **resolved**: `next`/`@next/mdx`/`eslint-config-next` 16.2.10 → 16.3.5 (vulnerable range `<=16.3.2`); transitive `sharp` 0.35.4, `postcss` 8.5.28 (override floor raised `^8.5.10` → `^8.5.23`), `nanoid` 3.3.19, `baseline-browser-mapping` 2.11.24. `npm audit --omit=dev` is clean; remaining findings are dev-only transitive deps |
+| #46 | `/trade` route collision — **resolved**: `page.mdx` stub removed; `page.tsx` is the sole canonical route (collision resolution was platform-dependent — Windows served TSX, Linux served MDX). Smoke test asserts TSX-only markers (see §4) |
