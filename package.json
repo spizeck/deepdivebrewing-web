@@ -12,6 +12,7 @@
     "lint": "eslint",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "test:rules": "firebase emulators:exec --only firestore,storage --project demo-deepdivebrewing-web \"node --import tsx --test rules-tests/*.test.ts\"",
+    "test:smoke": "npm run build && playwright test",
     "check:md-links": "node scripts/check-md-links.mjs",
     "check:react-versions": "node scripts/check-react-versions.mjs",
     "seed:beers": "tsx scripts/seed-beers.ts",

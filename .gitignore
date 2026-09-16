@@ -50,6 +50,10 @@ next-env.d.ts
 # verification screenshots generated locally
 /screenshots
 
+# playwright smoke-test artifacts
+/test-results/
+/playwright-report/
+
 # firebase emulator artifacts
 .firebase/
 firebase-debug.log

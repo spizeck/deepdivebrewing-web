@@ -49,7 +49,9 @@ Deep Dive Brews, BV.
 - `docs/` — administrator handbook (`docs/admin/`) and operations guides
   (`docs/operations/`). Keep these authoritative.
 - `scripts/` — seed scripts, asset tooling, and Playwright-based local
-  check scripts (not part of CI).
+  diagnostic scripts (not part of CI).
+- `smoke-tests/` — Playwright browser smoke tests run in CI against the
+  production build.
 - `tests/` — unit tests for admin domain logic plus assertions on
   `firestore.rules`/`storage.rules` content.
 - `firestore.rules`, `storage.rules`, `firebase.json`, `.firebaserc` —
@@ -150,6 +152,7 @@ npm run lint            # ESLint
 npm test                # node:test suite
 npm run test:rules      # Firestore/Storage emulator rules tests (needs Java)
 npm run build           # production build (needs no env values)
+npx playwright test     # browser smoke tests against the build (needs Chromium: npx playwright install chromium)
 npm run check:md-links  # relative Markdown links
 npm run check:react-versions  # react/react-dom declared versions must match
 ```
@@ -159,8 +162,9 @@ npm run check:react-versions  # react/react-dom declared versions must match
 - Add or update **targeted tests** for changed behavior — required for
   security-sensitive admin/auth/rules changes.
 - For UI changes, verify in a browser and capture screenshots where useful.
-- Playwright check scripts under `scripts/` are local/manual tools that need a
-  running site and real configuration; they are not part of CI.
+- Playwright scripts under `scripts/` are local/manual diagnostics that need
+  a running site and sometimes real configuration; the deterministic
+  credential-free smoke suite lives in `smoke-tests/` and runs in CI.
 
 ## Git and PR workflow
 

@@ -56,5 +56,22 @@ jobs:
         # present, which is the intended CI behavior.
         run: npm run build
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser smoke tests
+        # Runs against the production build from the previous step — the
+        # Playwright webServer starts `next start`, never rebuilds.
+        run: npx playwright test
+
+      - name: Upload smoke-test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-smoke-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Check Markdown links
         run: npm run check:md-links

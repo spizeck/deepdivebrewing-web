@@ -114,7 +114,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `trade-leads.ts`, `analytics.ts`, `types.ts`, `utils.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
 | `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
-| `scripts/` | Local/manual tooling: Playwright checks (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `seed-beers.ts`, `seed-venues.ts`. None run in CI except `check-md-links.mjs`. |
+| `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics do not (CI browser coverage lives in `smoke-tests/`). |
 | `docs/` | Admin handbook (`docs/admin/`), operations guides (`docs/operations/`: deployment, troubleshooting, post-deploy checklist), and this file. |
 | `content/` | Legacy placeholder (`.gitkeep` only). MDX content is co-located under `app/(pages)/`; do not add files here expecting them to render. |
 | `firestore.rules`, `storage.rules` | Firebase security rules — see §6/§15. |
@@ -613,20 +613,32 @@ either. No secrets or placeholder values exist anywhere in CI.
   share emulator state. (`firebase-tools` and `@firebase/rules-unit-testing`
   are devDependencies; Java is required locally for the emulator.)
 - **CI (`.github/workflows/ci.yml`):** on PRs to `main` and pushes to `main` —
-  `npm ci`, `npx tsc --noEmit`, `npm run lint`, `npm test`,
-  `npm run test:rules` (Firestore/Storage emulators, no credentials — `demo-*`
-  project IDs), `npm run build` (no env needed at all),
+  `npm ci`, `npm run check:react-versions`, `npx tsc --noEmit`, `npm run lint`,
+  `npm test`, `npm run test:rules` (Firestore/Storage emulators, no
+  credentials — `demo-*` project IDs), `npm run build` (no env needed at
+  all), `npx playwright test` (Chromium-only browser smoke tests against the
+  build's `next start` output; traces/screenshots uploaded only on failure),
   `npm run check:md-links`.
   `permissions: contents: read`; no secrets, no deploy step.
-- **Local-only scripts (`scripts/`):** Playwright-based checks
-  (`console-check`, `screenshot-check`, `overflow-check`, `hero-video-*`,
-  `analytics-check`, `local-admin-check`, `preview-admin-auth-check`),
+- **Browser smoke tests (`smoke-tests/`):** Playwright suite run by CI after
+  the build; Playwright's `webServer` starts `next start` on a fixed local
+  port. Credential-free and deterministic — cross-origin requests (GA4,
+  Firebase, etc.) are aborted and Vercel's `/_vercel/*` script endpoints are
+  stubbed, so the suite never touches production services and asserts the
+  stable shells/empty states that render without Firestore data. Covers the
+  homepage, `/beers`, the `/beers/[slug]` not-found path, `/about`, `/trade`,
+  `/contact`, `/where-to-buy`, and the `/admin` sign-in shell. Chromium only —
+  it is a regression safety net, not a cross-browser matrix. Run locally with
+  `npm run test:smoke` (builds first); a prior `npm run build` lets
+  `npx playwright test` reuse it. It intentionally does not cover
+  authenticated admin flows, real form submissions, or cross-browser checks.
+- **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
+  (`screenshot-check`, `overflow-check`, `hero-video-*`, `analytics-check`),
   `optimize-assets.mjs`, and Admin-SDK utilities (`bootstrap-superadmin.ts`,
-  `seed-beers.ts`, `seed-venues.ts`). **None of the Playwright checks run in
-  CI** — they are manual/local. Deterministic browser CI is future work owned
-  by **Issue #17**.
-- **Verification parity:** local pre-PR checks are the same five commands CI
-  runs (typecheck, lint, test, build, md-links), per `AGENTS.md`.
+  `seed-beers.ts`, `seed-venues.ts`). These remain manual/local; the CI smoke
+  suite lives in `smoke-tests/`.
+- **Verification parity:** local pre-PR checks are the same commands CI
+  runs, per `AGENTS.md`.
 
 ## 15. Security boundaries
 
@@ -687,7 +699,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #13 | Contribution templates |
 | #14 | Dependabot — **resolved**: weekly npm + GitHub Actions updates via `.github/dependabot.yml` (grouped minor/patch tooling, individual runtime/major PRs, `type: dependencies` label, no auto-merge; react/react-dom declared-version alignment enforced in CI by `npm run check:react-versions`) |
 | #16 | Node/runtime normalization — **resolved**: Node 24 via `.nvmrc` + `engines.node` (see §2) |
-| #17 | Deterministic browser smoke tests in CI (Playwright scripts are local-only today) |
+| #17 | Deterministic browser smoke tests in CI — **resolved**: `smoke-tests/` Playwright suite (Chromium) runs in Verify against the production build via `webServer` + `next start`; credential-free, externals intercepted (see §14) |
 | #18 | Environment/service-initialization hardening — **resolved**: lazy `getResendClient()` + `getFirebase*()` getters; `next build` needs no env (see §13) |
 | #20 | Observability (only `console.*` logging today; no error tracking/alerts) |
 | #21 | Accessibility |
