@@ -165,7 +165,10 @@ npm run check:react-versions  # react/react-dom declared versions must match
 ## Git and PR workflow
 
 - Branch from current `main`; keep branches focused on one issue.
-- Keep commits and PR scope tied to the issue; open PRs against `main`.
+- Keep commits and PR scope tied to the issue; open PRs against `main`
+  and fill in `.github/pull_request_template.md`. `CONTRIBUTING.md`
+  documents the human-facing workflow; this file stays authoritative for
+  agent work.
 - Dependabot opens weekly dependency PRs (`.github/dependabot.yml`, label
   `type: dependencies`); they go through the same CI and review — do not
   auto-merge or batch them into feature work.

@@ -1,0 +1,27 @@
+name: Improvement / feature request
+description: Suggest an improvement or new functionality
+title: "[Feature]: "
+labels: ["type: feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What problem does this solve, or what opportunity does it create? Describe the problem and desired outcome — not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed outcome
+      description: What does success look like?
+  - type: input
+    id: area
+    attributes:
+      label: Relevant page or workflow
+      placeholder: "e.g. /beers, admin dashboard, trade inquiry flow"
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, examples, or anything else relevant.
