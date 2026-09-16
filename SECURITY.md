@@ -207,13 +207,12 @@ reaches any of these, follow the incident checklist in
 - CI (`.github/workflows/ci.yml`) is intentionally **secret-free**: it
   runs typecheck, lint, tests, build, and the Markdown-link check with
   `permissions: contents: read` and no secrets.
-- The build step supplies non-secret dummy values for
-  `NEXT_PUBLIC_FIREBASE_*` and `RESEND_API_KEY` because `next build`
-  evaluates modules that construct Firebase and Resend clients. Do not add
-  real Firebase Admin, Resend, or Vercel secrets to CI merely to make it
-  pass.
-- Issue [#18](https://github.com/spizeck/deepdivebrewing-web/issues/18)
-  owns reducing the need for those dummy build values.
+- No environment variables are injected anywhere in CI. Service clients
+  initialize lazily (`getResendClient()` in `lib/resend.ts`,
+  `getFirebase*()` getters in `lib/firebase.ts`), so `next build` evaluates
+  no service clients; Firestore reads during static generation resolve
+  empty when no project config is present. Do not add real Firebase Admin,
+  Resend, or Vercel secrets to CI merely to make it pass.
 
 ## Firebase security boundaries
 

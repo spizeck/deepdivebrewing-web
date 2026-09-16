@@ -64,11 +64,11 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   on demand at request time.
 - **Static generation reads live Firestore.** `getBeers()` / `getVenues()` use
   the Firebase *client* SDK, so `next build` performs real Firestore reads
-  against the configured project during prerendering. If reads are denied (for
-  example, CI's dummy credentials), the SDK logs permission errors and the pages
-  still build with fallback/empty states — see the code paths in `lib/beers.ts`
-  and `lib/venues.ts` and the `Next.js prerendering error` / `permission-denied`
-  warnings observed in build logs.
+  against the configured project during prerendering. If reads fail (denied,
+  or no project configured at all — as in CI, which provides no env), the SDK
+  logs errors, falls back to offline mode, and the pages still build with
+  empty states — see `lib/beers.ts` and `lib/venues.ts` and the Firestore
+  `INVALID_ARGUMENT`/`permission-denied` warnings observed in build logs.
 - **Node runtime.** The repository is normalized on **Node 24** (active LTS):
   `.nvmrc` declares `24` and is the single source of truth — CI reads it via
   `actions/setup-node`'s `node-version-file`, `package.json` declares
@@ -281,9 +281,11 @@ API routes (with rollback on partial failure — see §7/§8).
 
 ## 6. Firebase architecture
 
-- **Client SDK** (`lib/firebase.ts`): initialized once with the
-  `NEXT_PUBLIC_FIREBASE_*` config; exports `db` (Firestore), `auth`
-  (Authentication), and `storage` (Storage). Used by:
+- **Client SDK** (`lib/firebase.ts`): **lazily initialized** — importing the
+  module reads no config and constructs nothing; `getFirebaseApp()` /
+  `getFirebaseDb()` / `getFirebaseAuth()` / `getFirebaseStorage()` build and
+  cache the app + services from `NEXT_PUBLIC_FIREBASE_*` config on first use,
+  so `next build` page-data collection never requires Firebase values. Used by:
   - public server components for build-time reads (`beers`, `venues`),
   - the admin dashboard for reads *and writes* (beers/venues/meta, Storage
     uploads), all gated by rules,
@@ -387,10 +389,10 @@ server-side.
    pending invitations, and role conflicts. Creates a pending
    `adminInvitations` doc, then sends the invite email.
 2. **Email delivery** — `sendAdminInvitationEmail` (in
-   `lib/admin-invitation-email.ts`) constructs Resend **lazily inside the send
-   function** (unlike the trade route, which constructs it at module load) and
-   returns a structured failure if `RESEND_API_KEY` is unset rather than
-   throwing. It builds the invite link from `NEXT_PUBLIC_SITE_URL`, sends from
+   `lib/admin-invitation-email.ts`) sends via `getResendClient()`
+   (`lib/resend.ts`, `import "server-only"`), which lazily constructs and
+   caches the Resend client on first use. It returns a structured failure if
+   `RESEND_API_KEY` is unset rather than throwing. It builds the invite link from `NEXT_PUBLIC_SITE_URL`, sends from
    `ADMIN_INVITE_FROM_EMAIL` (falling back to `RESEND_FROM_EMAIL`), then
    persists delivery state (`emailStatus`, `lastEmailAttemptAt`, `messageId`)
    back onto the invitation doc.
@@ -477,10 +479,12 @@ intentional, not an oversight.
    Client-side state drives start/success/error analytics events
    (`trade_form_start`, `trade_form_success`, `trade_form_error`, category
    `conversion`).
-2. **API route:** `app/api/trade-inquiry/route.ts` instantiates
-   `new Resend(process.env.RESEND_API_KEY)` at **module top level** — this is
-   why `next build` fails without a `RESEND_API_KEY` value and why CI supplies a
-   dummy. The route then:
+2. **API route:** `app/api/trade-inquiry/route.ts` checks
+   `RESEND_API_KEY` at request time (500 "Email service is not configured."
+   when unset) and constructs the client **lazily at send time** via the
+   shared server-only `getResendClient()` helper in `lib/resend.ts` — nothing
+   is constructed at module scope, so `next build` needs no Resend value.
+   The route then:
    - requires `businessName`, `contactName`, `email`, `venueType` (400 on
      missing);
    - treats a filled `website` honeypot as spam and **returns fake `ok: true`
@@ -540,12 +544,12 @@ Names only — never commit values. Source of truth for names:
 
 | Variable | Role | Required? |
 | --- | --- | --- |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase client config | Yes (build + runtime) |
-| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Firebase client config | Yes |
-| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase client config | Yes |
-| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Firebase client config | Yes |
-| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Firebase client config | Yes |
-| `NEXT_PUBLIC_FIREBASE_APP_ID` | Firebase client config | Yes |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase client config | Runtime only — needed for real data/sign-in; `next build` succeeds without it (prerender reads resolve empty) |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Firebase client config | Runtime only |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase client config | Runtime only |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Firebase client config | Runtime only |
+| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Firebase client config | Runtime only |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | Firebase client config | Runtime only |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | Firebase/GA measurement | Optional in code, used by GA fallback |
 | `NEXT_PUBLIC_SITE_URL` | Canonical/OG/sitemap/robots base URL | Optional — defaults to `https://deepdivebrewing.com` everywhere |
 | `NEXT_PUBLIC_GA_ID` | GA4 measurement id | Optional — hardcoded `G-5VBQTMP37H` fallback in `app/layout.tsx` |
@@ -554,7 +558,7 @@ Names only — never commit values. Source of truth for names:
 
 | Variable | Role | Required? |
 | --- | --- | --- |
-| `RESEND_API_KEY` | Resend client (trade route constructs it at module load) | Yes — **`next build` fails without any value** |
+| `RESEND_API_KEY` | Resend client (lazy `getResendClient()`) | Runtime only — required when mail is actually sent; trade route returns 500 "Email service is not configured.", invitation send returns a structured failure |
 | `TRADE_INQUIRY_TO_EMAIL` | Trade inquiry recipient | **Required** — route returns 500 if unset |
 | `RESEND_FROM_EMAIL` | Sender for trade emails; fallback sender for invites | Optional — hardcoded default in the trade route |
 | `ADMIN_INVITE_FROM_EMAIL` | Invite sender (preferred) | Optional — falls back to `RESEND_FROM_EMAIL` |
@@ -572,17 +576,18 @@ Names only — never commit values. Source of truth for names:
 | `ADMIN_REBUILD_COOLDOWN_MS` | In-memory rebuild cooldown | Optional — defaults to 10 min |
 | `ADMIN_INVITE_RESEND_COOLDOWN_MS` | Invitation resend cooldown | Optional — defaults to 60 s |
 
-### CI dummy-env behavior
+### CI build environment
 
-`.github/workflows/ci.yml` sets non-secret placeholder values for all seven
-`NEXT_PUBLIC_FIREBASE_*` variables plus `RESEND_API_KEY=re_ci_dummy_key`
-**only on the build step** — because `next build` evaluates route modules
-(`new Resend(...)` at top level) and constructs the Firebase client during
-page-data collection. The dummy Firebase project causes expected
-`permission-denied` warnings during static generation; the build completes and
-serves empty/fallback content. Typecheck/lint/tests need no env at all.
-**Issue #18** owns hardening this initialization (e.g. lazy clients, clearer
-validation); this document describes current behavior only.
+`next build` in `.github/workflows/ci.yml` runs with **no environment
+variables at all** — verified experimentally after the lazy-initialization
+refactor (issue #18). Resend is only constructed at send time via
+`getResendClient()` and Firebase client services only via `getFirebase*()`
+first-use getters, so page-data collection evaluates no service clients.
+Static generation still invokes the Firestore reads in `getBeers()` /
+`getVenues()`, which fail fast against an unconfigured project
+(`INVALID_ARGUMENT` warnings), fall back to offline mode, and resolve empty —
+pages build with fallback/empty states. Typecheck/lint/tests need no env
+either. No secrets or placeholder values exist anywhere in CI.
 
 ## 14. Testing and verification strategy
 
@@ -590,10 +595,12 @@ validation); this document describes current behavior only.
   `node --test "tests/**/*.test.ts"`). The glob requires Node ≥ 21 — satisfied
   by the repository's Node 24 runtime (on Node 20 the pattern silently matched
   zero files, which is why the runtime was normalized).
-- **Coverage (87 tests, all in `tests/`):** admin auth/claim parsing
+- **Coverage (95 tests, all in `tests/`):** admin auth/claim parsing
   (`admin-auth`), admin-users record building/serialization, invitation
   policy/email/resend/cooldown logic, audit helpers, `admin-policy` mutation
-  guards and the `checkAdminActorRecord` active-record policy, and
+  guards and the `checkAdminActorRecord` active-record policy,
+  service-initialization config (`resend-config` key validation and
+  `lib/firebase.ts` import-time laziness/first-use caching), and
   **rules-content tests** that read `firestore.rules` and `storage.rules` as
   text and assert required patterns.
 - **Emulator rules tests (`rules-tests/`, 27 tests):** `npm run test:rules`
@@ -608,7 +615,8 @@ validation); this document describes current behavior only.
 - **CI (`.github/workflows/ci.yml`):** on PRs to `main` and pushes to `main` —
   `npm ci`, `npx tsc --noEmit`, `npm run lint`, `npm test`,
   `npm run test:rules` (Firestore/Storage emulators, no credentials — `demo-*`
-  project IDs), `npm run build` (with dummy env), `npm run check:md-links`.
+  project IDs), `npm run build` (no env needed at all),
+  `npm run check:md-links`.
   `permissions: contents: read`; no secrets, no deploy step.
 - **Local-only scripts (`scripts/`):** Playwright-based checks
   (`console-check`, `screenshot-check`, `overflow-check`, `hero-video-*`,
@@ -629,7 +637,7 @@ validation); this document describes current behavior only.
 | Client SDK writes | `firestore.rules` / `storage.rules`: `hasActiveAdmin` gates content reads/writes (claim + existing, active, role-matching `adminUsers` record via `get()`/`firestore.get()`); `adminUsers`/`adminInvitations`/`adminAuditLogs` require `hasActiveSuperAdmin` (audit logs immutable — no client update/delete); catch-all denies everything else. |
 | Protected API routes | Every privileged `/api/admin/*` operation verifies the Bearer ID token, re-checks claims, and requires the actor's `adminUsers` record to be active and role-consistent; admin-mutation routes apply `admin-policy` guards (superadmin-only mutations, last-superadmin protection). Bootstrap and invitation-accept are documented lifecycle exceptions. |
 | Rebuild authorization | `requireAdminActor` check (token + `admin` claim + active matching record) before the Vercel hook is called; hook URL is a server secret. |
-| Environment secrets | Server-only vars never prefixed `NEXT_PUBLIC_`; CI uses dummies; `.env.local` is gitignored. |
+| Environment secrets | Server-only vars never prefixed `NEXT_PUBLIC_`; CI uses no env at all; `.env.local` is gitignored. |
 | Security headers / CSP | `next.config.ts` `headers()` sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security`, and a CSP allowing self + Firebase/GA/Vercel origins; `redirects()` forces HTTPS + apex domain. |
 | Audit trail | `adminAuditLogs` records sensitive admin actions (best-effort writes). |
 | Spam boundary | Trade form honeypot (fake success) + per-instance in-memory IP rate limit (5/10 min); unauthenticated endpoint writes nothing. |
@@ -655,10 +663,10 @@ fixed in this PR.
   inquiries are email-only and lost on Resend failure. Decide between wiring
   persistence in `/api/trade-inquiry` or removing the dead code/rule.
   **Recommend a follow-up issue.**
-- **Module-load Resend construction** in `app/api/trade-inquiry/route.ts`
-  forces every build to provide a `RESEND_API_KEY` (reason for CI dummies).
-  Covered by **#18** (environment/service-init hardening); the invitation
-  email module already does lazy init and is the existing pattern to copy.
+- **~~Module-load Resend construction~~** — resolved by **#18**: the trade
+  route and invitation email now share `getResendClient()` (`lib/resend.ts`),
+  a lazy server-only singleton validated at send time, and `lib/firebase.ts`
+  exposes lazy `getFirebase*()` getters. `next build` requires no env.
 - **In-memory, per-instance state**: the rebuild cooldown in
   `/api/admin/rebuild` and the trade-inquiry rate limiter are both
   process-local (`Map`/module state) — they reset on cold start, do not
@@ -680,7 +688,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #14 | Dependabot |
 | #16 | Node/runtime normalization — **resolved**: Node 24 via `.nvmrc` + `engines.node` (see §2) |
 | #17 | Deterministic browser smoke tests in CI (Playwright scripts are local-only today) |
-| #18 | Environment/service-initialization hardening (dummy-env build, top-level `new Resend`) |
+| #18 | Environment/service-initialization hardening — **resolved**: lazy `getResendClient()` + `getFirebase*()` getters; `next build` needs no env (see §13) |
 | #20 | Observability (only `console.*` logging today; no error tracking/alerts) |
 | #21 | Accessibility |
 | #22 | SEO |

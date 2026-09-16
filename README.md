@@ -67,7 +67,7 @@ See the [docs/](./docs/) directory for detailed guides.
    ```
 5. Open [http://localhost:3000](http://localhost:3000).
 
-> Local development can use dummy Firebase values, but populated beer/venue data and image uploads require real Firebase credentials.
+> Local development can use dummy Firebase values, but populated beer/venue data and image uploads require real Firebase credentials. `next build` requires no environment variables at all — service clients initialize lazily — but a production deployment needs the real values below at runtime.
 
 ## Required environment variables
 

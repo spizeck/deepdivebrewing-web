@@ -134,10 +134,10 @@ authorization boundary — enforcement lives server-side.
   `lib/firebase-admin.ts`, API routes) before adding environment variables.
 - Never put real secret values in documentation, tests, CI, or committed
   example files.
-- CI (`.github/workflows/ci.yml`) intentionally uses non-secret dummy values
-  for `NEXT_PUBLIC_FIREBASE_*` and `RESEND_API_KEY` during `next build`,
-  because the build evaluates modules that construct Firebase/Resend clients.
-  Keep CI secret-free.
+- CI (`.github/workflows/ci.yml`) uses no environment variables at all:
+  service clients initialize lazily (`lib/resend.ts`,
+  `lib/firebase.ts` getters), so `next build` evaluates no service clients.
+  Keep CI secret-free; do not add dummy or real values to make it pass.
 
 ## Verification
 
@@ -149,7 +149,7 @@ npx tsc --noEmit        # TypeScript
 npm run lint            # ESLint
 npm test                # node:test suite
 npm run test:rules      # Firestore/Storage emulator rules tests (needs Java)
-npm run build           # production build (needs env values; dummies suffice)
+npm run build           # production build (needs no env values)
 npm run check:md-links  # relative Markdown links
 ```
 

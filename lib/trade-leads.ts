@@ -1,5 +1,5 @@
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getFirebaseDb } from "@/lib/firebase";
 
 interface TradeLeadInput {
   businessName: string;
@@ -11,7 +11,7 @@ interface TradeLeadInput {
 }
 
 export async function submitTradeLead(data: TradeLeadInput): Promise<string> {
-  const docRef = await addDoc(collection(db, "tradeLeads"), {
+  const docRef = await addDoc(collection(getFirebaseDb(), "tradeLeads"), {
     ...data,
     createdAt: serverTimestamp(),
     status: "new",
