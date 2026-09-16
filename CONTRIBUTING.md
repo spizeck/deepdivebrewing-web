@@ -49,6 +49,7 @@ npm run lint                 # ESLint
 npm test                     # node:test unit suite
 npm run test:rules           # Firestore/Storage emulator rules tests (needs Java 21+)
 npm run build                # production build (needs no env values)
+npx playwright test          # browser smoke tests against the build (first run needs `npx playwright install chromium`)
 npm run check:md-links       # relative Markdown links
 ```
 

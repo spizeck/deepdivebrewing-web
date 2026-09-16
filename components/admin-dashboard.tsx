@@ -125,47 +125,65 @@ export function AdminDashboard() {
     (!rebuildMeta.lastTriggeredAt || rebuildMeta.contentUpdatedAt > rebuildMeta.lastTriggeredAt);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(getFirebaseAuth(), async (nextUser) => {
-      setUser(nextUser);
-      setShowBootstrap(false);
-      setRole(null);
+    // Missing/invalid Firebase config (e.g. a preview without env) must not
+    // crash the route — surface the sign-in shell instead.
+    let unsub: () => void;
+    try {
+      unsub = onAuthStateChanged(
+        getFirebaseAuth(),
+        async (nextUser) => {
+          setUser(nextUser);
+          setShowBootstrap(false);
+          setRole(null);
 
-      if (nextUser) {
-        try {
-          const tokenResult = await getIdTokenResult(nextUser, true);
-          const claims = tokenResult.claims as Partial<{ admin?: boolean; role?: string }>;
-          if (
-            claims.admin === true &&
-            (claims.role === "superadmin" || claims.role === "admin")
-          ) {
-            setRole(claims.role as AdminRole);
-            await loadData();
-            await loadRebuildMeta();
-          } else {
-            // The user is signed in but has no admin claim yet. Check whether this account
-            // matches the configured bootstrap superadmin email or has a pending invitation.
-            const idToken = await nextUser.getIdToken();
-            const res = await fetch("/api/admin/me", {
-              headers: { Authorization: `Bearer ${idToken}` },
-            });
-            const me = (await res.json()) as {
-              isAdmin?: boolean;
-              isBootstrapEmail?: boolean;
-              pendingInvitation?: { id: string; email: string; role: AdminRole } | null;
-            };
-            if (!me.isAdmin && me.isBootstrapEmail) {
-              setShowBootstrap(true);
-            } else if (!me.isAdmin && me.pendingInvitation) {
-              setPendingInvitation(me.pendingInvitation);
+          if (nextUser) {
+            try {
+              const tokenResult = await getIdTokenResult(nextUser, true);
+              const claims = tokenResult.claims as Partial<{ admin?: boolean; role?: string }>;
+              if (
+                claims.admin === true &&
+                (claims.role === "superadmin" || claims.role === "admin")
+              ) {
+                setRole(claims.role as AdminRole);
+                await loadData();
+                await loadRebuildMeta();
+              } else {
+                // The user is signed in but has no admin claim yet. Check whether this account
+                // matches the configured bootstrap superadmin email or has a pending invitation.
+                const idToken = await nextUser.getIdToken();
+                const res = await fetch("/api/admin/me", {
+                  headers: { Authorization: `Bearer ${idToken}` },
+                });
+                const me = (await res.json()) as {
+                  isAdmin?: boolean;
+                  isBootstrapEmail?: boolean;
+                  pendingInvitation?: { id: string; email: string; role: AdminRole } | null;
+                };
+                if (!me.isAdmin && me.isBootstrapEmail) {
+                  setShowBootstrap(true);
+                } else if (!me.isAdmin && me.pendingInvitation) {
+                  setPendingInvitation(me.pendingInvitation);
+                }
+              }
+            } catch (error) {
+              console.error("Failed to resolve admin session:", error);
             }
           }
-        } catch (error) {
-          console.error("Failed to resolve admin session:", error);
-        }
-      }
 
+          setAuthReady(true);
+        },
+        (error) => {
+          console.error("Auth state listener failed:", error);
+          setStatusMessage("Sign-in is currently unavailable.");
+          setAuthReady(true);
+        }
+      );
+    } catch (error) {
+      console.error("Firebase Auth is unavailable:", error);
+      setStatusMessage("Sign-in is currently unavailable.");
       setAuthReady(true);
-    });
+      return;
+    }
 
     return () => unsub();
   }, []);
