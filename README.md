@@ -145,6 +145,11 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 - [Troubleshooting guide](./docs/operations/troubleshooting.md)
 - [Post-deployment checklist](./docs/operations/post-deployment-checklist.md)
 
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development workflow,
+verification commands, and pull request expectations.
+
 ## Security and secret management
 
 - No secrets, API keys, or private keys are stored in source control.
