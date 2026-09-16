@@ -20,8 +20,6 @@ updates:
       - "type: dependencies"
     commit-message:
       prefix: "chore(deps)"
-    # Never run lifecycle scripts from dependency packages while updating.
-    insecure-external-code-execution: "never"
     groups:
       # Development tooling only — typecheck/lint/test/build helpers.
       # dependency-type keeps any production dep out of this group even if a
