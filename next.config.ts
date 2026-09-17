@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
             value: "http",
           },
         ],
-        destination: "https://deepdivebrewing.com/:path*",
+        destination: `${siteUrl}/:path*`,
         permanent: true,
       },
       // www → non-www in one hop, permanent 308.
@@ -65,7 +65,7 @@ const nextConfig: NextConfig = {
             value: "www.deepdivebrewing.com",
           },
         ],
-        destination: "https://deepdivebrewing.com/:path*",
+        destination: `${siteUrl}/:path*`,
         permanent: true,
       },
     ];
