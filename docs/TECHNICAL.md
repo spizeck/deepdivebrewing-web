@@ -111,7 +111,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry`. |
 | `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx` (auth + data orchestration), `admin-workspace.tsx` (props-driven authenticated view shared with `/admin-fixture`), `admin-access.tsx`, `admin-fixture.tsx` (test-only data), `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |
-| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `trade-leads.ts`, `analytics.ts`, `types.ts`, `utils.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
+| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
 | `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
 | `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics do not (CI browser coverage lives in `smoke-tests/`). |
@@ -202,17 +202,17 @@ in code are listed.
 ### `tradeLeads`
 
 - **Purpose:** designed to store wholesale inquiries.
-- **Fields (`TradeLead` in `lib/types.ts` / `lib/trade-leads.ts`):**
-  `businessName`, `contactName`, `email`, `phoneOrWhatsapp`, `venueType`,
-  `message`, plus `createdAt` (server timestamp) and `status: "new"`.
-- **Current state:** `submitTradeLead()` in `lib/trade-leads.ts` writes to this
-  collection via the client SDK, but **no code path calls it** — the form posts
-  to `/api/trade-inquiry` which only emails. `firestore.rules` grants
+- **Fields (schema enforced by `firestore.rules`):** `businessName`,
+  `contactName`, `email`, `phoneOrWhatsapp`, `venueType`, `message`, plus
+  `createdAt` (server timestamp) and `status: "new"`.
+- **Current state:** **reserved — nothing writes to it.** The trade form posts
+  to `/api/trade-inquiry`, which only emails. The former client-side helper
+  (`submitTradeLead` in `lib/trade-leads.ts`) had zero call sites and was
+  removed along with the `TradeLead` type. `firestore.rules` still grants
   unauthenticated `create` restricted to exactly the documented fields with
-  `status == "new"`, and `read`/`update`/`delete` to `hasActiveAdmin` — so the
-  collection is writable by the client if the helper were wired in, but in
-  production today it is effectively unused. This is dead-code/discrepancy
-  debt — see §11 and §16.
+  `status == "new"`, and `read`/`update`/`delete` to `hasActiveAdmin`.
+  Whether to wire persistence in or remove the rule is an open product
+  decision tracked in **#57**.
 
 ### `adminUsers`
 
@@ -285,8 +285,7 @@ API routes (with rollback on partial failure — see §7/§8).
   - public server components for build-time reads (`beers`, `venues`),
   - the admin dashboard for reads *and writes* (beers/venues/meta, Storage
     uploads), all gated by rules,
-  - Google sign-in (`GoogleAuthProvider` + `signInWithPopup`) in the dashboard,
-  - `lib/trade-leads.ts` (currently unused, see §5).
+  - Google sign-in (`GoogleAuthProvider` + `signInWithPopup`) in the dashboard.
 - **Admin SDK** (`lib/firebase-admin.ts`, `import "server-only"`): initialized
   lazily from `FIREBASE_ADMIN_*` credentials; exports admin `auth`/`db`. Used by
   every protected API route and the server-only `lib/admin-*.ts` modules for
@@ -496,10 +495,10 @@ intentional, not an oversight.
      is not configured" if unset) from `RESEND_FROM_EMAIL` (defaulting to the
      shared `noreply@mail.deepdivebrewing.com` sender in
      `lib/resend-config.ts`), with `replyTo` set to the submitter's email.
-3. **Persistence:** none. `lib/trade-leads.ts` (`submitTradeLead`) and the
-   `tradeLeads` collection + public-create rule exist, but the helper has **zero
-   call sites**. If lead persistence is desired it must be wired in (or the dead
-   code/rules removed) — flagged as debt in §16.
+3. **Persistence:** none. The reserved `tradeLeads` collection and its
+   schema-validated public-create rule remain (see §5), but no code writes
+   to it — the dead `submitTradeLead` helper was removed. Wiring persistence
+   or removing the rule is an open product decision (**#57**).
 4. **Response/error handling:** the form shows a success state on `ok`; errors
    surface a retryable error message. Because nothing is stored, a Resend
    failure loses the inquiry entirely.
@@ -657,7 +656,7 @@ either. No secrets or placeholder values exist anywhere in CI.
   dialogs, and per-row accessible names. See
   [`docs/operations/accessibility.md`](./operations/accessibility.md).
 - **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
-  (`screenshot-check`, `overflow-check`, `hero-video-*`, `analytics-check`),
+  (`screenshot-check`, `overflow-check`, `hero-video-*`),
   `optimize-assets.mjs`, and Admin-SDK utilities (`bootstrap-superadmin.ts`,
   `seed-beers.ts`, `seed-venues.ts`). These remain manual/local; the CI smoke
   suite lives in `smoke-tests/`.
@@ -693,11 +692,12 @@ fixed in this PR.
 - **~~`/trade` duplicate page sources~~** — resolved by **#46**: the tabled
   `page.mdx` stub was removed after it proved to serve the route on Linux
   builds; `page.tsx` is the sole canonical source (see §4).
-- **Unused `tradeLeads` persistence**: `lib/trade-leads.ts` (`submitTradeLead`)
-  and the public-create `tradeLeads` rule exist but nothing calls them —
-  inquiries are email-only and lost on Resend failure. Decide between wiring
-  persistence in `/api/trade-inquiry` or removing the dead code/rule.
-  **Recommend a follow-up issue.**
+- **~~Dead `tradeLeads` helper~~** — resolved: `lib/trade-leads.ts`
+  (`submitTradeLead`) and the unused `TradeLead` type had zero call sites
+  and were removed. The reserved `tradeLeads` collection and its
+  public-create rule remain pending an owner decision — tracked in **#57**
+  (wire persistence into `/api/trade-inquiry` so inquiries survive a Resend
+  failure, or remove the rule).
 - **~~Module-load Resend construction~~** — resolved by **#18**: the trade
   route and invitation email now share `getResendClient()` (`lib/resend.ts`),
   a lazy server-only singleton validated at send time, and `lib/firebase.ts`

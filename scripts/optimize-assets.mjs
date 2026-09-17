@@ -1,3 +1,6 @@
+// sharp is not a declared dependency — it resolves via Next.js's optional
+// transitive install. If this script ever fails to import sharp, run
+// `npm i --no-save sharp` for a local run.
 import sharp from "sharp";
 import fs from "fs";
 import path from "path";

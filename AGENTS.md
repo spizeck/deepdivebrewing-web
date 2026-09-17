@@ -41,7 +41,7 @@ Deep Dive Brews, BV.
 - `components/` — site and admin UI; `components/ui/` is shadcn primitives.
 - `lib/` — **all** data access and domain logic: Firebase client
   (`firebase.ts`), server-only Admin SDK (`firebase-admin.ts`), data helpers
-  (`beers.ts`, `venues.ts`, `trade-leads.ts`), admin domain modules
+  (`beers.ts`, `venues.ts`), admin domain modules
   (`admin-*.ts`), analytics, types, utilities. Shared Firestore logic
   belongs here — the established exception is
   `components/admin-dashboard.tsx` (see Coding expectations).
@@ -83,8 +83,8 @@ Deep Dive Brews, BV.
   documents, strict mode, avoid `any`, prefer named exports, keep components
   small.
 - Prefer Server Components and static rendering; keep public Firestore
-  reads server-side. Client-side writes exist in exactly two places: the
-  trade-lead form and `components/admin-dashboard.tsx`, which intentionally
+  reads server-side. The only client-side Firestore write surface is
+  `components/admin-dashboard.tsx`, which intentionally
   uses the authenticated client SDK (beer/venue saves, rebuild metadata,
   Storage uploads) gated by the active-admin security rules
   (`hasActiveAdmin`: claims plus an existing, active, role-matching
