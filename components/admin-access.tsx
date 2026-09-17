@@ -5,10 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
 import type { AdminRole, AdminUserView, AdminInvitationView } from "@/lib/types";
-import type { User } from "firebase/auth";
+
+// The panel only needs a token source — the real Firebase `User` satisfies
+// this, and the admin fixture passes a plain object (no auth involved).
+export interface AdminPanelUser {
+  getIdToken: () => Promise<string>;
+}
 
 interface AdminAccessPanelProps {
-  user: User;
+  user: AdminPanelUser;
   onStatusMessage: (message: string) => void;
 }
 
@@ -219,13 +224,16 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
         <h2 className="text-lg font-semibold">Invite Administrator</h2>
         <form onSubmit={invite} className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto_auto]">
           <label className="text-sm">
-            <span className="mb-1 block font-medium">Email</span>
+            <span className="mb-1 block font-medium">
+              Email
+              <span aria-hidden="true" className="text-ember"> *</span>
+            </span>
             <input
               type="email"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
               required
-              className="w-full rounded-md border border-stone px-3 py-2"
+              className="w-full rounded-md border border-ink/50 px-3 py-2"
               placeholder="colleague@example.com"
             />
           </label>
@@ -234,7 +242,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
             <select
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as AdminRole)}
-              className="w-full rounded-md border border-stone px-3 py-2"
+              className="w-full rounded-md border border-ink/50 px-3 py-2"
             >
               <option value="admin">Admin</option>
               <option value="superadmin">Superadmin</option>
@@ -251,7 +259,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
       <section className="rounded-lg border border-stone bg-paper p-5">
         <h2 className="text-lg font-semibold">Administrators</h2>
         {loading ? (
-          <p className="mt-3 text-sm text-muted-foreground">Loading...</p>
+          <p role="status" className="mt-3 text-sm text-muted-foreground">Loading...</p>
         ) : admins.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">No administrators found.</p>
         ) : (
@@ -281,6 +289,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
                       <Button
                         size="sm"
                         variant="outline"
+                        aria-label={`Promote ${admin.email} to superadmin`}
                         disabled={actionInProgress === `update-${admin.uid}`}
                         onClick={() => updateAdmin(admin, { role: "superadmin" })}
                       >
@@ -291,6 +300,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
                       <Button
                         size="sm"
                         variant="outline"
+                        aria-label={`Demote ${admin.email} to admin`}
                         disabled={actionInProgress === `update-${admin.uid}`}
                         onClick={() => updateAdmin(admin, { role: "admin" })}
                       >
@@ -301,6 +311,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
                       <Button
                         size="sm"
                         variant="outline"
+                        aria-label={`Disable admin access for ${admin.email}`}
                         disabled={actionInProgress === `update-${admin.uid}`}
                         onClick={() => updateAdmin(admin, { status: "disabled" })}
                       >
@@ -310,6 +321,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
                       <Button
                         size="sm"
                         variant="outline"
+                        aria-label={`Reactivate admin access for ${admin.email}`}
                         disabled={actionInProgress === `update-${admin.uid}`}
                         onClick={() => updateAdmin(admin, { status: "active" })}
                       >
@@ -318,7 +330,8 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
                     )}
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="destructive"
+                      aria-label={`Revoke admin access for ${admin.email}`}
                       disabled={actionInProgress === `revoke-${admin.uid}`}
                       onClick={() => revoke(admin)}
                     >
@@ -361,6 +374,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
                   <Button
                     size="sm"
                     variant="outline"
+                    aria-label={`Resend invitation email to ${invitation.email}`}
                     disabled={actionInProgress === `resend-${invitation.id}`}
                     onClick={() => resend(invitation)}
                   >
