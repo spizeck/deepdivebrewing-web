@@ -66,25 +66,29 @@ export function HeroVideo() {
       ref={sectionRef}
       className="animate-fade-in animate-delay-2 relative h-screen w-full overflow-hidden"
     >
-      {showStaticPoster ? (
-        <Image
-          src={POSTER_SRC}
-          alt=""
-          fill
-          priority={false}
-          quality={70}
-          sizes="100vw"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      ) : (
+      {/* Optimized poster is always rendered underneath. The <video> element
+          deliberately has no poster attribute: the SSR'd poster attribute would
+          fetch the raw JPEG at HTML parse time (before hydration and before the
+          viewport gating below), duplicating the optimized image download. */}
+      <Image
+        src={POSTER_SRC}
+        alt=""
+        fill
+        priority={false}
+        quality={70}
+        sizes="100vw"
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      {!showStaticPoster && (
         <video
           ref={videoRef}
-          className="absolute inset-0 h-full w-full object-cover"
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
+            canPlay ? "opacity-100" : "opacity-0"
+          }`}
           muted
           loop
           playsInline
           preload="none"
-          poster={POSTER_SRC}
           aria-hidden="true"
           onCanPlay={() => setCanPlay(true)}
         >
@@ -94,18 +98,7 @@ export function HeroVideo() {
         </video>
       )}
 
-      {/* Fade-in overlay used only when the video is ready to avoid flash. */}
-      {!showStaticPoster && (
-        <div
-          aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 bg-ink/60 transition-opacity duration-700 ${
-            canPlay ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      )}
-      {(showStaticPoster || !canPlay) && (
-        <div aria-hidden="true" className="absolute inset-0 bg-ink/60" />
-      )}
+      <div aria-hidden="true" className="absolute inset-0 bg-ink/60" />
 
       <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
         <h2 className="text-4xl font-bold tracking-tight text-paper sm:text-5xl md:text-6xl">
