@@ -41,7 +41,7 @@ Deep Dive Brews, BV.
 - `components/` — site and admin UI; `components/ui/` is shadcn primitives.
 - `lib/` — **all** data access and domain logic: Firebase client
   (`firebase.ts`), server-only Admin SDK (`firebase-admin.ts`), data helpers
-  (`beers.ts`, `venues.ts`), admin domain modules
+  (`beers.ts`, `venues.ts`, server-only `trade-leads.ts`), admin domain modules
   (`admin-*.ts`), analytics, types, utilities. Shared Firestore logic
   belongs here — the established exception is
   `components/admin-dashboard.tsx` (see Coding expectations).

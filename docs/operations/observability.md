@@ -36,8 +36,10 @@ emits **single-line JSON** so Vercel's log search can filter reliably:
 
 | Event | Meaning |
 | --- | --- |
-| `trade_inquiry.misconfigured` | `RESEND_API_KEY` or `TRADE_INQUIRY_TO_EMAIL` unset (see `missing` field) |
-| `trade_inquiry.send_failed` | Resend rejected the inquiry email |
+| `trade_inquiry.persisted` | Inquiry durably written to `tradeLeads` (`leadId`, `venueType`, `requestId`) |
+| `trade_inquiry.persistence_failed` | Firestore write failed — the customer saw an error (`requestId` + error) |
+| `trade_inquiry.notification_sent` | Resend notification delivered after persistence (`leadId`, `requestId`) |
+| `trade_inquiry.notification_failed` | Notification failed/unconfigured **after** the lead was stored — the inquiry is NOT lost; check `TRADE_INQUIRY_TO_EMAIL`/`RESEND_API_KEY` and the `leadId` (`leadId`, `requestId` + error) |
 | `trade_inquiry.unexpected` | Unhandled error in the inquiry route |
 | `admin_rebuild.misconfigured` | Deploy-hook env var unset (name only — the URL is never logged) |
 | `admin_rebuild.hook_failed` | Vercel deploy hook returned non-2xx (`upstreamStatus` only — the body could echo the URL) |
