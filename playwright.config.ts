@@ -22,6 +22,12 @@ export default defineConfig({
   webServer: {
     command: `npx next start -p ${port}`,
     url: `http://localhost:${port}`,
+    // Enables /admin-fixture — a test-only route that renders the real
+    // authenticated admin workspace with fixture data. Checked server-side
+    // per request; absent everywhere else the route 404s. Note: when running
+    // locally against an already-running server (reuseExistingServer), the
+    // fixture only exists if that server was started with this env var.
+    env: { ADMIN_A11Y_FIXTURE: "1" },
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

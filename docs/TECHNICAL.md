@@ -109,7 +109,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `app/` | App Router routes. Root `layout.tsx` (header/footer shell, SEO defaults, favicon metadata pointing at `public/`, analytics wiring), `globals.css` (Tailwind v4 theme tokens), `robots.ts`, `sitemap.ts`, `page.tsx` (home). |
 | `app/(pages)/` | Route group for all content pages — `about` (MDX), `admin`, `beers` (+`[slug]`), `contact`, `privacy`, `terms`, `trade` (+ `login`/`order`/`orders` "coming soon" placeholders), `where-to-buy` — sharing a `SiteHeaderDefault` layout. Pages are `.tsx`; `about` is authored as `page.mdx` — see §4. |
 | `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry`. |
-| `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx`, `admin-access.tsx`, `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
+| `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx` (auth + data orchestration), `admin-workspace.tsx` (props-driven authenticated view shared with `/admin-fixture`), `admin-access.tsx`, `admin-fixture.tsx` (test-only data), `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |
 | `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `trade-leads.ts`, `analytics.ts`, `types.ts`, `utils.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
@@ -636,11 +636,18 @@ either. No secrets or placeholder values exist anywhere in CI.
   it is a regression safety net, not a cross-browser matrix. Run locally with
   `npm run test:smoke` (builds first); a prior `npm run build` lets
   `npx playwright test` reuse it. It intentionally does not cover
-  authenticated admin flows, real form submissions, or cross-browser checks.
-  `smoke-tests/accessibility.spec.ts` adds axe-core scans of the same
-  deterministic routes (serious/critical violations fail; lesser findings
-  are reported non-blocking) plus keyboard/skip-link/mobile-menu/
-  reduced-motion assertions — see
+  authenticated admin flows against real auth, real form submissions, or
+  cross-browser checks. `smoke-tests/accessibility.spec.ts` adds axe-core
+  scans of the same deterministic routes (serious/critical violations fail;
+  lesser findings are reported non-blocking) plus keyboard/skip-link/
+  mobile-menu/reduced-motion assertions. `smoke-tests/admin-accessibility.spec.ts`
+  covers the authenticated admin dashboard via `/admin-fixture` — a
+  request-time env-gated route (`ADMIN_A11Y_FIXTURE`, set only by the
+  Playwright `webServer`) that renders the real `AdminWorkspace`/
+  `AdminAccessPanel` components with fixture data and Playwright-mocked
+  `/api/admin/*` calls; axe scans each tab and assertions cover record-list
+  `aria-current`, required markers, status announcements, named confirm
+  dialogs, and per-row accessible names. See
   [`docs/operations/accessibility.md`](./operations/accessibility.md).
 - **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
   (`screenshot-check`, `overflow-check`, `hero-video-*`, `analytics-check`),
@@ -711,7 +718,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #17 | Deterministic browser smoke tests in CI — **resolved**: `smoke-tests/` Playwright suite (Chromium) runs in Verify against the production build via `webServer` + `next start`; credential-free, externals intercepted (see §14) |
 | #18 | Environment/service-initialization hardening — **resolved**: lazy `getResendClient()` + `getFirebase*()` getters; `next build` needs no env (see §13) |
 | #20 | Observability — **resolved**: structured server logging (`lib/log.ts`), consistent API error responses (`lib/api-error.ts`), `x-vercel-id` request correlation in logs, branded `app/error.tsx`/`app/not-found.tsx` boundaries, smoke suite fails on 5xx documents (see §12 and `docs/operations/observability.md`) |
-| #21 | Accessibility — **resolved**: axe-core scans (serious/critical gate) + keyboard/skip-link/reduced-motion assertions in `smoke-tests/accessibility.spec.ts`; carousel autoplay removed (WCAG 2.2.2 + brand rule), decorative media hidden from AT, global `:focus-visible` default, `prefers-reduced-motion` CSS, admin status live regions, trade-form `autocomplete`/required markers (see `docs/operations/accessibility.md`) |
+| #21 | Accessibility — **resolved**: axe-core scans (serious/critical gate) + keyboard/skip-link/reduced-motion assertions in `smoke-tests/accessibility.spec.ts`; carousel autoplay removed (WCAG 2.2.2 + brand rule), decorative media hidden from AT, global `:focus-visible` default, `prefers-reduced-motion` CSS, admin status live regions, trade-form `autocomplete`/required markers. Authenticated admin dashboard audited via `smoke-tests/admin-accessibility.spec.ts` + `/admin-fixture` (env-gated, fixture data, mocked admin APIs): tablist badge fix, record-list `aria-current`/list semantics, per-row action names, destructive-action styling + named confirms, required markers, input-border contrast (see `docs/operations/accessibility.md`) |
 | #22 | SEO |
 | #23 | Performance |
 | #24 | Analytics-quality audit |
