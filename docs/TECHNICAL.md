@@ -203,8 +203,8 @@ in code are listed.
 
 - **Purpose:** designed to store wholesale inquiries.
 - **Fields (schema enforced by `firestore.rules`):** `businessName`,
-  `contactName`, `email`, `phoneOrWhatsapp`, `venueType`, `message`, plus
-  `createdAt` (server timestamp) and `status: "new"`.
+  `contactName`, `email`, `phoneOrWhatsapp`, `venueType`, `message`, and
+  `status: "new"` are required; `createdAt` is a permitted optional key.
 - **Current state:** **reserved — nothing writes to it.** The trade form posts
   to `/api/trade-inquiry`, which only emails. The former client-side helper
   (`submitTradeLead` in `lib/trade-leads.ts`) had zero call sites and was
