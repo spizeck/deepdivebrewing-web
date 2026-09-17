@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeaderDefault } from "@/components/site-header-default";
 import { Button } from "@/components/ui/button";
+
+export const metadata: Metadata = {
+  title: "Page Not Found",
+  robots: { index: false },
+};
 
 // Root not-found boundary. notFound() from any segment renders here inside
 // the root layout, so the site header is included explicitly (the (pages)

@@ -98,6 +98,12 @@ Deep Dive Brews, BV.
   `aria-hidden`, and honor `prefers-reduced-motion`. UI changes should pass
   `smoke-tests/accessibility.spec.ts` — see
   `docs/operations/accessibility.md`.
+- **SEO/indexing:** every indexable page sets a unique title, description,
+  self-referencing canonical, and its own `openGraph.url` (inheriting the
+  root `og:url "/"` is a bug). Private/test/placeholder routes carry
+  `noindex` metadata and a `robots.txt` `Disallow` — never rely on either
+  as an access control. Canonical host is `https://deepdivebrewing.com`.
+  See `docs/operations/seo.md`; `smoke-tests/seo.spec.ts` guards this.
 
 ## Security boundaries
 

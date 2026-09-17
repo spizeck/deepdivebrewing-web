@@ -1,4 +1,11 @@
 // TODO: Implement trade order history when requested
+import type { Metadata } from "next";
+
+// Reserved placeholder — not a useful public search result.
+export const metadata: Metadata = {
+  title: "Trade Orders",
+  robots: { index: false, follow: false },
+};
 
 export default function TradeOrdersPage() {
   return (

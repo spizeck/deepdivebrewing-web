@@ -50,6 +50,7 @@ export default async function Home() {
   const organizationJsonLd = {
     "@context": "https://schema.org",
     "@type": "Brewery",
+    "@id": `${siteUrl}/#brewery`,
     name: "Deep Dive Brewing Co",
     legalName: "Deep Dive Brews, BV",
     url: siteUrl,
