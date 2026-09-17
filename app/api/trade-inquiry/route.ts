@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getResendClient } from "@/lib/resend";
-import { getDefaultFromEmail } from "@/lib/resend-config";
 import { getRequestId, logError } from "@/lib/log";
+import { submitTradeInquiry } from "@/lib/trade-leads";
+import { tradeLeadFieldTooLong } from "@/lib/trade-leads-common";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
@@ -44,29 +44,9 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
-function escapeHtml(input: string): string {
-  return input
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 export async function POST(req: NextRequest) {
   const requestId = getRequestId(req.headers);
   try {
-    if (!process.env.RESEND_API_KEY) {
-      logError("trade_inquiry.misconfigured", undefined, {
-        missing: "RESEND_API_KEY",
-        requestId,
-      });
-      return NextResponse.json(
-        { ok: false, error: "Email service is not configured." },
-        { status: 500 }
-      );
-    }
-
     let body: TradeInquiryBody;
     try {
       body = (await req.json()) as TradeInquiryBody;
@@ -96,7 +76,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Honeypot: pretend success for bots, but do not send email.
+    const oversized = tradeLeadFieldTooLong({
+      businessName,
+      contactName,
+      email,
+      phoneOrWhatsapp,
+      venueType,
+      message,
+    });
+    if (oversized) {
+      return NextResponse.json(
+        { ok: false, error: `Field exceeds maximum length: ${oversized}.` },
+        { status: 400 }
+      );
+    }
+
+    // Honeypot: pretend success for bots, but persist nothing and send no email.
     if (website) {
       return NextResponse.json({ ok: true });
     }
@@ -109,51 +104,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const toEmail = process.env.TRADE_INQUIRY_TO_EMAIL;
-    if (!toEmail) {
-      logError("trade_inquiry.misconfigured", undefined, {
-        missing: "TRADE_INQUIRY_TO_EMAIL",
-        requestId,
-      });
+    // Firestore is the system of record: the inquiry must be persisted before
+    // we claim success. The Resend notification is best-effort inside
+    // submitTradeInquiry — its failure is logged, not surfaced to the customer.
+    const outcome = await submitTradeInquiry(
+      { businessName, contactName, email, phoneOrWhatsapp, venueType, message },
+      requestId
+    );
+    if (!outcome.ok) {
+      // Persistence failure was already logged as
+      // trade_inquiry.persistence_failed — respond generically.
       return NextResponse.json(
-        { ok: false, error: "Destination email is not configured." },
+        { ok: false, error: "Failed to submit inquiry." },
         { status: 500 }
-      );
-    }
-
-    const subject = `Trade Inquiry — ${businessName} (${contactName})`;
-    const safeBusinessName = escapeHtml(businessName);
-    const safeContactName = escapeHtml(contactName);
-    const safeEmail = escapeHtml(email);
-    const safePhoneOrWhatsapp = escapeHtml(phoneOrWhatsapp);
-    const safeVenueType = escapeHtml(venueType);
-    const safeMessage = escapeHtml(message);
-
-    const html = `
-      <h2>New Trade Inquiry</h2>
-      <table style="border-collapse: collapse; width: 100%; max-width: 640px;">
-        <tr><td style="padding: 8px; font-weight: 700;">Business Name</td><td style="padding: 8px;">${safeBusinessName}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Contact Name</td><td style="padding: 8px;">${safeContactName}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Email</td><td style="padding: 8px;"><a href="mailto:${safeEmail}">${safeEmail}</a></td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Phone / WhatsApp</td><td style="padding: 8px;">${safePhoneOrWhatsapp || "—"}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Venue Type</td><td style="padding: 8px;">${safeVenueType}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Message</td><td style="padding: 8px;">${safeMessage || "—"}</td></tr>
-      </table>
-    `;
-
-    const { error } = await getResendClient().emails.send({
-      from: getDefaultFromEmail(),
-      to: toEmail,
-      replyTo: email,
-      subject,
-      html,
-    });
-
-    if (error) {
-      logError("trade_inquiry.send_failed", error, { requestId });
-      return NextResponse.json(
-        { ok: false, error: "Failed to send inquiry email." },
-        { status: 502 }
       );
     }
 

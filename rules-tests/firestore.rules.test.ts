@@ -11,6 +11,7 @@ import {
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -70,8 +71,10 @@ const validTradeLead = {
   phoneOrWhatsapp: "+599 000 0000",
   venueType: "bar",
   message: "We would like to carry your beer.",
-  createdAt: 0,
   status: "new",
+  source: "trade_form",
+  createdAt: 0,
+  updatedAt: 0,
 };
 
 before(async () => {
@@ -263,16 +266,43 @@ describe("superadmin collections", () => {
   });
 });
 
-describe("tradeLeads public intake", () => {
-  it("still allows unauthenticated schema-valid creates", async () => {
+describe("tradeLeads denies all client access", () => {
+  it("denies unauthenticated creates, even with the persisted schema", async () => {
     const db = testEnv.unauthenticatedContext().firestore();
-    await assertSucceeds(addDoc(collection(db, "tradeLeads"), validTradeLead));
+    await assertFails(addDoc(collection(db, "tradeLeads"), validTradeLead));
   });
 
-  it("rejects tradeLead creates that violate the field schema", async () => {
+  it("denies unauthenticated reads", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "tradeLeads", "lead1"), validTradeLead);
+    });
     const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, "tradeLeads", "lead1")));
+    await assertFails(getDocs(collection(db, "tradeLeads")));
+  });
+
+  it("denies authenticated non-admin creates and reads", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "tradeLeads", "lead1"), validTradeLead);
+    });
+    const db = testEnv.authenticatedContext("visitor1").firestore();
+    await assertFails(addDoc(collection(db, "tradeLeads"), validTradeLead));
+    await assertFails(getDoc(doc(db, "tradeLeads", "lead1")));
+  });
+
+  it("denies even active admins — leads are written/read server-side only", async () => {
+    await seedAdminRecord("admin1", "admin", "active");
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "tradeLeads", "lead1"), validTradeLead);
+    });
+    const db = adminContext("admin1", "admin").firestore();
+    await assertFails(getDoc(doc(db, "tradeLeads", "lead1")));
+    await assertFails(addDoc(collection(db, "tradeLeads"), validTradeLead));
     await assertFails(
-      addDoc(collection(db, "tradeLeads"), { ...validTradeLead, internal: true })
+      updateDoc(doc(db, "tradeLeads", "lead1"), { status: "contacted" })
+    );
+    await assertFails(
+      deleteDoc(doc(db, "tradeLeads", "lead1"))
     );
   });
 });

@@ -51,25 +51,11 @@ service cloud.firestore {
       allow create, update, delete: if hasActiveAdmin();
     }
 
+    // Trade inquiries are PII and are written exclusively server-side by
+    // /api/trade-inquiry via the Admin SDK, which bypasses these rules.
+    // No client may read or write this collection.
     match /tradeLeads/{leadId} {
-      allow create: if request.resource.data.keys().hasOnly([
-          "businessName",
-          "contactName",
-          "email",
-          "phoneOrWhatsapp",
-          "venueType",
-          "message",
-          "createdAt",
-          "status"
-        ])
-        && request.resource.data.businessName is string
-        && request.resource.data.contactName is string
-        && request.resource.data.email is string
-        && request.resource.data.phoneOrWhatsapp is string
-        && request.resource.data.venueType is string
-        && request.resource.data.message is string
-        && request.resource.data.status == "new";
-      allow read, update, delete: if hasActiveAdmin();
+      allow read, write: if false;
     }
 
     match /meta/{docId} {

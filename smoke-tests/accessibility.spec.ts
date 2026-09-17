@@ -217,7 +217,7 @@ test("trade form announces submission errors in a status region", async ({
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ok: false, error: "Email service is not configured." }),
+      body: JSON.stringify({ ok: false, error: "Failed to submit inquiry." }),
     })
   );
   await page.goto("/trade");
@@ -229,9 +229,7 @@ test("trade form announces submission errors in a status region", async ({
   await page.getByRole("button", { name: "Submit Inquiry" }).click();
 
   const statusRegion = page.getByRole("status");
-  await expect(statusRegion).toContainText(
-    "Email service is not configured."
-  );
+  await expect(statusRegion).toContainText("Failed to submit inquiry.");
 });
 
 test("beer filter buttons expose pressed state", async ({ page }) => {
