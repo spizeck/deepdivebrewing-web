@@ -13,7 +13,7 @@ async function check(contextOptions, label) {
   await page.waitForTimeout(800);
 
   const videoCount = await page.locator("video").count();
-  const posterCount = await page.locator('img[src="/photos/herograin.jpg"]').count();
+  const posterCount = await page.locator('img[src*="herograin"]').count();
 
   // Count only the brewery section image/poster (the hero has one too).
   console.log(`${label}: video elements=${videoCount}, herograin images=${posterCount}`);

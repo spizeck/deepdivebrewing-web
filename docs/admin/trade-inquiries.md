@@ -48,7 +48,7 @@ The email body contains all submitted fields in a simple HTML table.
 
 Inquiries are delivered to the email address set in the `TRADE_INQUIRY_TO_EMAIL` environment variable. There is no admin dashboard inbox for trade inquiries.
 
-> **Note:** The codebase also contains a `tradeLeads` Firestore collection definition and a helper function (`lib/trade-leads.ts`), but the current trade-inquiry form does **not** write submissions to Firestore. If you need a Firestore copy for tracking, contact a developer. This is labeled as **Needs confirmation** for the intended workflow.
+> **Note:** The trade-inquiry form does **not** store submissions — they are delivered by email only. A reserved `tradeLeads` Firestore collection and access rule still exist in case inquiry persistence is wanted later (tracked in issue #57).
 
 ## Expected success behavior
 

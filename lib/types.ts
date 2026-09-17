@@ -1,5 +1,3 @@
-import { Timestamp } from "firebase/firestore";
-
 export interface Beer {
   name: string;
   slug: string;
@@ -36,17 +34,6 @@ export interface Venue {
     untappd?: string;
   };
   notesPublic?: string;
-}
-
-export interface TradeLead {
-  businessName: string;
-  contactName: string;
-  email: string;
-  phoneOrWhatsapp: string;
-  venueType: string;
-  message: string;
-  createdAt: Timestamp;
-  status: string;
 }
 
 export type AdminRole = "superadmin" | "admin";
