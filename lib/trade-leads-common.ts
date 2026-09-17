@@ -76,11 +76,18 @@ function timestampMillis(value: unknown): number | null {
   }
   const toMillis = (value as { toMillis?: unknown }).toMillis;
   if (typeof toMillis === "function") {
-    const t = (toMillis as () => number).call(value);
-    return Number.isFinite(t) ? t : null;
+    try {
+      const t = (toMillis as () => number).call(value);
+      return Number.isFinite(t) ? t : null;
+    } catch {
+      return null;
+    }
   }
   const seconds = (value as { seconds?: unknown }).seconds;
-  if (typeof seconds === "number") return seconds * 1000;
+  if (typeof seconds === "number" && Number.isFinite(seconds)) {
+    const millis = seconds * 1000;
+    return Number.isFinite(millis) ? millis : null;
+  }
   return null;
 }
 

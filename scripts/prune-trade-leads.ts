@@ -97,13 +97,31 @@ async function main() {
     return;
   }
 
-  // Sequential deletes are fine at this volume and keep failure handling
-  // simple — a failed delete aborts with the error, remaining docs untouched.
+  // Re-verify each document inside a transaction before deleting so a lead
+  // updated between scan and delete (new activity extends retention) is kept.
+  const collection = db.collection(TRADE_LEADS_COLLECTION);
+  let deleted = 0;
   for (const id of expired) {
-    await db.collection(TRADE_LEADS_COLLECTION).doc(id).delete();
-    console.log(`  deleted ${id}`);
+    const ref = collection.doc(id);
+    const removed = await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(ref);
+      if (
+        !fresh.exists ||
+        tradeLeadRetentionStatus(fresh.data() ?? {}, cutoff) !== "expired"
+      ) {
+        return false;
+      }
+      tx.delete(ref);
+      return true;
+    });
+    if (removed) {
+      deleted++;
+      console.log(`  deleted ${id}`);
+    } else {
+      console.log(`  kept ${id} (changed since scan)`);
+    }
   }
-  console.log(`Deleted ${expired.length} lead(s).`);
+  console.log(`Deleted ${deleted} lead(s).`);
 }
 
 main().catch((err) => {

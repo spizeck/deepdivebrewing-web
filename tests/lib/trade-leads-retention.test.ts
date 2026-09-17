@@ -99,5 +99,26 @@ describe("tradeLeadRetentionStatus", () => {
       tradeLeadRetentionStatus({ updatedAt: new Date("garbage") }, CUTOFF),
       "unknown"
     );
+    assert.strictEqual(
+      tradeLeadRetentionStatus(
+        {
+          updatedAt: {
+            toMillis: () => {
+              throw new Error("corrupt");
+            },
+          },
+        },
+        CUTOFF
+      ),
+      "unknown"
+    );
+    assert.strictEqual(
+      tradeLeadRetentionStatus({ updatedAt: { seconds: -Infinity } }, CUTOFF),
+      "unknown"
+    );
+    assert.strictEqual(
+      tradeLeadRetentionStatus({ updatedAt: { seconds: NaN } }, CUTOFF),
+      "unknown"
+    );
   });
 });
