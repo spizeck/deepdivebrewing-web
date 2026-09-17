@@ -91,6 +91,13 @@ Deep Dive Brews, BV.
   `adminUsers` record). Do not migrate or "fix" that pattern unless an
   issue explicitly calls for it.
 - Avoid new abstractions unless they clearly pay for themselves.
+- Keep changes accessible: prefer native HTML semantics over ARIA, every
+  form control needs a programmatic label, never remove the global
+  `:focus-visible` outline, dynamic status/error text uses
+  `role="status"`/`role="alert"`, decorative imagery uses `alt=""`/
+  `aria-hidden`, and honor `prefers-reduced-motion`. UI changes should pass
+  `smoke-tests/accessibility.spec.ts` — see
+  `docs/operations/accessibility.md`.
 
 ## Security boundaries
 

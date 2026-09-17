@@ -125,7 +125,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
   };
 
   return (
-    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <BeerViewTracker
         slug={beer.slug}
         name={beer.name}
@@ -137,7 +137,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(beerJsonLd) }}
       />
       {/* Breadcrumb */}
-      <nav className="mb-8 text-sm text-muted-foreground">
+      <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
         <Link
           href="/beers"
           className="transition-opacity duration-200 hover:opacity-85"

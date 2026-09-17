@@ -637,6 +637,11 @@ either. No secrets or placeholder values exist anywhere in CI.
   `npm run test:smoke` (builds first); a prior `npm run build` lets
   `npx playwright test` reuse it. It intentionally does not cover
   authenticated admin flows, real form submissions, or cross-browser checks.
+  `smoke-tests/accessibility.spec.ts` adds axe-core scans of the same
+  deterministic routes (serious/critical violations fail; lesser findings
+  are reported non-blocking) plus keyboard/skip-link/mobile-menu/
+  reduced-motion assertions — see
+  [`docs/operations/accessibility.md`](./operations/accessibility.md).
 - **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
   (`screenshot-check`, `overflow-check`, `hero-video-*`, `analytics-check`),
   `optimize-assets.mjs`, and Admin-SDK utilities (`bootstrap-superadmin.ts`,
@@ -706,7 +711,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #17 | Deterministic browser smoke tests in CI — **resolved**: `smoke-tests/` Playwright suite (Chromium) runs in Verify against the production build via `webServer` + `next start`; credential-free, externals intercepted (see §14) |
 | #18 | Environment/service-initialization hardening — **resolved**: lazy `getResendClient()` + `getFirebase*()` getters; `next build` needs no env (see §13) |
 | #20 | Observability — **resolved**: structured server logging (`lib/log.ts`), consistent API error responses (`lib/api-error.ts`), `x-vercel-id` request correlation in logs, branded `app/error.tsx`/`app/not-found.tsx` boundaries, smoke suite fails on 5xx documents (see §12 and `docs/operations/observability.md`) |
-| #21 | Accessibility |
+| #21 | Accessibility — **resolved**: axe-core scans (serious/critical gate) + keyboard/skip-link/reduced-motion assertions in `smoke-tests/accessibility.spec.ts`; carousel autoplay removed (WCAG 2.2.2 + brand rule), decorative media hidden from AT, global `:focus-visible` default, `prefers-reduced-motion` CSS, admin status live regions, trade-form `autocomplete`/required markers (see `docs/operations/accessibility.md`) |
 | #22 | SEO |
 | #23 | Performance |
 | #24 | Analytics-quality audit |

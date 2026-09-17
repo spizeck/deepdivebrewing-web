@@ -18,7 +18,7 @@ export function BeerCard({ beer, imageUrl }: BeerCardProps) {
       <div className="relative aspect-4/5 w-full overflow-hidden rounded-t-lg">
         <Image
           src={imageUrl ?? beerImageUrl(beer.images.cardPath)}
-          alt={beer.name}
+          alt=""
           fill
           quality={75}
           className="object-cover"

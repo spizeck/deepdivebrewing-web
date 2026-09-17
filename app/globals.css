@@ -108,6 +108,17 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Consistent visible focus for every interactive element. Components that
+     style their own ring/outline utilities override this. */
+  *:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* The skip-link target is focused programmatically; a full-page outline
+     adds noise without helping. */
+  [id="main-content"]:focus-visible {
+    outline: none;
+  }
   body {
     @apply bg-background text-foreground;
     font-size: 18px;
@@ -179,6 +190,26 @@
 .scroll-fade-in.fade-in-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-hero-fade {
+    animation: none;
+  }
+
+  .animate-delay-1,
+  .animate-delay-2,
+  .animate-delay-3,
+  .animate-delay-4 {
+    animation-delay: 0s;
+  }
+
+  .scroll-fade-in {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 
 /* MDX prose styling */

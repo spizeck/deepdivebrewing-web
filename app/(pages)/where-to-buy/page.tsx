@@ -110,7 +110,7 @@ export default async function WhereToBuyPage() {
   };
 
   return (
-    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}

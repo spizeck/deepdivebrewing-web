@@ -29,6 +29,7 @@ export default function Error({
       <SiteHeaderDefault />
       <main
         id="main-content"
+        tabIndex={-1}
         className="mx-auto max-w-300 px-6 pb-20 pt-15 text-center md:pb-30"
       >
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">

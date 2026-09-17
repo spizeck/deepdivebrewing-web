@@ -28,7 +28,7 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
 
   return (
     <>
-      <div className="mb-10 flex flex-wrap gap-2">
+      <div className="mb-10 flex flex-wrap gap-2" role="group" aria-label="Filter beers by status">
         {filterOptions.map((option) => (
           <button
             key={option.value}
@@ -46,6 +46,12 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
           </button>
         ))}
       </div>
+
+      <p className="sr-only" role="status">
+        {filteredBeers.length === 1
+          ? "1 beer shown"
+          : `${filteredBeers.length} beers shown`}
+      </p>
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {filteredBeers.map((beer) => (

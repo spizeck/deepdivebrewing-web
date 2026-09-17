@@ -127,6 +127,7 @@ export function TradeInquiryForm() {
         <FormField
           label="Business Name"
           name="businessName"
+          autoComplete="organization"
           value={formData.businessName}
           onChange={handleChange}
           required
@@ -134,6 +135,7 @@ export function TradeInquiryForm() {
         <FormField
           label="Contact Name"
           name="contactName"
+          autoComplete="name"
           value={formData.contactName}
           onChange={handleChange}
           required
@@ -142,6 +144,7 @@ export function TradeInquiryForm() {
           label="Email"
           name="email"
           type="email"
+          autoComplete="email"
           value={formData.email}
           onChange={handleChange}
           required
@@ -149,6 +152,8 @@ export function TradeInquiryForm() {
         <FormField
           label="Phone / WhatsApp"
           name="phoneOrWhatsapp"
+          type="tel"
+          autoComplete="tel"
           value={formData.phoneOrWhatsapp}
           onChange={handleChange}
         />
@@ -157,6 +162,7 @@ export function TradeInquiryForm() {
       <div>
         <label htmlFor="venueType" className="mb-2 block text-sm font-medium text-ink">
           Venue Type
+          <span aria-hidden="true" className="text-ember"> *</span>
         </label>
         <select
           id="venueType"
@@ -215,6 +221,7 @@ function FormField({
   label,
   name,
   type = "text",
+  autoComplete,
   value,
   onChange,
   required = false,
@@ -222,6 +229,7 @@ function FormField({
   label: string;
   name: string;
   type?: string;
+  autoComplete?: string;
   value: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   required?: boolean;
@@ -230,11 +238,15 @@ function FormField({
     <div>
       <label htmlFor={name} className="mb-2 block text-sm font-medium text-ink">
         {label}
+        {required && (
+          <span aria-hidden="true" className="text-ember"> *</span>
+        )}
       </label>
       <input
         id={name}
         name={name}
         type={type}
+        autoComplete={autoComplete}
         value={value}
         onChange={onChange}
         required={required}

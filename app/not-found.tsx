@@ -11,6 +11,7 @@ export default function NotFound() {
       <SiteHeaderDefault />
       <main
         id="main-content"
+        tabIndex={-1}
         className="mx-auto max-w-300 px-6 pb-20 pt-15 text-center md:pb-30"
       >
         <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">

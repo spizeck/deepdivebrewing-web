@@ -572,7 +572,11 @@ export function AdminDashboard() {
   }
 
   if (!authReady) {
-    return <p className="text-sm text-muted-foreground">Loading admin...</p>;
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        Loading admin...
+      </p>
+    );
   }
 
   if (!user) {
@@ -583,7 +587,11 @@ export function AdminDashboard() {
           Sign in with an authorized Google account to manage beers and venue data.
         </p>
         <Button onClick={handleGoogleSignIn} className="mt-4">Sign in with Google</Button>
-        {statusMessage && <p className="mt-3 text-sm text-ember">{statusMessage}</p>}
+        {statusMessage && (
+          <p role="alert" className="mt-3 text-sm text-ember">
+            {statusMessage}
+          </p>
+        )}
       </div>
     );
   }
@@ -621,7 +629,7 @@ export function AdminDashboard() {
             </Button>
           </>
         ) : (
-          <p className="mt-2 text-sm text-ember">
+          <p role="status" className="mt-2 text-sm text-ember">
             {user.email} is not authorized for admin access.
           </p>
         )}
@@ -629,7 +637,10 @@ export function AdminDashboard() {
           Sign out
         </Button>
         {statusMessage && (
-          <p className={`mt-3 text-sm ${isActionVisible ? "text-ocean" : "text-ember"}`}>
+          <p
+            role="status"
+            className={`mt-3 text-sm ${isActionVisible ? "text-ocean" : "text-ember"}`}
+          >
             {statusMessage}
           </p>
         )}
@@ -684,7 +695,11 @@ export function AdminDashboard() {
             . Latest update by {rebuildMeta.contentUpdatedBy ?? "—"} at {formatDateTime(rebuildMeta.contentUpdatedAt)}.
           </div>
         )}
-        {statusMessage && <p className="mt-3 text-sm text-ocean">{statusMessage}</p>}
+        {statusMessage && (
+          <p role="status" className="mt-3 text-sm text-ocean">
+            {statusMessage}
+          </p>
+        )}
       </div>
 
       <Tabs defaultValue="beers">

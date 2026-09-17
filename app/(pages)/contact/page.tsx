@@ -74,7 +74,7 @@ export default function ContactPage() {
   };
 
   return (
-    <main id="main-content" className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
@@ -95,7 +95,7 @@ export default function ContactPage() {
           {/* WhatsApp */}
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
-              <Phone className="h-5 w-5 text-ink" />
+              <Phone className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
             <div>
               <h2 className="font-semibold">WhatsApp</h2>
@@ -115,7 +115,7 @@ export default function ContactPage() {
           {/* Email */}
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
-              <Mail className="h-5 w-5 text-ink" />
+              <Mail className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
             <div>
               <h2 className="font-semibold">Email</h2>
@@ -131,7 +131,7 @@ export default function ContactPage() {
           {/* Hours */}
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
-              <Clock className="h-5 w-5 text-ink" />
+              <Clock className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
             <div>
               <h2 className="font-semibold">Hours</h2>
@@ -148,7 +148,7 @@ export default function ContactPage() {
           {/* Location */}
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
-              <MapPin className="h-5 w-5 text-ink" />
+              <MapPin className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
             <div>
               <h2 className="font-semibold">Location</h2>
@@ -160,9 +160,9 @@ export default function ContactPage() {
 
           {/* Brewery tours */}
           <div className="rounded-lg border border-stone bg-stone/20 p-5">
-            <p className="text-sm font-semibold uppercase tracking-wider text-ink">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-ink">
               Brewery Tours
-            </p>
+            </h2>
             <p className="mt-2 text-muted-foreground">
               Brewery tours are available by request. Reach out via WhatsApp to
               schedule a visit.
