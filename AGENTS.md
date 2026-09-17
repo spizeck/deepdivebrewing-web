@@ -90,6 +90,10 @@ Deep Dive Brews, BV.
   (`hasActiveAdmin`: claims plus an existing, active, role-matching
   `adminUsers` record). Do not migrate or "fix" that pattern unless an
   issue explicitly calls for it.
+- Modules imported by client components must not transitively import
+  `firebase/*` or `lib/firebase.ts` — that ships the Firebase client SDK to
+  public routes. Pure helpers (e.g. `beerImageUrl` in `lib/utils.ts`) belong
+  in Firebase-free modules; see `docs/operations/performance.md`.
 - Avoid new abstractions unless they clearly pay for themselves.
 - Keep changes accessible: prefer native HTML semantics over ARIA, every
   form control needs a programmatic label, never remove the global

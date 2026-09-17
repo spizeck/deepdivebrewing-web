@@ -4,7 +4,8 @@ import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { notFound } from "next/navigation";
 import { BeerViewTracker } from "@/components/beer-view-tracker";
-import { getBeerBySlug, beerImageUrl } from "@/lib/beers";
+import { getBeerBySlug } from "@/lib/beers";
+import { beerImageUrl } from "@/lib/utils";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 

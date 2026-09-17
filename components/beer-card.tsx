@@ -1,15 +1,17 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { beerImageUrl } from "@/lib/beers";
+import { beerImageUrl } from "@/lib/utils";
 import type { Beer } from "@/lib/types";
 
 interface BeerCardProps {
   beer: Beer;
   imageUrl?: string;
+  /** Prioritize only when this card is the route's likely LCP image. */
+  priority?: boolean;
 }
 
-export function BeerCard({ beer, imageUrl }: BeerCardProps) {
+export function BeerCard({ beer, imageUrl, priority }: BeerCardProps) {
   return (
     <Link
       href={`/beers/${beer.slug}`}
@@ -20,6 +22,7 @@ export function BeerCard({ beer, imageUrl }: BeerCardProps) {
           src={imageUrl ?? beerImageUrl(beer.images.cardPath)}
           alt=""
           fill
+          priority={priority}
           quality={75}
           className="object-cover"
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"

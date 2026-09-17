@@ -6,7 +6,8 @@ import { SiteHeader } from "@/components/site-header";
 import IntroSection from "@/components/home/IntroSection";
 import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
-import { getBeers, beerImageUrl } from "@/lib/beers";
+import { getBeers } from "@/lib/beers";
+import { beerImageUrl } from "@/lib/utils";
 import type { CSSProperties } from "react";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";

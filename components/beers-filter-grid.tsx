@@ -54,8 +54,9 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
       </p>
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {filteredBeers.map((beer) => (
-          <BeerCard key={beer.slug} beer={beer} />
+        {filteredBeers.map((beer, index) => (
+          // The first card is the route's LCP image on mobile; keep the rest lazy.
+          <BeerCard key={beer.slug} beer={beer} priority={index === 0} />
         ))}
       </div>
     </>
