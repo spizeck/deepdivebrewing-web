@@ -48,11 +48,26 @@ export default function PrivacyPage() {
         website. We do not sell personal information.
       </p>
 
-      <h3>Contact form submissions</h3>
+      <h3>Trade &amp; wholesale inquiries</h3>
       <p>
-        When you use our contact form, we collect your name, email address, phone number, and the
-        details of your message. This information is used solely to respond to you and follow up on
-        your request.
+        When you submit the Trade &amp; Wholesale form, we collect your business name, contact
+        name, email address, phone or WhatsApp number, venue or business type, and the details of
+        your message. We use this information to respond to your inquiry, maintain a record of our
+        business communications, and follow up where needed.
+      </p>
+      <p>
+        Submitted inquiries are stored securely in our database (Google Cloud Firestore) and a
+        notification copy is emailed to our team through Resend. Trade and wholesale inquiries may
+        be retained for up to 24 months after our last meaningful interaction with the inquiry. We
+        may delete them sooner when they are no longer needed, or retain them longer where
+        reasonably necessary for legal, accounting, dispute-resolution, security, or other
+        legitimate business purposes.
+      </p>
+
+      <h3>Other contact</h3>
+      <p>
+        If you contact us directly by email or WhatsApp, we use the contact details you provide
+        solely to respond to you and follow up on your request.
       </p>
 
       <h3>Newsletter signups</h3>
@@ -87,6 +102,18 @@ export default function PrivacyPage() {
         policy and handles data according to its own terms.
       </p>
 
+      <h3>Firebase / Google Cloud</h3>
+      <p>
+        Our website content and submitted trade inquiries are stored using Firebase and Google
+        Cloud services. Access to stored inquiries is restricted to authorized staff.
+      </p>
+
+      <h3>Resend</h3>
+      <p>
+        Trade inquiry submissions are delivered to our team as notification emails through Resend,
+        which processes the submitted details solely to deliver those messages.
+      </p>
+
       <h3>Google Maps</h3>
       <p>
         If we embed Google Maps to help you find our locations, Google may collect data in
@@ -115,8 +142,8 @@ export default function PrivacyPage() {
       <h2>Your Rights</h2>
       <p>
         Subject to applicable law, you may request access to, correction of, or deletion of the
-        personal information we hold about you. To make a request, please contact us using the
-        information below.
+        personal information we hold about you — including a stored trade inquiry. To make a
+        request, please contact us using the information below.
       </p>
 
       <hr />
@@ -140,7 +167,7 @@ export default function PrivacyPage() {
         WhatsApp: <a href="https://wa.me/5994163544">+599 416 3544</a>
       </p>
 
-      <p className="text-sm text-muted-foreground">Last Updated: July 2026</p>
+      <p className="text-sm text-muted-foreground">Last Updated: September 2026</p>
     </MdxLayout>
   );
 }

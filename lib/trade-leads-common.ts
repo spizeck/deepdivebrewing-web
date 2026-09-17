@@ -35,6 +35,62 @@ export function tradeLeadFieldTooLong(input: TradeLeadInput): string | null {
   return null;
 }
 
+// --- Retention (owner policy, #59) ---
+// Trade inquiries are retained for up to 24 months after the last meaningful
+// activity, absent a legitimate business/legal/accounting/dispute/security
+// reason to keep them longer. The retention anchor is `updatedAt` — today all
+// records have updatedAt == createdAt (nothing modifies leads yet), so
+// retention effectively runs from submission until lead-management tooling
+// records later activity.
+export const TRADE_LEAD_RETENTION_MONTHS = 24;
+
+export function tradeLeadRetentionCutoff(now: Date): Date {
+  const cutoff = new Date(now.getTime());
+  const month = cutoff.getUTCMonth();
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - TRADE_LEAD_RETENTION_MONTHS / 12);
+  // Leap-day edge: Feb 29 → clamp to Feb 28 rather than overflowing to Mar 1.
+  if (cutoff.getUTCMonth() !== month) cutoff.setUTCDate(0);
+  return cutoff;
+}
+
+export type TradeLeadRetentionStatus = "expired" | "retained" | "unknown";
+
+// A lead is expired when its retention anchor (updatedAt, falling back to
+// createdAt) is at or before the cutoff. Records whose timestamp cannot be
+// interpreted are "unknown" — never deleted automatically.
+export function tradeLeadRetentionStatus(
+  lead: { updatedAt?: unknown; createdAt?: unknown },
+  cutoff: Date
+): TradeLeadRetentionStatus {
+  const millis = timestampMillis(lead.updatedAt ?? lead.createdAt);
+  if (millis === null) return "unknown";
+  return millis <= cutoff.getTime() ? "expired" : "retained";
+}
+
+// Accepts Date, firebase-admin Timestamp (toMillis), or a { seconds } shape.
+function timestampMillis(value: unknown): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  const toMillis = (value as { toMillis?: unknown }).toMillis;
+  if (typeof toMillis === "function") {
+    try {
+      const t = (toMillis as () => number).call(value);
+      return Number.isFinite(t) ? t : null;
+    } catch {
+      return null;
+    }
+  }
+  const seconds = (value as { seconds?: unknown }).seconds;
+  if (typeof seconds === "number" && Number.isFinite(seconds)) {
+    const millis = seconds * 1000;
+    return Number.isFinite(millis) ? millis : null;
+  }
+  return null;
+}
+
 // Fields the API persists verbatim. Timestamps and lead id are added by the
 // persistence layer; honeypot values, IPs, and request metadata are
 // deliberately never part of the record.
