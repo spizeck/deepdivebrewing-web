@@ -60,11 +60,21 @@ export const test = base.extend({
       }
     });
     page.on("requestfailed", (req) => {
-      if (new URL(req.url()).origin === origin) {
-        problems.push(
-          `requestfailed: ${req.url()} (${req.failure()?.errorText ?? "?"})`
-        );
+      const url = new URL(req.url());
+      if (url.origin !== origin) return;
+      // Next.js cancels in-flight RSC/prefetch fetches when a link unmounts
+      // or a newer navigation supersedes them — an expected abort, not a
+      // failure. (Only reachable with real content data; CI's empty-state
+      // build issues no such requests.)
+      if (
+        req.failure()?.errorText === "net::ERR_ABORTED" &&
+        url.searchParams.has("_rsc")
+      ) {
+        return;
       }
+      problems.push(
+        `requestfailed: ${req.url()} (${req.failure()?.errorText ?? "?"})`
+      );
     });
     page.on("response", (res) => {
       if (new URL(res.url()).origin !== origin) return;

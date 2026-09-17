@@ -69,7 +69,7 @@ export function HeroVideo() {
       {showStaticPoster ? (
         <Image
           src={POSTER_SRC}
-          alt="Brewery still image"
+          alt=""
           fill
           priority={false}
           quality={70}
@@ -85,7 +85,7 @@ export function HeroVideo() {
           playsInline
           preload="none"
           poster={POSTER_SRC}
-          aria-label="Brewery process video"
+          aria-hidden="true"
           onCanPlay={() => setCanPlay(true)}
         >
           <source src={WEBM_SRC} type="video/webm" />

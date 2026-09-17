@@ -62,6 +62,7 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
               data-analytics-partner-name={venue.name}
               data-analytics-island={island}
               data-analytics-venue-type={typeLabels[venue.type]}
+              aria-label={`Directions to ${venue.name}`}
               className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-opacity duration-200 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50"
             >
               Directions
@@ -78,6 +79,7 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
               data-analytics-partner-name={venue.name}
               data-analytics-island={island}
               data-analytics-venue-type={typeLabels[venue.type]}
+              aria-label={`${venue.name} website`}
               className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ocean/50"
             >
               Website

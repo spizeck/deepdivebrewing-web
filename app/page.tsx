@@ -93,12 +93,12 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
       />
       <SiteHeader />
-      <main id="main-content">
+      <main id="main-content" tabIndex={-1}>
         {/* Hero — full viewport, grain photo, extends behind header */}
         <section className="relative h-screen w-full overflow-hidden">
         <Image
           src="/photos/herograin.jpg"
-          alt="Barley grain close-up"
+          alt=""
           fill
           priority
           quality={70}

@@ -64,7 +64,7 @@ export function SiteFooter() {
           </div>
 
           <div>
-            <p className="text-sm font-semibold text-ink">Explore</p>
+            <h2 className="text-sm font-semibold text-ink">Explore</h2>
             <ul className="mt-3 space-y-2">
               <FooterLink href="/beers">Our Beers</FooterLink>
               <FooterLink href="/where-to-buy">Where to Buy</FooterLink>
@@ -72,7 +72,7 @@ export function SiteFooter() {
           </div>
 
           <div>
-            <p className="text-sm font-semibold text-ink">Company</p>
+            <h2 className="text-sm font-semibold text-ink">Company</h2>
             <ul className="mt-3 space-y-2">
               <FooterLink href="/about">About</FooterLink>
               <FooterLink href="/contact">Contact</FooterLink>
@@ -81,7 +81,7 @@ export function SiteFooter() {
           </div>
 
           <div>
-            <p className="text-sm font-semibold text-ink">Legal</p>
+            <h2 className="text-sm font-semibold text-ink">Legal</h2>
             <ul className="mt-3 space-y-2">
               <FooterLink href="/privacy">Privacy Policy</FooterLink>
               <FooterLink href="/terms">Terms of Use</FooterLink>

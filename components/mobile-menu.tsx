@@ -20,6 +20,10 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
   const menuId = useId();
 
   const iconColor = variant === "light" ? "text-paper" : "text-ink";
+  const focusRing =
+    variant === "light"
+      ? "focus-visible:ring-paper/70 focus-visible:outline-paper"
+      : "focus-visible:ring-ocean/50";
 
   useEffect(() => {
     if (!open) return;
@@ -38,7 +42,7 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
     <div className="md:hidden">
       <button
         onClick={() => setOpen(!open)}
-        className={`flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md ${iconColor} focus-visible:ring-2 focus-visible:ring-ocean/50`}
+        className={`flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md ${iconColor} focus-visible:ring-2 ${focusRing}`}
         aria-label={open ? "Close menu" : "Open menu"}
         aria-expanded={open}
         aria-controls={menuId}
@@ -46,6 +50,7 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
       >
         {open ? (
           <svg
+            aria-hidden="true"
             xmlns="http://www.w3.org/2000/svg"
             width="24"
             height="24"
@@ -61,6 +66,7 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
           </svg>
         ) : (
           <svg
+            aria-hidden="true"
             xmlns="http://www.w3.org/2000/svg"
             width="24"
             height="24"
@@ -81,6 +87,7 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
       {open && (
         <nav
           id={menuId}
+          aria-label="Mobile"
           className="absolute left-0 right-0 top-full z-50 border-b border-stone bg-ink/95 backdrop-blur-md px-6 py-6"
         >
           <div className="flex flex-col gap-4">
