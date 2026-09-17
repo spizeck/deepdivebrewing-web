@@ -1,57 +1,49 @@
 import type { MetadataRoute } from "next";
 import { getBeers } from "@/lib/beers";
+import { siteUrl } from "@/lib/site";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
-
+// No lastModified: the build has no real per-page modification dates (beer
+// content changes in Firestore, not on deploy), so a fabricated timestamp
+// would be worse than omitting the field.
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const lastModified = new Date();
-
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: `${siteUrl}/`,
-      lastModified,
       changeFrequency: "weekly",
       priority: 1,
     },
     {
       url: `${siteUrl}/where-to-buy`,
-      lastModified,
       changeFrequency: "weekly",
       priority: 0.9,
     },
     {
       url: `${siteUrl}/beers`,
-      lastModified,
       changeFrequency: "weekly",
       priority: 0.8,
     },
     {
       url: `${siteUrl}/about`,
-      lastModified,
       changeFrequency: "monthly",
       priority: 0.7,
     },
     {
       url: `${siteUrl}/contact`,
-      lastModified,
       changeFrequency: "monthly",
       priority: 0.7,
     },
     {
       url: `${siteUrl}/trade`,
-      lastModified,
       changeFrequency: "monthly",
       priority: 0.3,
     },
     {
       url: `${siteUrl}/privacy`,
-      lastModified,
       changeFrequency: "yearly",
       priority: 0.4,
     },
     {
       url: `${siteUrl}/terms`,
-      lastModified,
       changeFrequency: "yearly",
       priority: 0.4,
     },
@@ -60,7 +52,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const beers = await getBeers();
   const beerRoutes: MetadataRoute.Sitemap = beers.map((beer) => ({
     url: `${siteUrl}/beers/${beer.slug}`,
-    lastModified,
     changeFrequency: "weekly",
     priority: 0.8,
   }));

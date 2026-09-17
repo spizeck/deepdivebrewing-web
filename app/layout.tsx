@@ -6,9 +6,8 @@ import { Analytics } from "@vercel/analytics/next";
 import { SiteFooter } from "@/components/site-footer";
 import { AnalyticsClickTracker } from "@/components/analytics-click-tracker";
 import { PageViewTracker } from "@/components/page-view-tracker";
+import { siteUrl } from "@/lib/site";
 import "./globals.css";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 const gaId = process.env.NEXT_PUBLIC_GA_ID ?? "G-5VBQTMP37H";
 // GA ships only in Vercel production builds: VERCEL_ENV is set by Vercel and
 // is "preview" on preview deployments and unset locally, so tests, local dev,

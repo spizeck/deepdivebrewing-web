@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TradeInquiryForm } from "@/components/trade-inquiry-form";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
+import { siteUrl } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Trade & Wholesale",

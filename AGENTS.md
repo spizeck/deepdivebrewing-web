@@ -106,8 +106,10 @@ Deep Dive Brews, BV.
   self-referencing canonical, and its own `openGraph.url` (inheriting the
   root `og:url "/"` is a bug). Private/test/placeholder routes carry
   `noindex` metadata and a `robots.txt` `Disallow` — never rely on either
-  as an access control. Canonical host is `https://deepdivebrewing.com`.
-  See `docs/operations/seo.md`; `smoke-tests/seo.spec.ts` guards this.
+  as an access control. Canonical host is `https://deepdivebrewing.com`,
+  resolved via `lib/site.ts` (`siteUrl`) — import it rather than re-reading
+  `NEXT_PUBLIC_SITE_URL`. See `docs/operations/seo.md`;
+  `smoke-tests/seo.spec.ts` guards this.
 
 ## Security boundaries
 
