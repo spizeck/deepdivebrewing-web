@@ -71,7 +71,7 @@ If submission fails:
 
 - The form shows an error message describing the problem.
 - A `trade_form_error` analytics event is recorded.
-- Common failure reasons include missing required fields, rate limiting, or a problem saving the inquiry. An email-delivery problem alone does **not** fail the submission — the inquiry is already stored.
+- Common failure reasons include missing or oversized fields, rate limiting, or a problem saving the inquiry. An email-delivery problem alone does **not** fail the submission — the inquiry is already stored.
 
 ## How administrators should respond
 

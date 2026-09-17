@@ -3,6 +3,8 @@ import assert from "node:assert";
 import {
   buildTradeLeadRecord,
   processTradeInquiry,
+  tradeLeadFieldTooLong,
+  TRADE_LEAD_FIELD_LIMITS,
   TRADE_LEADS_COLLECTION,
   type TradeInquiryDeps,
   type TradeLeadInput,
@@ -70,11 +72,33 @@ describe("buildTradeLeadRecord", () => {
   });
 });
 
+describe("tradeLeadFieldTooLong", () => {
+  it("accepts inputs within the field limits", () => {
+    assert.strictEqual(tradeLeadFieldTooLong(input), null);
+  });
+
+  it("rejects a field that exceeds its limit", () => {
+    const tooLong = {
+      ...input,
+      message: "x".repeat(TRADE_LEAD_FIELD_LIMITS.message + 1),
+    };
+    assert.strictEqual(tradeLeadFieldTooLong(tooLong), "message");
+  });
+
+  it("accepts a field at exactly its limit", () => {
+    const atLimit = {
+      ...input,
+      businessName: "x".repeat(TRADE_LEAD_FIELD_LIMITS.businessName),
+    };
+    assert.strictEqual(tradeLeadFieldTooLong(atLimit), null);
+  });
+});
+
 describe("processTradeInquiry", () => {
   it("persists before notifying and returns the lead id", async () => {
     const { deps, calls } = makeDeps();
-    const leadId = await processTradeInquiry(input, "req-1", deps);
-    assert.strictEqual(leadId, "lead-123");
+    const outcome = await processTradeInquiry(input, "req-1", deps);
+    assert.deepStrictEqual(outcome, { ok: true, leadId: "lead-123" });
     assert.deepStrictEqual(calls, ["persist", "notify"]);
   });
 
@@ -89,14 +113,14 @@ describe("processTradeInquiry", () => {
     assert.strictEqual(seenLeadId, "lead-123");
   });
 
-  it("still resolves when the notification fails after persistence", async () => {
+  it("still succeeds when the notification fails after persistence", async () => {
     const { deps, logs } = makeDeps({
       notify: async () => {
         throw new Error("Resend down");
       },
     });
-    const leadId = await processTradeInquiry(input, "req-1", deps);
-    assert.strictEqual(leadId, "lead-123");
+    const outcome = await processTradeInquiry(input, "req-1", deps);
+    assert.deepStrictEqual(outcome, { ok: true, leadId: "lead-123" });
     assert.deepStrictEqual(
       logs.map((l) => l.event),
       [
@@ -115,15 +139,15 @@ describe("processTradeInquiry", () => {
     );
   });
 
-  it("throws and logs persistence_failed when persistence fails", async () => {
-    const boom = new Error("Firestore unavailable");
+  it("returns a classified failure (already logged) when persistence fails", async () => {
     const { deps, logs, calls } = makeDeps({
       persist: async () => {
         calls.push("persist");
-        throw boom;
+        throw new Error("Firestore unavailable");
       },
     });
-    await assert.rejects(() => processTradeInquiry(input, "req-1", deps), boom);
+    const outcome = await processTradeInquiry(input, "req-1", deps);
+    assert.deepStrictEqual(outcome, { ok: false });
     // Notification is never attempted without a durable record.
     assert.deepStrictEqual(calls, ["persist"]);
     assert.deepStrictEqual(

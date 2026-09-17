@@ -486,6 +486,9 @@ notification.** (Owner decision, #57.)
    (server-only). The route:
    - requires `businessName`, `contactName`, `email`, `venueType` (400 on
      missing);
+   - rejects oversized fields with 400 — `TRADE_LEAD_FIELD_LIMITS` in
+     `lib/trade-leads-common.ts` bounds each persisted field so a huge
+     submission is invalid input rather than a Firestore write failure;
    - treats a filled `website` honeypot as spam and **returns fake `ok: true`
      without persisting or notifying**;
    - applies an in-memory rate limit — max 5 requests per client IP per

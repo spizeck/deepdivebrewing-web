@@ -8,6 +8,7 @@ import {
   buildTradeLeadRecord,
   processTradeInquiry,
   TRADE_LEADS_COLLECTION,
+  type TradeInquiryOutcome,
   type TradeLeadInput,
 } from "@/lib/trade-leads-common";
 
@@ -73,11 +74,12 @@ async function sendTradeInquiryNotification(
 
 // Server-side entry point for POST /api/trade-inquiry: persists the inquiry to
 // Firestore (the durable record), then sends the Resend notification as a
-// best-effort side effect. Throws only when persistence fails.
+// best-effort side effect. `{ ok: false }` means persistence failed (already
+// logged); notification failures never fail the outcome.
 export async function submitTradeInquiry(
   input: TradeLeadInput,
   requestId: string
-): Promise<string> {
+): Promise<TradeInquiryOutcome> {
   return processTradeInquiry(input, requestId, {
     persist: persistTradeLead,
     notify: sendTradeInquiryNotification,

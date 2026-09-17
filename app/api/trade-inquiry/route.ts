@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestId, logError } from "@/lib/log";
 import { submitTradeInquiry } from "@/lib/trade-leads";
+import { tradeLeadFieldTooLong } from "@/lib/trade-leads-common";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
@@ -75,6 +76,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const oversized = tradeLeadFieldTooLong({
+      businessName,
+      contactName,
+      email,
+      phoneOrWhatsapp,
+      venueType,
+      message,
+    });
+    if (oversized) {
+      return NextResponse.json(
+        { ok: false, error: `Field exceeds maximum length: ${oversized}.` },
+        { status: 400 }
+      );
+    }
+
     // Honeypot: pretend success for bots, but persist nothing and send no email.
     if (website) {
       return NextResponse.json({ ok: true });
@@ -91,10 +107,18 @@ export async function POST(req: NextRequest) {
     // Firestore is the system of record: the inquiry must be persisted before
     // we claim success. The Resend notification is best-effort inside
     // submitTradeInquiry — its failure is logged, not surfaced to the customer.
-    await submitTradeInquiry(
+    const outcome = await submitTradeInquiry(
       { businessName, contactName, email, phoneOrWhatsapp, venueType, message },
       requestId
     );
+    if (!outcome.ok) {
+      // Persistence failure was already logged as
+      // trade_inquiry.persistence_failed — respond generically.
+      return NextResponse.json(
+        { ok: false, error: "Failed to submit inquiry." },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
