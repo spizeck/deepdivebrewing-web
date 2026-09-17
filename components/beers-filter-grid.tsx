@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { trackEvent } from "@/lib/analytics";
 import { BeerCard } from "@/components/beer-card";
 import type { Beer } from "@/lib/types";
 
@@ -33,7 +34,14 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
           <button
             key={option.value}
             type="button"
-            onClick={() => setActiveFilter(option.value)}
+            onClick={() => {
+              setActiveFilter(option.value);
+              trackEvent("beer_filter", {
+                event_category: "engagement",
+                filter: option.value,
+                cta_location: "beers_page",
+              });
+            }}
             className="min-h-[44px] min-w-[44px] cursor-pointer rounded-md focus-visible:ring-2 focus-visible:ring-ocean/50"
             aria-pressed={activeFilter === option.value}
           >

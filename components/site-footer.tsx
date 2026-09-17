@@ -17,6 +17,10 @@ export function SiteFooter() {
                 rel="noopener noreferrer"
                 className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
                 aria-label="Facebook"
+                data-analytics-event="social_click"
+                data-analytics-event-category="outbound"
+                data-analytics-social-network="facebook"
+                data-analytics-cta-location="footer"
               >
                 <svg
                   width="20"
@@ -33,6 +37,10 @@ export function SiteFooter() {
                 rel="noopener noreferrer"
                 className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
                 aria-label="Instagram"
+                data-analytics-event="social_click"
+                data-analytics-event-category="outbound"
+                data-analytics-social-network="instagram"
+                data-analytics-cta-location="footer"
               >
                 <svg
                   width="20"
@@ -50,6 +58,10 @@ export function SiteFooter() {
                 rel="noopener noreferrer"
                 className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
                 aria-label="Untappd"
+                data-analytics-event="social_click"
+                data-analytics-event-category="outbound"
+                data-analytics-social-network="untappd"
+                data-analytics-cta-location="footer"
               >
                 <svg
                   width="20"

@@ -143,6 +143,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 - [Deployment guide](./docs/operations/deployment.md)
 - [SEO reference](./docs/operations/seo.md)
 - [Performance reference](./docs/operations/performance.md)
+- [Analytics reference](./docs/operations/analytics.md)
 - [Observability & error handling](./docs/operations/observability.md)
 - [Accessibility](./docs/operations/accessibility.md)
 - [Credential rotation runbook](./docs/operations/credential-rotation.md)

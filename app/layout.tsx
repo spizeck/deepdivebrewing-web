@@ -5,10 +5,15 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 import { SiteFooter } from "@/components/site-footer";
 import { AnalyticsClickTracker } from "@/components/analytics-click-tracker";
+import { PageViewTracker } from "@/components/page-view-tracker";
 import "./globals.css";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 const gaId = process.env.NEXT_PUBLIC_GA_ID ?? "G-5VBQTMP37H";
+// GA ships only in Vercel production builds: VERCEL_ENV is set by Vercel and
+// is "preview" on preview deployments and unset locally, so tests, local dev,
+// and previews never send events to the production property.
+const analyticsEnabled = process.env.VERCEL_ENV === "production";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -93,6 +98,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased`}>
         <AnalyticsClickTracker />
+        <PageViewTracker />
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-paper"
@@ -103,18 +109,22 @@ export default function RootLayout({
         <SiteFooter />
         <SpeedInsights />
         <Analytics />
-        <Script
-          src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-          strategy="lazyOnload"
-        />
-        <Script id="gtag-init" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', '${gaId}');
-          `}
-        </Script>
+        {analyticsEnabled && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+              strategy="lazyOnload"
+            />
+            <Script id="gtag-init" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${gaId}');
+              `}
+            </Script>
+          </>
+        )}
       </body>
     </html>
   );

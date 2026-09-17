@@ -97,6 +97,10 @@ export default function TradePage() {
           <Link
             href="mailto:info@deepdivebrewing.com"
             className="font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+            data-analytics-event="email_click"
+            data-analytics-event-category="contact"
+            data-analytics-cta-location="trade_page"
+            data-analytics-event-label="Email"
           >
             info@deepdivebrewing.com
           </Link>

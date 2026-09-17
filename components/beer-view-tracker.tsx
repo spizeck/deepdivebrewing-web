@@ -17,7 +17,7 @@ export function BeerViewTracker({ slug, name, style, status }: BeerViewTrackerPr
       beer_slug: slug,
       beer_name: name,
       beer_style: style,
-      event_label: status,
+      beer_status: status,
     });
   }, [slug, name, style, status]);
 
