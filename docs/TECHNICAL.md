@@ -114,7 +114,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
 | `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
-| `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics do not (CI browser coverage lives in `smoke-tests/`). |
+| `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `prune-trade-leads.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics and prune script do not (CI browser coverage lives in `smoke-tests/`). |
 | `docs/` | Admin handbook (`docs/admin/`), operations guides (`docs/operations/`: deployment, troubleshooting, post-deploy checklist), and this file. |
 | `content/` | Legacy placeholder (`.gitkeep` only). MDX content is co-located under `app/(pages)/`; do not add files here expecting them to render. |
 | `firestore.rules`, `storage.rules` | Firebase security rules — see §6/§15. |
@@ -212,6 +212,12 @@ in code are listed.
 - **Visibility:** **no client access at all** — `read, write: if false`.
   Leads are PII; operators view them via the Firebase console (an admin UI
   would be a separate feature).
+- **Retention (#59):** up to 24 months after the last meaningful activity —
+  anchored on `updatedAt` (currently always equal to `createdAt` since
+  nothing modifies leads) — unless a legitimate business/legal/accounting/
+  dispute/security reason requires longer; earlier deletion when no longer
+  needed. Pruning is manual via `npm run prune:trade-leads` (dry-run by
+  default; `--delete` executes). No automated deletion exists.
 
 ### `adminUsers`
 
@@ -672,8 +678,8 @@ either. No secrets or placeholder values exist anywhere in CI.
 - **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
   (`screenshot-check`, `overflow-check`, `hero-video-*`),
   `optimize-assets.mjs`, and Admin-SDK utilities (`bootstrap-superadmin.ts`,
-  `seed-beers.ts`, `seed-venues.ts`). These remain manual/local; the CI smoke
-  suite lives in `smoke-tests/`.
+  `prune-trade-leads.ts`, `seed-beers.ts`, `seed-venues.ts`). These remain
+  manual/local; the CI smoke suite lives in `smoke-tests/`.
 - **Verification parity:** local pre-PR checks are the same commands CI
   runs, per `AGENTS.md`.
 

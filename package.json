@@ -18,7 +18,8 @@
     "seed:beers": "tsx scripts/seed-beers.ts",
     "seed:venues": "tsx scripts/seed-venues.ts",
     "optimize-assets": "node scripts/optimize-assets.mjs",
-    "bootstrap-superadmin": "node --env-file=.env.local --import tsx scripts/bootstrap-superadmin.ts"
+    "bootstrap-superadmin": "node --env-file=.env.local --import tsx scripts/bootstrap-superadmin.ts",
+    "prune:trade-leads": "node --env-file=.env.local --import tsx scripts/prune-trade-leads.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",

@@ -56,7 +56,24 @@ The collection is **not readable by the website or admin dashboard** — Firesto
 
 The email to `TRADE_INQUIRY_TO_EMAIL` is a **notification**, not the only copy — if the email fails, the inquiry is still stored.
 
-> **Data handling:** stored leads contain business contact details (PII). There is currently no defined retention or deletion policy (tracked in issue #59) — see the privacy considerations below.
+> **Data handling:** stored leads contain business contact details (PII). Retention is governed by the policy below.
+
+## Retention policy
+
+Trade inquiries are retained for **up to 24 months after the last meaningful activity** on the record (`updatedAt`), unless there is a legitimate business, legal, accounting, dispute, or security reason to keep them longer. They may be deleted earlier when no longer needed.
+
+Today nothing modifies a lead after submission, so `updatedAt` equals `createdAt` and retention effectively runs from the submission date. If lead-management tooling is added later and updates records on genuine activity, `updatedAt` remains the correct anchor.
+
+### Pruning expired leads
+
+There is no automated deletion — pruning is a periodic manual maintenance task:
+
+```bash
+npm run prune:trade-leads              # dry run: prints cutoff, counts, document IDs
+npm run prune:trade-leads -- --delete  # permanently deletes the expired documents
+```
+
+The script uses the same `FIREBASE_ADMIN_*` credentials as `bootstrap-superadmin` (loaded from `.env.local`). It prints only document IDs and aggregate counts — never inquiry contents — and leads whose timestamps cannot be read are reported and kept, never deleted. Before deleting, an operator may review a lead in the Firebase console to confirm no retention exception applies.
 
 ## Expected success behavior
 
@@ -84,7 +101,7 @@ If submission fails:
 
 - The form collects business contact information. Treat it as personal/business data.
 - Submitted inquiries are stored in the `tradeLeads` Firestore collection (purpose: responding to trade/wholesale inquiries) **and** delivered by notification email.
-- No retention or deletion policy has been defined yet — old leads remain in Firestore until one is decided.
+- Retention: up to 24 months after last meaningful activity — see the retention policy above.
 - Do not add submitted emails to marketing lists without consent.
 - Do not copy inquiry details into insecure locations.
 - Only authorized staff — those with access to the `TRADE_INQUIRY_TO_EMAIL` inbox or the Firebase project — should handle inquiries.

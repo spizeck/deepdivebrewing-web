@@ -113,7 +113,8 @@ Never commit real values to source control. `.env.local` is already ignored by G
 | `npm run optimize-assets` | Recompress hero image and generate OG image |
 | `npm run seed:beers` | Seed sample beer data (developer script) |
 | `npm run seed:venues` | Seed sample venue data (developer script) |
-| `npm run bootstrap-superadmin` | Grant the initial superadmin role to `SUPER_ADMIN_EMAIL` (see docs first)
+| `npm run bootstrap-superadmin` | Grant the initial superadmin role to `SUPER_ADMIN_EMAIL` (see docs first) |
+| `npm run prune:trade-leads` | Prune trade inquiries past the 24-month retention window (dry-run; `-- --delete` executes) |
 
 ## Deployment overview
 
