@@ -140,12 +140,12 @@ moving it into `lib/` or API routes without an explicit issue.
 | `/about` | `app/(pages)/about/page.mdx` | Server (static) | none | MDX content styled by `mdx-components.tsx`. |
 | `/contact` | `app/(pages)/contact/page.tsx` | Server (static) | none | Contact details; `TrackedAnchor` for click analytics. |
 | `/trade` | `app/(pages)/trade/page.tsx` | Server (static) | none | Wholesale/trade page hosting `TradeInquiryForm` (client). See the `/trade` note below. |
-| `/trade/login`, `/trade/order`, `/trade/orders` | `app/(pages)/trade/*/page.tsx` | Server (static) | none | Reserved "Coming soon" placeholders for a future trade portal. |
+| `/trade/login`, `/trade/order`, `/trade/orders` | `app/(pages)/trade/*/page.tsx` | Server (static) | none | Reserved "Coming soon" placeholders for a future trade portal. `noindex,nofollow` + robots.txt `Disallow`. |
 | `/privacy`, `/terms` | `app/(pages)/{privacy,terms}/page.tsx` | Server (static) | none | Legal text via `MdxLayout` + TSX content. |
 | `/admin` | `app/(pages)/admin/page.tsx` | Server wrapper (`robots: noindex`) rendering the client `AdminDashboard` | Auth state, `beers`, `venues`, `meta/siteRebuild`, Storage | Admin dashboard. Auth checks happen client-side; real enforcement is in rules + APIs. |
 | `/api/admin/*` | `app/api/admin/**` | Server (dynamic) | Admin SDK: Auth, Firestore | Bootstrap, `me`, users list/create-invitation, user patch/delete, invitation accept/resend, rebuild trigger. |
 | `/api/trade-inquiry` | `app/api/trade-inquiry/route.ts` | Server (dynamic) | Resend | Validates the form payload and emails it; see §11. |
-| `/sitemap.xml`, `/robots.txt` | `app/sitemap.ts`, `app/robots.ts` | Server (static — generated at build) | `beers` | SEO metadata routes; sitemap enumerates beer slugs at build time. Favicons are static files in `public/` referenced from `app/layout.tsx` metadata. |
+| `/sitemap.xml`, `/robots.txt` | `app/sitemap.ts`, `app/robots.ts` | Server (static — generated at build) | `beers` | SEO metadata routes; sitemap enumerates beer slugs at build time (empty without credentials — deterministic). robots.txt disallows `/admin`, `/admin-fixture`, `/trade/*` placeholders, and `/api/`; see `docs/operations/seo.md`. Favicons are static files in `public/` referenced from `app/layout.tsx` metadata. |
 
 ### The `/trade` route: single canonical `page.tsx`
 
@@ -719,7 +719,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #18 | Environment/service-initialization hardening — **resolved**: lazy `getResendClient()` + `getFirebase*()` getters; `next build` needs no env (see §13) |
 | #20 | Observability — **resolved**: structured server logging (`lib/log.ts`), consistent API error responses (`lib/api-error.ts`), `x-vercel-id` request correlation in logs, branded `app/error.tsx`/`app/not-found.tsx` boundaries, smoke suite fails on 5xx documents (see §12 and `docs/operations/observability.md`) |
 | #21 | Accessibility — **resolved**: axe-core scans (serious/critical gate) + keyboard/skip-link/reduced-motion assertions in `smoke-tests/accessibility.spec.ts`; carousel autoplay removed (WCAG 2.2.2 + brand rule), decorative media hidden from AT, global `:focus-visible` default, `prefers-reduced-motion` CSS, admin status live regions, trade-form `autocomplete`/required markers. Authenticated admin dashboard audited via `smoke-tests/admin-accessibility.spec.ts` + `/admin-fixture` (env-gated, fixture data, mocked admin APIs): tablist badge fix, record-list `aria-current`/list semantics, per-row action names, destructive-action styling + named confirms, required markers, input-border contrast (see `docs/operations/accessibility.md`) |
-| #22 | SEO |
+| #22 | SEO — **resolved**: apex `deepdivebrewing.com` confirmed as canonical (www→apex 308); robots.txt disallows admin/fixture/trade-placeholder/API surfaces; trade placeholders + 404 carry `noindex`; `/where-to-buy` OG/Twitter added (was inheriting root `og:url "/"`); beer detail gained `BreadcrumbList` JSON-LD + `#brewery` entity `@id`s; `smoke-tests/seo.spec.ts` asserts titles/descriptions/canonicals/noindex/robots/sitemap/JSON-LD in CI (see `docs/operations/seo.md`) |
 | #23 | Performance |
 | #24 | Analytics-quality audit |
 | #29 | Harden admin authorization — **resolved**: privileged routes now require an active `adminUsers` record with role agreement via `requireAdminActor`/`requireSuperAdminActor` |

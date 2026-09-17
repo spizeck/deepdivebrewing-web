@@ -22,6 +22,27 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/where-to-buy",
   },
+  openGraph: {
+    title: "Where to Buy | Deep Dive Brewing Co",
+    description:
+      "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus SXM availability updates.",
+    url: "/where-to-buy",
+    images: [
+      {
+        url: "/photos/og-default.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Deep Dive Brewing Co",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Where to Buy | Deep Dive Brewing Co",
+    description:
+      "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus SXM availability updates.",
+    images: ["/photos/og-default.jpg"],
+  },
 };
 
 function groupByIsland(venues: Venue[]): Record<string, Venue[]> {

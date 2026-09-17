@@ -141,6 +141,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 
 - [Technical architecture reference](./docs/TECHNICAL.md)
 - [Deployment guide](./docs/operations/deployment.md)
+- [SEO reference](./docs/operations/seo.md)
 - [Observability & error handling](./docs/operations/observability.md)
 - [Accessibility](./docs/operations/accessibility.md)
 - [Credential rotation runbook](./docs/operations/credential-rotation.md)

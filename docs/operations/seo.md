@@ -1,0 +1,111 @@
+# SEO Reference
+
+Technical SEO baseline for `deepdivebrewing.com` — canonical domain, indexing
+policy, metadata conventions, sitemap/robots behavior, and how to verify.
+
+## Canonical domain
+
+**`https://deepdivebrewing.com`** (apex, no `www`) is the canonical host.
+
+- `next.config.ts` issues permanent 308 redirects: `http` → `https` and
+  `www.` → apex, one hop each at the application layer. (At the platform
+  layer `http://www.` may take two hops through Vercel's own HTTPS upgrade —
+  acceptable; domain config changes live in Vercel, not the repo.)
+- `NEXT_PUBLIC_SITE_URL` feeds `metadataBase`, canonical URLs, `og:url`,
+  `robots.txt` (`Host` + `Sitemap`), `sitemap.xml`, and JSON-LD entity URLs.
+  The code default is already the apex domain — production should keep the
+  env var set to `https://deepdivebrewing.com` and nothing else.
+- Canonical URLs must never point at Vercel preview deployments; the
+  smoke suite asserts the apex host on every checked route.
+
+## Indexing policy
+
+| Surface | Indexed? | Mechanism |
+| --- | --- | --- |
+| `/`, `/beers`, `/beers/[slug]`, `/where-to-buy`, `/about`, `/contact`, `/trade`, `/privacy`, `/terms` | Yes | `index,follow` (root default); in `sitemap.xml` |
+| `/beers/[slug]` unknown slug | No | `generateMetadata` returns `robots: { index: false }` + 404 |
+| `/admin` | No | `robots` meta `noindex,nofollow` + `Disallow` in robots.txt; real protection is auth, not robots |
+| `/admin-fixture` | No | `noindex,nofollow` meta + `Disallow`; also returns 404 unless the server-only test flag is set |
+| `/trade/login`, `/trade/order`, `/trade/orders` | No | Reserved placeholders — `noindex,nofollow` meta + `Disallow` |
+| `/api/*` | No | `Disallow: /api/` (API routes produce no indexable content) |
+| `/_not-found` (404) | No | `noindex` meta + 404 status |
+
+`robots.txt` is discoverability guidance, never a security boundary — private
+routes stay protected by authentication.
+
+## Metadata conventions
+
+- Root `app/layout.tsx` defines `metadataBase`, the title template
+  `%s | Deep Dive Brewing Co`, the default description, site-wide OG/Twitter
+  defaults (`/photos/og-default.jpg`, `summary_large_image`), and icons.
+- Every indexable page sets a unique `title`, a human-written `description`,
+  a self-referencing `alternates.canonical`, and its own `openGraph.url`
+  (a page without one would inherit the root `og:url: "/"` — that was a real
+  bug fixed on `/where-to-buy`).
+- Titles describe the page, not keyword lists. Descriptions are written for
+  humans. `keywords` metadata exists on a few pages but is not load-bearing.
+- `/beers/[slug]` uses `generateMetadata()` for per-beer title, description
+  (name/style/ABV/tasting note), canonical, OG/Twitter cards, and the beer's
+  hero image. When beer data is unavailable the route renders a noindex 404.
+- Beer OG images declare no fixed dimensions — hero aspect varies.
+
+## Sitemap
+
+`app/sitemap.ts` emits static routes plus one URL per beer from `getBeers()`
+at build time. Without Firestore credentials the data layer resolves empty,
+so CI/no-env builds produce a sitemap with only static routes — a deliberate,
+deterministic degradation (Issue #18 guarantee preserved; never make the
+sitemap require credentials).
+
+`lastModified` is build time for every entry — acceptable at this scale.
+
+## Structured data (JSON-LD)
+
+| Route | Types | Notes |
+| --- | --- | --- |
+| `/` | `Brewery` (`@id: <site>/#brewery`) | Canonical entity block — legalName, address, hours, contacts, `sameAs` socials |
+| `/contact` | `Brewery` (`#brewery`) | Same entity, linked by `@id` |
+| `/trade` | `Brewery` (`#brewery`) | Same entity |
+| `/where-to-buy` | `Brewery` (`#brewery`) + `FAQPage` | FAQ mirrors the visible on-page questions |
+| `/beers/[slug]` | `Product` + `BreadcrumbList` | Brand/manufacturer reference `#brewery`; ABV/IBU/SRM as `additionalProperty`; breadcrumb mirrors the visible nav |
+
+Rules: no fabricated `Offer`, price, rating, or review data — ever. Schema
+must reflect real page content. Entity blocks share `@id: <site>/#brewery`
+so crawlers see one consistent business entity.
+
+## Social sharing
+
+- Default card: `/photos/og-default.jpg` (1200×630, `summary_large_image`).
+- Beer pages use the beer's own hero image.
+- If a dedicated campaign OG image is ever needed, that's a design follow-up,
+  not SEO plumbing.
+
+## Internal linking
+
+Primary nav + footer link every indexable page; beer cards link `/beers` →
+`/beers/[slug]`; beer detail links back via the visible breadcrumb and a
+"where to buy" link. No orphan indexable pages.
+
+## Verifying SEO locally
+
+```bash
+npm run build && npm run start   # then inspect:
+curl -s localhost:3000/robots.txt
+curl -s localhost:3000/sitemap.xml
+curl -s localhost:3000 | grep -E 'canonical|og:url'
+npx playwright test smoke-tests/seo.spec.ts   # automated checks (runs in CI)
+```
+
+`smoke-tests/seo.spec.ts` asserts: unique title/description/canonical +
+single `h1` per indexable route, `noindex` on private/placeholder surfaces,
+robots.txt disallows + canonical `Sitemap`/`Host`, sitemap coverage and
+host, and JSON-LD parseability/types.
+
+## Post-deploy checks (manual)
+
+- Fetch `https://deepdivebrewing.com/robots.txt` and `/sitemap.xml`; confirm
+  the beer URLs appear (production builds have real data).
+- Fetch a real beer page; confirm canonical, `og:image`, and the Product +
+  BreadcrumbList JSON-LD.
+- Google Search Console (owned outside the repo): submit/refresh the
+  sitemap, watch Coverage for unexpected `/admin` or `/trade/*` URLs.

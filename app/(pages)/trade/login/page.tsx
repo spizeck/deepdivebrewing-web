@@ -1,4 +1,11 @@
 // TODO: Implement trade login when auth is requested
+import type { Metadata } from "next";
+
+// Reserved placeholder — not a useful public search result.
+export const metadata: Metadata = {
+  title: "Trade Login",
+  robots: { index: false, follow: false },
+};
 
 export default function TradeLoginPage() {
   return (

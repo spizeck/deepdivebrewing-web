@@ -52,14 +52,8 @@ export async function generateMetadata({
       description,
       type: "article",
       url: `/beers/${beer.slug}`,
-      images: [
-        {
-          url: imageUrl,
-          width: 1200,
-          height: 630,
-          alt: beer.name,
-        },
-      ],
+      // No declared dimensions — hero aspect varies by beer.
+      images: [{ url: imageUrl, alt: beer.name }],
     },
     twitter: {
       card: "summary_large_image",
@@ -113,15 +107,37 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
     image: imageUrl,
     brand: {
       "@type": "Brewery",
+      "@id": `${siteUrl}/#brewery`,
       name: "Deep Dive Brewing Co",
       url: siteUrl,
     },
     manufacturer: {
       "@type": "Brewery",
+      "@id": `${siteUrl}/#brewery`,
       name: "Deep Dive Brewing Co",
       url: siteUrl,
     },
     additionalProperty: additionalProperties,
+  };
+
+  // Mirrors the visible breadcrumb nav below (Our Beers → beer name).
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Our Beers",
+        item: `${siteUrl}/beers`,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: beer.name,
+        item: `${siteUrl}/beers/${beer.slug}`,
+      },
+    ],
   };
 
   return (
@@ -135,6 +151,10 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(beerJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
       />
       {/* Breadcrumb */}
       <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
