@@ -122,6 +122,10 @@ export default function ContactPage() {
               <Link
                 href="mailto:info@deepdivebrewing.com"
                 className="mt-1 block text-ocean transition-opacity duration-200 hover:opacity-85"
+                data-analytics-event="email_click"
+                data-analytics-event-category="contact"
+                data-analytics-cta-location="contact_page"
+                data-analytics-event-label="Email"
               >
                 info@deepdivebrewing.com
               </Link>

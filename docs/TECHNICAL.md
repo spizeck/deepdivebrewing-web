@@ -511,15 +511,22 @@ intentional, not an oversight.
 ## 12. Analytics and observability
 
 - **GA4:** `app/layout.tsx` loads the `gtag.js` script via `next/script` with
-  `NEXT_PUBLIC_GA_ID` (hardcoded fallback `G-5VBQTMP37H`). `lib/analytics.ts`
-  exposes a typed `trackEvent(name, params)` wrapper over `gtag` with a fixed
-  event-name union; it silently no-ops when gtag is unavailable (consent,
-  ad-blockers, SSR).
+  `NEXT_PUBLIC_GA_ID` (hardcoded fallback `G-5VBQTMP37H`), gated to
+  `VERCEL_ENV === "production"` so previews/local/CI never send events.
+  `lib/analytics.ts` exposes a typed `trackEvent(name, params)` wrapper over
+  `gtag` with a fixed event-name union; it silently no-ops when gtag is
+  unavailable (consent, ad-blockers, SSR, non-production).
+- **Page views:** `gtag('config')` sends the landing page_view;
+  `components/page-view-tracker.tsx` emits `page_view` on each App Router
+  navigation (skipping first render and `/admin*`) — gtag does not observe
+  Next.js route transitions itself.
 - **Custom events:** `beer_detail_view` (`BeerViewTracker` on beer detail),
-  `trade_form_start/success/error` (`trade-inquiry-form`), partner/outbound and
-  CTA clicks via `TrackedLink`/`TrackedAnchor` and the declarative
-  `data-analytics-event` attribute handled by `AnalyticsClickTracker`
-  (delegated click listener, snake-cases `data-analytics-*` params).
+  `trade_form_start/success/error` (`trade-inquiry-form`), `beer_filter`
+  (`beers-filter-grid`), and outbound/CTA clicks via `TrackedLink`/
+  `TrackedAnchor` and the declarative `data-analytics-event` attribute
+  handled by `AnalyticsClickTracker` (delegated click listener, whitelisted
+  snake-cased params via `collectAnalyticsParams`). Canonical taxonomy:
+  `docs/operations/analytics.md`.
 - **Vercel Analytics & Speed Insights:** `@vercel/analytics/next` `<Analytics/>`
   and `@vercel/speed-insights/next` `<SpeedInsights/>` mounted in the root
   layout — no config, automatic page-view/Web-Vitals collection.
@@ -721,7 +728,7 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #21 | Accessibility — **resolved**: axe-core scans (serious/critical gate) + keyboard/skip-link/reduced-motion assertions in `smoke-tests/accessibility.spec.ts`; carousel autoplay removed (WCAG 2.2.2 + brand rule), decorative media hidden from AT, global `:focus-visible` default, `prefers-reduced-motion` CSS, admin status live regions, trade-form `autocomplete`/required markers. Authenticated admin dashboard audited via `smoke-tests/admin-accessibility.spec.ts` + `/admin-fixture` (env-gated, fixture data, mocked admin APIs): tablist badge fix, record-list `aria-current`/list semantics, per-row action names, destructive-action styling + named confirms, required markers, input-border contrast (see `docs/operations/accessibility.md`) |
 | #22 | SEO — **resolved**: apex `deepdivebrewing.com` confirmed as canonical (www→apex 308); robots.txt disallows admin/fixture/trade-placeholder/API surfaces; trade placeholders + 404 carry `noindex`; `/where-to-buy` OG/Twitter added (was inheriting root `og:url "/"`); beer detail gained `BreadcrumbList` JSON-LD + `#brewery` entity `@id`s; `smoke-tests/seo.spec.ts` asserts titles/descriptions/canonicals/noindex/robots/sitemap/JSON-LD in CI (see `docs/operations/seo.md`) |
 | #23 | Performance — **resolved**: Firebase client SDK removed from public-route bundles (`beerImageUrl` moved to Firebase-free `lib/utils.ts`; SDK chunk now loads only on `/admin`); homepage `<video poster>` raw-image double-download replaced by an always-rendered `next/image` poster underlay; first `/beers` card marked `priority` (it was the route's lazy LCP image). Lab LCP on `/` 6.4s→3.7s, transfer −584KB; every route −~140KB. Source-assertion tests guard the boundaries; no CI score gate (see `docs/operations/performance.md`) |
-| #24 | Analytics-quality audit |
+| #24 | Analytics-quality audit — **resolved**: GA4 gated to production builds (`VERCEL_ENV`); SPA `page_view` added via `page-view-tracker.tsx` (verified gtag never saw client-side navigations); `/admin*` excluded; venue website clicks renamed `where_to_buy_click`→`retailer_click` with `partner_name`→`venue_slug`; added `email_click`, `social_click`, `beer_filter`; `beer_detail_view` status param fixed; PII-free param whitelist; `smoke-tests/analytics.spec.ts` + `tests/lib/analytics.test.ts` assert exact-once/param/PII semantics in CI (see `docs/operations/analytics.md`) |
 | #29 | Harden admin authorization — **resolved**: privileged routes now require an active `adminUsers` record with role agreement via `requireAdminActor`/`requireSuperAdminActor` |
 | #30 | Harden Firebase client-write authorization — **resolved**: `firestore.rules`/`storage.rules` now require an active, role-matching `adminUsers` record in addition to claims (Storage via cross-service `firestore.get()`); covered by emulator rules tests |
 | #34 | Critical `next` advisories — **resolved**: `next`/`@next/mdx`/`eslint-config-next` 16.2.10 → 16.3.5 (vulnerable range `<=16.3.2`); transitive `sharp` 0.35.4, `postcss` 8.5.28 (override floor raised `^8.5.10` → `^8.5.23`), `nanoid` 3.3.19, `baseline-browser-mapping` 2.11.24. `npm audit --omit=dev` is clean; remaining findings are dev-only transitive deps |

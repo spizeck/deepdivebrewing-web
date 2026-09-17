@@ -1,23 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import { trackEvent, type AnalyticsEventName } from "@/lib/analytics";
-
-const PARAM_KEYS = [
-  "eventCategory",
-  "eventLabel",
-  "beerSlug",
-  "beerName",
-  "beerStyle",
-  "partnerName",
-  "island",
-  "ctaLocation",
-  "venueType",
-] as const;
-
-function toSnakeCase(input: string): string {
-  return input.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
+import {
+  collectAnalyticsParams,
+  trackEvent,
+  type AnalyticsEventName,
+} from "@/lib/analytics";
 
 export function AnalyticsClickTracker() {
   useEffect(() => {
@@ -31,15 +19,7 @@ export function AnalyticsClickTracker() {
       const eventName = trigger.dataset.analyticsEvent as AnalyticsEventName | undefined;
       if (!eventName) return;
 
-      const params: Record<string, string | number | undefined> = {};
-      for (const key of PARAM_KEYS) {
-        const value = trigger.dataset[`analytics${key.charAt(0).toUpperCase() + key.slice(1)}`];
-        if (value !== undefined) {
-          params[toSnakeCase(key)] = value;
-        }
-      }
-
-      trackEvent(eventName, params);
+      trackEvent(eventName, collectAnalyticsParams(trigger.dataset));
     }
 
     document.addEventListener("click", handleClick);
