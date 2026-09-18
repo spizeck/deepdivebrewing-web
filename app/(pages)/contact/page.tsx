@@ -169,7 +169,7 @@ export default function ContactPage() {
         </div>
       </div>
 
-      {/* Brewery tours */}
+      {/* Brewery tours — editorial two-option comparison, not pricing cards */}
       <section className="mt-16 border-t border-stone pt-16" aria-labelledby="brewery-tours">
         <h2 id="brewery-tours" className="text-3xl font-bold tracking-tight">
           Brewery Tours
@@ -179,77 +179,77 @@ export default function ContactPage() {
           a WhatsApp message and we&rsquo;ll find a time that works.
         </p>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-2">
+        <div className="mt-10 grid max-w-220 gap-10 md:grid-cols-2 md:gap-0">
           {/* Tour only */}
-          <div className="flex flex-col rounded-xl border border-stone bg-paper p-6">
+          <div className="md:pr-12">
             <h3 className="text-lg font-semibold tracking-tight">
               Brewery Tour
             </h3>
-            <p className="mt-3">
-              <span className="text-3xl font-bold tracking-tight">$20</span>{" "}
-              <span className="text-muted-foreground">per person</span>
+            <p className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold tracking-tight">$20</span>
+              <span className="text-sm text-muted-foreground">
+                per person · ~30 minutes
+              </span>
             </p>
-            <ul className="mt-4 space-y-2 text-muted-foreground">
-              <li>Approximately 30 minutes</li>
-              <li>A walk through the brewery — how the beer actually gets made</li>
-              <li>No beer or tasting included</li>
-            </ul>
-            <div className="mt-6 pt-2">
-              <Button
-                asChild
-                variant="outline"
-                className="h-11 min-h-[44px] w-full px-6 sm:w-auto"
+            <p className="mt-3 text-muted-foreground">
+              A walk through the brewery — how the beer actually gets made.
+            </p>
+            <p className="mt-2 text-sm font-medium text-ink">
+              No beer or tasting included.
+            </p>
+            <Button
+              asChild
+              variant="outline"
+              className="mt-5 h-11 min-h-[44px] px-6"
+            >
+              <Link
+                href="https://wa.me/5994163544"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-analytics-event="tour_inquiry_click"
+                data-analytics-event-category="conversion"
+                data-analytics-event-label="Brewery Tour"
+                data-analytics-cta-location="contact_page_tours"
               >
-                <Link
-                  href="https://wa.me/5994163544"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-analytics-event="tour_inquiry_click"
-                  data-analytics-event-category="conversion"
-                  data-analytics-event-label="Brewery Tour"
-                  data-analytics-cta-location="contact_page_tours"
-                >
-                  Arrange a brewery tour
-                </Link>
-              </Button>
-            </div>
+                Arrange a brewery tour
+              </Link>
+            </Button>
           </div>
 
           {/* Tour + tasting */}
-          <div className="flex flex-col rounded-xl border-2 border-ink/20 bg-stone/30 p-6">
+          <div className="border-t border-stone pt-8 md:border-l md:border-t-0 md:pl-12 md:pt-0">
             <p className="text-xs font-semibold uppercase tracking-wider text-moss">
               Stay for a taste
             </p>
             <h3 className="mt-1 text-lg font-semibold tracking-tight">
               Brewery Tour + Tasting
             </h3>
-            <p className="mt-3">
-              <span className="text-3xl font-bold tracking-tight">$40</span>{" "}
-              <span className="text-muted-foreground">per person</span>
+            <p className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold tracking-tight">$40</span>
+              <span className="text-sm text-muted-foreground">
+                per person · ~60 minutes total
+              </span>
             </p>
-            <ul className="mt-4 space-y-2 text-muted-foreground">
-              <li>Approximately 60 minutes total</li>
-              <li>The same brewery tour, then about 30 minutes for the important part</li>
-              <li>Generous beer tastings included</li>
-            </ul>
-            <div className="mt-6 pt-2">
-              <Button
-                asChild
-                className="h-11 min-h-[44px] w-full px-6 sm:w-auto"
+            <p className="mt-3 text-muted-foreground">
+              The same brewery tour, then about 30 minutes for the important
+              part.
+            </p>
+            <p className="mt-2 text-sm font-medium text-ink">
+              Generous beer tastings included.
+            </p>
+            <Button asChild className="mt-5 h-11 min-h-[44px] px-6">
+              <Link
+                href="https://wa.me/5994163544"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-analytics-event="tour_inquiry_click"
+                data-analytics-event-category="conversion"
+                data-analytics-event-label="Brewery Tour + Tasting"
+                data-analytics-cta-location="contact_page_tours"
               >
-                <Link
-                  href="https://wa.me/5994163544"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-analytics-event="tour_inquiry_click"
-                  data-analytics-event-category="conversion"
-                  data-analytics-event-label="Brewery Tour + Tasting"
-                  data-analytics-cta-location="contact_page_tours"
-                >
-                  Arrange tour + tasting
-                </Link>
-              </Button>
-            </div>
+                Arrange tour + tasting
+              </Link>
+            </Button>
           </div>
         </div>
       </section>

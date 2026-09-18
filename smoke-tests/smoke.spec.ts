@@ -113,8 +113,8 @@ test("contact page presents both brewery tour options with pricing", async ({
   await expect(
     tours.getByText(/generous beer tastings included/i)
   ).toBeVisible();
-  await expect(tours.getByText(/approximately 30 minutes/i)).toBeVisible();
-  await expect(tours.getByText(/approximately 60 minutes/i)).toBeVisible();
+  await expect(tours.getByText(/~30 minutes/i)).toBeVisible();
+  await expect(tours.getByText(/~60 minutes total/i)).toBeVisible();
 
   // Both CTAs arrange a tour via the same WhatsApp channel.
   for (const name of ["Arrange a brewery tour", "Arrange tour + tasting"]) {
