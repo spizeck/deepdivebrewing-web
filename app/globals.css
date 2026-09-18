@@ -293,3 +293,231 @@
     line-height: 1.75rem;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Klaro consent UI → DDB design system
+   The bundled Klaro widget mounts inside #klaro (components/consent-manager).
+   Palette is already mapped onto Klaro's CSS variables via `styling` in
+   lib/consent.ts; the rules below cover what variables cannot express —
+   button hierarchy, toggle affordance, spacing, borders, and focus rings.
+   Selectors use Klaro's stable class hooks (.cookie-notice, .cm-modal,
+   .cm-btn, .cm-list-*, .slider); review this block on Klaro upgrades.
+--------------------------------------------------------------------------- */
+#klaro .cookie-notice:not(.cookie-modal-notice),
+#klaro .cm-modal.cm-klaro {
+  border: 1px solid var(--color-stone);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(11, 15, 20, 0.18);
+}
+
+/* Below Klaro's desktop breakpoint the notice becomes a full-width bottom
+   strip — rounded corners and side borders sit awkwardly against the
+   screen edge, so only the top hairline remains. */
+@media (max-width: 1023px) {
+  #klaro .cookie-notice:not(.cookie-modal-notice) {
+    border-style: solid none none;
+    border-radius: 0;
+  }
+}
+
+#klaro .cookie-notice .cn-body {
+  padding: 1em 1.25em 1.25em;
+}
+
+#klaro .cookie-notice h2 {
+  font-size: 1.1em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+#klaro .cookie-notice p {
+  line-height: 1.5;
+}
+
+#klaro .cn-ok {
+  align-items: center;
+  column-gap: 0.75em;
+  row-gap: 0.25em;
+}
+
+#klaro .cn-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+/* Buttons mirror the site's button variants: primary = ink solid
+   (accept), outline = save/manage secondary action, stone fill =
+   decline (visible, not hidden — no dark pattern). */
+#klaro .cm-btn {
+  color: var(--color-ink);
+  background-color: var(--color-stone);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.95em;
+  line-height: 1.25;
+  min-height: 44px;
+  margin-right: 0;
+  padding: 0.55em 1em;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+#klaro .cm-btn:hover {
+  background-color: color-mix(in srgb, var(--color-stone) 82%, var(--color-ink));
+}
+
+#klaro .cm-btn-success,
+#klaro .cm-btn-success-var {
+  color: var(--color-paper);
+  background-color: var(--color-ink);
+}
+
+#klaro .cm-btn-success:hover,
+#klaro .cm-btn-success-var:hover {
+  background-color: color-mix(in srgb, var(--color-ink) 86%, var(--color-paper));
+}
+
+#klaro .cm-btn-info {
+  color: var(--color-ink);
+  background-color: transparent;
+  border-color: var(--color-ink);
+}
+
+#klaro .cm-btn-info:hover {
+  background-color: var(--color-stone);
+}
+
+/* "Manage preferences" is a tertiary text action, visually equal in
+   discoverability to the buttons. */
+#klaro .cn-learn-more {
+  color: var(--color-ocean);
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+#klaro .cn-learn-more:hover {
+  opacity: 0.8;
+}
+
+/* Links inside the widget use the site's link color. */
+#klaro .cookie-notice a,
+#klaro .cm-modal a {
+  color: var(--color-ocean);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+#klaro .cookie-notice a.cn-learn-more {
+  color: var(--color-ocean);
+}
+
+/* ---- Preferences modal ---- */
+
+#klaro .cm-modal .cm-header {
+  border-bottom-color: var(--color-stone);
+  padding: 1.1em 3em 1em 1.5em;
+}
+
+#klaro .cm-modal .cm-header h1.title {
+  font-size: 1.35em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+#klaro .cm-modal .cm-body {
+  padding: 0.25em 1.5em 0.5em;
+}
+
+#klaro .cm-modal .cm-footer {
+  border-top-color: var(--color-stone);
+  padding: 1em 1.5em;
+}
+
+#klaro .cm-modal .cm-footer-buttons {
+  gap: 0.75em;
+}
+
+#klaro .cm-modal .hide:focus-visible {
+  border-radius: var(--radius-sm);
+}
+
+/* Service rows: clearer hierarchy, readable secondary text, softer
+   dividers than Klaro's defaults. */
+#klaro .cm-switch-container {
+  border-bottom-color: var(--color-stone);
+  min-height: 56px;
+  padding: 14px 10px 14px 66px;
+}
+
+#klaro .cm-list-title {
+  font-size: 1em;
+  font-weight: 600;
+}
+
+#klaro .cm-list-description,
+#klaro .cm-required,
+#klaro .cm-opt-out,
+#klaro .purposes {
+  color: var(--color-ocean);
+}
+
+#klaro .cm-list-description {
+  font-size: 0.875em;
+  line-height: 1.5;
+}
+
+#klaro .purposes {
+  font-size: 0.8125em;
+  margin-top: 2px;
+}
+
+/* Toggle: stone track when off, moss accent when on — a small highlight
+   consistent with the brand's accent-usage rules — with an always
+   distinguishable knob and a visible focus ring on the (visually
+   hidden) checkbox. */
+#klaro .slider {
+  border: 1px solid var(--color-stone);
+  box-shadow: none;
+  transition: background-color 150ms ease;
+}
+
+#klaro .cm-list-input:checked + .cm-list-label .slider {
+  background-color: var(--color-moss);
+  border-color: var(--color-moss);
+}
+
+#klaro .cm-list-input.required:checked + .cm-list-label .slider {
+  background-color: var(--color-moss);
+  border-color: var(--color-moss);
+  opacity: 0.65;
+}
+
+#klaro .cm-list-input.half-checked:checked + .cm-list-label .slider,
+#klaro .cm-list-input.only-required + .cm-list-label .slider {
+  background-color: var(--color-moss);
+}
+
+#klaro .cm-list-input:focus + .cm-list-label .slider,
+#klaro .cm-list-input:focus-visible + .cm-list-label .slider {
+  box-shadow: none;
+  outline: 2px solid var(--color-ocean);
+  outline-offset: 2px;
+}
+
+/* Site-consistent focus rings for every Klaro control. */
+#klaro .cm-btn:focus-visible,
+#klaro .cn-learn-more:focus-visible,
+#klaro .cm-link:focus-visible,
+#klaro .cookie-notice a:focus-visible,
+#klaro .cm-modal a:focus-visible,
+#klaro .cm-modal .hide:focus-visible,
+#klaro .cm-list-label:focus-visible {
+  outline: 2px solid var(--color-ocean);
+  outline-offset: 2px;
+}

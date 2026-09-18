@@ -279,8 +279,9 @@ service is involved. To disable analytics entirely, unset
 ### Accessibility boundary
 
 The consent UI is Klaro's own rendered component — the repository controls
-its configuration (keyboard-focusable dialog, dark theme, no forced
-modal, optional services off by default) but not its internals. Verify
+its configuration (keyboard-focusable dialog, DDB-themed light styling,
+plain-language labels, no forced modal, optional services off by
+default) but not its internals. Verify
 manually in production: keyboard operation of the notice and manager,
 visible focus, no keyboard trap, and the footer reopen control. Do not
 claim conformance certification for the vendor-rendered UI.
