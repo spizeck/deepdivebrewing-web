@@ -155,12 +155,12 @@ describe("buildKlaroConfig", () => {
   it("labels every consent action in plain language", () => {
     const config = buildKlaroConfig();
     const en = config.translations.en as Record<string, unknown>;
-    assert.equal(en.ok, "Accept analytics");
-    assert.equal(en.decline, "Decline analytics");
-    assert.equal(en.acceptAll, "Accept analytics");
+    assert.equal(en.ok, "Allow analytics");
+    assert.equal(en.decline, "No thanks");
+    assert.equal(en.acceptAll, "Allow analytics");
     assert.equal(en.acceptSelected, "Save preferences");
     const notice = en.consentNotice as Record<string, string>;
-    assert.equal(notice.title, "Privacy choices");
+    assert.equal(notice.title, "Cookies. Sadly, not the beer kind.");
     assert.equal(notice.learnMore, "Manage preferences");
   });
 
