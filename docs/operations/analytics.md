@@ -86,10 +86,15 @@ explicit contract:
   producer, exactly-once holds by construction — including the edge case
   where a session navigates `/admin` → public and the container loads
   mid-session (no automatic page view can fire on container load).
-- **`/admin*` (including `/admin-fixture`):** excluded twice —
-  `GtmBootstrap` renders nothing so the container never loads, and
-  `pushToDataLayer` refuses to push on `/admin` pathnames so no marketing
-  event can even reach the queue.
+- **`/admin*` (including `/admin-fixture`):** excluded on three layers —
+  `GtmBootstrap` renders nothing, `pushToDataLayer` refuses to push on
+  `/admin` pathnames so no marketing event can even reach the queue, and
+  `AdminAnalyticsGuard` forces a full document load if a session enters
+  `/admin*` in a document that already carries a live container (a public
+  page → client-side transition — the root layout persists, and a loaded
+  script cannot be unloaded; only a fresh document removes it). The guard
+  is a no-op without a container, so direct admin entry and public
+  browsing are unaffected.
 - **GA4 Enhanced Measurement:** keep *Page views → "Page changes based on
   browser history events"* **OFF** — that would double-count against the
   app's SPA pushes.
@@ -205,11 +210,12 @@ configure the container in Google Tag Manager (tagmanager.google.com):
 - **Automated (CI):** `smoke-tests/analytics.spec.ts` asserts the absence of
   any GTM/gtag bootstrap in the test build, exactly-once `page_view` on
   landing and per SPA nav, zero dataLayer activity on `/admin` and
-  `/admin-fixture`, exactly-once custom events with expected params,
-  `trade_form_success` only on server acceptance, no form PII in any
-  payload, and link navigation under a hostile dataLayer.
-  `tests/lib/analytics.test.ts` unit-tests the push helper and the
-  `/admin` gate.
+  `/admin-fixture`, a full-document reload boundary when a container-
+  carrying document transitions into `/admin*`, exactly-once custom events
+  with expected params, `trade_form_success` only on server acceptance, no
+  form PII in any payload, and link navigation under a hostile dataLayer.
+  `tests/lib/analytics.test.ts` unit-tests the push helper, the `/admin`
+  gate, and the marketing-container detection used by the guard.
 - **Manual (production):** GTM → Preview (Tag Assistant) against
   `https://deepdivebrewing.com`, plus GA4 → Reports → Realtime / DebugView:
   - land on `/` → exactly one `page_view`

@@ -5,10 +5,13 @@ import Script from "next/script";
 
 // Marketing analytics is excluded from admin surfaces. Rendered only when
 // the production gate in app/layout.tsx passes (VERCEL_ENV=production AND a
-// configured container ID); this pathname check additionally keeps the
-// container off /admin and /admin-fixture entirely — preferable to loading
-// GTM and filtering downstream, since it guarantees no container-side
-// automatic collection on admin routes.
+// configured container ID); this pathname check keeps the container off
+// documents that BEGIN on /admin* — preferable to loading GTM and filtering
+// downstream, since an absent container can collect nothing. It cannot help
+// a document that loaded GTM on a public page and then client-navigated into
+// /admin* (returning null does not unload an already-loaded script): that
+// transition is closed by AdminAnalyticsGuard, which forces a full document
+// load on entry so the fresh admin document boots without GTM.
 export function GtmBootstrap({ gtmId }: { gtmId: string }) {
   const pathname = usePathname();
   if (pathname.startsWith("/admin")) return null;

@@ -88,6 +88,104 @@ test("/admin-fixture produces no marketing analytics events", async ({
   expect(await getDataLayer(page)).toHaveLength(0);
 });
 
+// Transition coverage: the root layout persists across App Router client
+// navigations, so a document that loaded GTM on a public page would keep the
+// container active after a client-side entry into /admin* (returning null
+// from GtmBootstrap cannot unload it). AdminAnalyticsGuard must turn that
+// entry into a full document navigation, leaving a fresh document with no
+// container. `history.pushState` below performs a same-document transition
+// to /admin inside THIS document — the same in-document state any SPA
+// navigation into /admin* produces — without relying on the app exposing a
+// link that gets there. The current entry's router state is reused so
+// Next.js treats the entry as known and does not race the guard with its
+// own fallback navigation.
+const enterAdminInSameDocument = (
+  page: import("playwright").Page,
+  target: string
+) =>
+  page.evaluate(
+    (dest) => history.pushState(history.state, "", dest),
+    target
+  );
+
+const simulateLoadedContainer = (page: import("playwright").Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as Record<string, unknown>;
+    w.__guardTestDocument = "gtm-carrying";
+    w.dataLayer = [{ "gtm.start": 1, event: "gtm.js" }];
+    w.google_tag_manager = { containerId: "GTM-TEST" };
+  });
+
+// Evaluating while the document unloads throws (context destroyed) — treat
+// that as "still navigating" so polls survive the reload boundary.
+const documentMarker = (page: import("playwright").Page) =>
+  page
+    .evaluate(
+      () => (window as unknown as Record<string, unknown>).__guardTestDocument
+    )
+    .catch(() => "navigating");
+
+test("client-side transition into /admin forces a fresh document with no marketing container", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await simulateLoadedContainer(page);
+
+  await enterAdminInSameDocument(page, "/admin");
+
+  // The guard forced a document load: this document's marker and container
+  // are gone, and the fresh admin document is clean.
+  await expect.poll(async () => documentMarker(page)).toBeUndefined();
+  expect(page.url()).toMatch(/\/admin$/);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).google_tag_manager
+    )
+  ).toBeUndefined();
+  expect(await getDataLayer(page)).toHaveLength(0);
+});
+
+test("client-side transition into /admin-fixture also forces a fresh document", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await simulateLoadedContainer(page);
+
+  await enterAdminInSameDocument(page, "/admin-fixture");
+
+  // The reload boundary applies to the whole /admin* prefix regardless of
+  // whether the fixture route exists in this environment — the document
+  // that carried the container is gone either way.
+  await expect.poll(async () => documentMarker(page)).toBeUndefined();
+  expect(page.url()).toMatch(/\/admin-fixture$/);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).google_tag_manager
+    )
+  ).toBeUndefined();
+});
+
+test("transition into /admin without a marketing container does not reload", async ({
+  page,
+}) => {
+  await page.goto("/");
+  // The app's own page_view push creates a dataLayer without a container —
+  // that alone must not trigger the guard (it would reload-loop).
+  await waitForEvents(page, "page_view", 1);
+  await page.evaluate(() => {
+    (window as unknown as Record<string, unknown>).__guardTestDocument =
+      "clean";
+  });
+
+  await enterAdminInSameDocument(page, "/admin");
+  await page.waitForURL("**/admin");
+
+  // Same document survived — no container, so no reload happened.
+  await expect
+    .poll(async () => documentMarker(page), { timeout: 3000 })
+    .toBe("clean");
+});
+
 test("tracked CTA enters dataLayer exactly once with expected params", async ({
   page,
 }) => {

@@ -4,6 +4,7 @@ import {
   trackEvent,
   sendPageView,
   collectAnalyticsParams,
+  documentHasMarketingContainer,
   type AnalyticsEventName,
 } from "../../lib/analytics";
 
@@ -95,6 +96,34 @@ describe("admin exclusion", () => {
     sendPageView("/admin-fixture");
     trackEvent("beer_filter", { filter: "core" });
     assert.equal(dataLayer(), undefined);
+  });
+});
+
+describe("documentHasMarketingContainer", () => {
+  it("is false in SSR (no window)", () => {
+    assert.equal(documentHasMarketingContainer(), false);
+  });
+
+  it("is false when only the app-created dataLayer exists", () => {
+    // pushToDataLayer creates the queue without GTM — that must not count
+    // as a live container or AdminAnalyticsGuard would reload-loop.
+    stubWindow({ dataLayer: [{ event: "page_view", page_path: "/" }] });
+    assert.equal(documentHasMarketingContainer(), false);
+  });
+
+  it("is false with no dataLayer at all", () => {
+    stubWindow();
+    assert.equal(documentHasMarketingContainer(), false);
+  });
+
+  it("is true when the gtm.start bootstrap entry is present", () => {
+    stubWindow({ dataLayer: [{ "gtm.start": 1, event: "gtm.js" }] });
+    assert.equal(documentHasMarketingContainer(), true);
+  });
+
+  it("is true when the google_tag_manager runtime exists", () => {
+    stubWindow({ google_tag_manager: {} });
+    assert.equal(documentHasMarketingContainer(), true);
   });
 });
 

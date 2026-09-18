@@ -41,7 +41,10 @@ type DataLayerEntry = Record<string, unknown>;
 // analytics. This boundary lives in the push helper itself so no caller —
 // click tracker, page-view tracker, or any future one — can leak events on
 // /admin or /admin-fixture, even when a GTM container was loaded earlier in
-// the session (the script cannot be unloaded on SPA navigation).
+// the session. Note this only gates the application's own events: a loaded
+// container's own automatic collection survives until the document that
+// loaded it is gone, which AdminAnalyticsGuard enforces by forcing a full
+// document load on entry to /admin*.
 function isAdminPath(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -59,6 +62,25 @@ function getDataLayer(): DataLayerEntry[] | undefined {
   const w = window as Window & { dataLayer?: DataLayerEntry[] };
   w.dataLayer = w.dataLayer ?? [];
   return w.dataLayer;
+}
+
+/**
+ * True when this document is carrying a Google Tag Manager container — the
+ * `google_tag_manager` runtime or at least the `gtm.start` bootstrap entry
+ * it pushes into the queue. A dataLayer created by `pushToDataLayer` alone
+ * is not proof: it exists for pushes even when GTM is absent (previews,
+ * dev, ad-blockers).
+ */
+export function documentHasMarketingContainer(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as Window & {
+    google_tag_manager?: unknown;
+    dataLayer?: DataLayerEntry[];
+  };
+  if (w.google_tag_manager != null) return true;
+  return (w.dataLayer ?? []).some(
+    (entry) => entry != null && "gtm.start" in entry
+  );
 }
 
 function pushToDataLayer(entry: DataLayerEntry): void {

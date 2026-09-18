@@ -6,6 +6,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { AnalyticsClickTracker } from "@/components/analytics-click-tracker";
 import { PageViewTracker } from "@/components/page-view-tracker";
 import { GtmBootstrap } from "@/components/gtm-bootstrap";
+import { AdminAnalyticsGuard } from "@/components/admin-analytics-guard";
 import { siteUrl } from "@/lib/site";
 import "./globals.css";
 
@@ -101,6 +102,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased`}>
+        {/* Renders unconditionally: a client-side transition into /admin*
+            from a GTM-carrying public page must force a document load so no
+            live container survives inside admin. */}
+        <AdminAnalyticsGuard />
         <AnalyticsClickTracker />
         <PageViewTracker />
         <a
