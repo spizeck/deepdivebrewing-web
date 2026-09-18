@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TradeInquiryForm } from "@/components/trade-inquiry-form";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -62,7 +63,7 @@ export default function TradePage() {
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationJsonLd) }}
       />
       <div className="mb-12">
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">

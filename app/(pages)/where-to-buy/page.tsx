@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getVenues } from "@/lib/venues";
 import { getBeers } from "@/lib/beers";
 import { VenueCard } from "@/components/venue-card";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
 import type { Venue } from "@/lib/types";
 
@@ -133,11 +134,11 @@ export default async function WhereToBuyPage() {
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(localBusinessJsonLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(faqJsonLd) }}
       />
 
       <div className="mb-12">

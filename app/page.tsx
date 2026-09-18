@@ -8,6 +8,7 @@ import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
 import { getBeers } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
 import type { CSSProperties } from "react";
 
@@ -91,7 +92,7 @@ export default async function Home() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationJsonLd) }}
       />
       <SiteHeader />
       <main id="main-content" tabIndex={-1}>
