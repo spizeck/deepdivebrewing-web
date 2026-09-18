@@ -32,7 +32,9 @@ async function waitForEvents(
   return events(await getDataLayer(page), name);
 }
 
-test("test build serves no GTM or legacy gtag bootstrap", async ({ page }) => {
+test("test build serves no GTM, gtag, or consent-default bootstrap", async ({
+  page,
+}) => {
   await page.goto("/");
   await expect(
     page.locator('script[src*="googletagmanager.com"]')
@@ -43,6 +45,15 @@ test("test build serves no GTM or legacy gtag bootstrap", async ({ page }) => {
       () => typeof (window as unknown as { gtag?: unknown }).gtag
     )
   ).toBe("undefined");
+  // Consent Mode defaults are emitted only by the production GTM init
+  // script — none here. (The bundled consent manager may still queue a
+  // `consent` `update` reflecting the fixture's seeded choice; that is a
+  // client-side state command, not analytics delivery — see consent.spec.ts.)
+  expect(
+    (await getDataLayer(page)).some(
+      (e) => e[0] === "consent" && e[1] === "default"
+    )
+  ).toBe(false);
 });
 
 test("the app owns page views: one on landing, exactly one per SPA navigation", async ({

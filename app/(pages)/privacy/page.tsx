@@ -77,11 +77,15 @@ export default function PrivacyPage() {
         can unsubscribe at any time.
       </p>
 
-      <h3>Cookies</h3>
+      <h3>Cookies &amp; consent</h3>
       <p>
-        Our website uses cookies and similar technologies to support analytics and basic site
-        functionality. You can disable cookies through your browser settings, although some parts of
-        the website may not function as intended.
+        Our website uses cookies and similar technologies for basic site functionality and,
+        with your permission, for analytics. On your first visit a consent notice lets you
+        accept all, decline all, or choose which optional services may run; analytics
+        cookies are only stored if you choose to allow them. Your choice is stored in a
+        cookie on your device so the notice is not shown on every visit. You can change or
+        withdraw your choice at any time using the &ldquo;Cookie preferences&rdquo; link in
+        the site footer.
       </p>
 
       <hr />
@@ -89,10 +93,15 @@ export default function PrivacyPage() {
       <h2>Analytics</h2>
       <p>
         We use analytics services, including Google Analytics (delivered via Google Tag
-        Manager) and Vercel Analytics, to better
-        understand how visitors use our website and to improve performance and usability. These
-        services provide aggregated and pseudonymized information. We do not use analytics to
-        personally identify visitors.
+        Manager) and Vercel Analytics, to better understand how visitors use our website and
+        to improve performance and usability. These services provide aggregated and
+        pseudonymized information. We do not use analytics to personally identify visitors.
+      </p>
+      <p>
+        Google Analytics operates under Google Consent Mode: analytics cookies are stored and
+        read only when you allow analytics in the consent manager. If you decline, no
+        analytics cookies are stored. Vercel Analytics is cookieless and collects only
+        aggregate traffic data.
       </p>
 
       <hr />
@@ -113,6 +122,13 @@ export default function PrivacyPage() {
       <p>
         Trade inquiry submissions are delivered to our team as notification emails through Resend,
         which processes the submitted details solely to deliver those messages.
+      </p>
+
+      <h3>Consent manager</h3>
+      <p>
+        We use Klaro, an open-source consent manager that runs in your browser as part of
+        this website, to record your cookie and analytics consent choices. Your decision is
+        stored in a cookie on your device — it is not sent to a separate consent service.
       </p>
 
       <h3>Google Maps</h3>

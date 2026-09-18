@@ -544,6 +544,17 @@ notification.** (Owner decision, #57.)
   mount and each App Router navigation (excluding `/admin*`); the GTM
   Google tag is configured `send_page_view=false`, so nothing else emits
   page views and duplication is impossible by construction.
+- **Consent:** bundled Klaro (`klaro` npm package, BSD-3-Clause —
+  self-hosted, no vendor service or ID) + Google Consent Mode v2.
+  `lib/consent.ts` builds the GTM init script so `consent default`
+  (denied) is pushed before `gtm.start`, declares the service registry
+  (`CONSENT_SERVICES`), maps Klaro choices to `consent update`s, and
+  builds the local Klaro config (policy-versioned cookie storage).
+  `components/consent-manager.tsx` lazy-loads Klaro on public pages in
+  every environment and returns null on `/admin*`; a footer "Cookie
+  preferences" control (`components/consent-settings-link.tsx`) reopens
+  the manager. Full architecture and owner checklists:
+  `docs/operations/analytics.md`.
 - **Custom events:** `beer_detail_view` (`BeerViewTracker` on beer detail),
   `trade_form_start/success/error` (`trade-inquiry-form`), `beer_filter`
   (`beers-filter-grid`), and outbound/CTA clicks via `TrackedLink`/

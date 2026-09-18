@@ -9,8 +9,9 @@ Issue #24 audit and the Issue #56 GTM migration.
 
 | System | Role | Loaded |
 | --- | --- | --- |
-| **Google Tag Manager** → **GA4** (`G-5VBQTMP37H`) | Marketing analytics: page views, custom events, funnels | Production only — the container script renders only when `VERCEL_ENV === "production"` AND `NEXT_PUBLIC_GTM_ID` is set |
-| **Vercel Analytics** (`@vercel/analytics`) | Independent page-view + Web Analytics product | All builds (Vercel handles environment behavior internally) — not routed through GTM |
+| **Klaro** (`klaro` npm package, BSD-3-Clause — bundled, self-hosted) | Visitor consent for optional services; drives Google Consent Mode signals | All builds on public pages — bundled code needs no vendor service or ID; `/admin*` excluded (see [Consent](#consent--klaro--google-consent-mode-v2)) |
+| **Google Tag Manager** → **GA4** (`G-5VBQTMP37H`) | Marketing analytics: page views, custom events, funnels | Production only — the container script renders only when `VERCEL_ENV === "production"` AND `NEXT_PUBLIC_GTM_ID` is set; tag behavior gated by Consent Mode |
+| **Vercel Analytics** (`@vercel/analytics`) | Independent page-view + Web Analytics product (cookieless, aggregate — outside CMP scope) | All builds (Vercel handles environment behavior internally) — not routed through GTM |
 | **Vercel Speed Insights** (`@vercel/speed-insights`) | Field RUM for Core Web Vitals — see `performance.md` | All builds; do not remove — it's the field-perf source |
 | `lib/log.ts` structured logs | Server observability | Server only — **separate system**, do not cross-wire |
 
@@ -64,8 +65,11 @@ build time — `preview` on preview deploys, unset locally and in CI. Result:
 - **Production without `NEXT_PUBLIC_GTM_ID`:** no container loads — a safe
   no-op state, not an error. There is deliberately no hardcoded default
   container ID.
-- **Preview deploys / local dev / CI / Playwright:** no GTM code at all —
-  previews and tests can never contaminate the production property.
+- **Preview deploys / local dev / CI / Playwright:** no GTM at all —
+  previews and tests can never contaminate the production property. The
+  bundled Klaro consent UI **does** run in these environments (it needs no
+  vendor service), which keeps it testable offline — its `consent`
+  commands sit harmlessly in the queue with no container to drain them.
 - `trackEvent`/`sendPageView` push to `window.dataLayer` regardless; with no
   container the entries simply sit in the queue (or fail silently if the
   queue itself is broken) — analytics never breaks a link, form, or
@@ -160,17 +164,137 @@ payloads; the smoke suite asserts typed form values never appear in
 `dataLayer` pushes. All `trackEvent` params must stay non-PII by review —
 the type allows strings, discipline supplies the rest.
 
-## Consent / privacy status (technical findings)
+## Consent — Klaro + Google Consent Mode v2
 
-- No consent banner or Google Consent Mode exists. GTM loads on production
-  for all visitors. The privacy policy discloses Google Analytics + Vercel
-  Analytics and cookie use; delivery via GTM does not change what data is
-  collected.
-- GA4 sets its own cookies on production visitors; Vercel Analytics is
-  cookieless (aggregate). Admin routes send no GA events — the GTM container
-  is not even loaded there.
-- Whether a CMP/consent gate is legally required for this audience is a
-  product/legal decision — deliberately not decided here.
+The consent layer is **[Klaro](https://klaro.kiprotect.com)** — the
+`klaro` npm package (`0.7.21`, BSD-3-Clause, KIProtect). It is bundled
+into the application like any other dependency: **no hosted CMP
+subscription, no vendor ID, no runtime CDN, no consent API**. The choice
+itself is stored in a first-party cookie by the bundled code — nothing is
+sent to a consent service. Visitor choices drive Google Consent Mode v2:
+
+```
+document → consent defaults (denied) → gtm.start → gtm.js
+        → Klaro consent state → consent updates → GTM → GA4
+```
+
+### Ordering — the part that must not regress
+
+- `components/gtm-bootstrap.tsx` emits ONE inline script
+  (`buildGtmInitScript` in `lib/consent.ts`) that pushes
+  `gtag("consent","default", CONSENT_DEFAULTS)` onto `dataLayer` **before**
+  `gtm.start`. A `window.gtag` stub is defined so both this default and
+  later `consent update` calls serialize onto the same command queue the
+  Google tag drains. Because the default entry is pushed by the same
+  script — and `gtm.js` only loads at `lazyOnload` — no Google tag can
+  evaluate before the denied state exists.
+- `GtmBootstrap` mounts **before** `PageViewTracker`/`AnalyticsClickTracker`
+  in `app/layout.tsx` for the same reason: scripts execute in mount order,
+  so the first `page_view` push also lands after the defaults. Do not
+  reorder it below the trackers.
+- `components/consent-manager.tsx` lazy-loads the Klaro bundle
+  (`import("klaro")` inside an effect — its UMD build touches `self`, so
+  it must never be evaluated server-side), calls `klaro.setup(config)`,
+  and watches the consent manager. On every **saved** choice it pushes
+  `["consent","update", …]` via `pushConsentUpdate`; it also pushes once
+  on load when a stored choice already exists, which is what restores a
+  returning visitor's granted consent.
+
+### Category model and Consent Mode mapping
+
+`CONSENT_SERVICES` in `lib/consent.ts` is the site's consent registry —
+the declaration model a future shared package would consume per site:
+
+| Registry entry | Klaro toggle | Consent Mode signals |
+| --- | --- | --- |
+| `consent-preferences` (Essential) | Required — always on | none needed (`security_storage` is default-granted) |
+| `google-analytics` (Analytics) | Optional, **off** by default | `analytics_storage` |
+| `vercel-analytics` | `consentManaged: false` — transparency declaration only | none — cookieless, outside optional-cookie scope |
+
+There is deliberately **no marketing or preferences category** — the site
+has no advertising or optional-preference services, so `ad_storage`,
+`ad_user_data`, `ad_personalization`, `functionality_storage`, and
+`personalization_storage` stay `denied` in every update
+(`consentUpdateFromStates` only ever grants what a consented service
+declares). Do not add categories for services the site does not run.
+
+### Consent behavior
+
+- **Defaults (all visitors, before choice):** `denied` for
+  `analytics_storage`, `ad_storage`, `ad_user_data`, `ad_personalization`,
+  `functionality_storage`, `personalization_storage`; `granted` for
+  `security_storage`; `wait_for_update: 500` gives returning visitors'
+  stored consent time to resolve before tags fire.
+- **Events queued before consent resolves** are processed under the state
+  at send time — under `denied`, the Google tag produces only cookieless,
+  non-identifying hits per Google's Consent Mode model; nothing is
+  retrospectively re-sent after an update. Deliberate: the app keeps
+  pushing, and consent state — not queue manipulation — decides what GA4
+  can store. `denied` does not mean "no network" — Google still emits
+  cookieless pings under advanced Consent Mode; it means no analytics
+  cookies are stored or read.
+- **Updates publish on save only** — not while the visitor is toggling in
+  the manager — and once on load when a stored choice exists.
+- **Persistence:** Klaro `storageMethod: "cookie"`, name
+  `ddb-consent-v1` (`CONSENT_STORAGE_NAME`), 180-day expiry.
+- **Policy versioning:** `CONSENT_POLICY_VERSION` in `lib/consent.ts` is
+  embedded in the storage name. Bump it on a material change to services
+  or categories — the old cookie no longer matches, so every visitor is
+  asked again rather than silently carried forward.
+- **Reopen/change:** the "Cookie preferences" footer control calls
+  `klaro.show()` (exposed as `window.ddbConsentShow` by the consent
+  manager) so choices can be changed or withdrawn at any time.
+- **`/admin*`:** `ConsentManager` returns null and never loads Klaro
+  there — admin documents carry no marketing analytics, so there is
+  nothing to consent to. `AdminAnalyticsGuard` is unchanged.
+- **Failure isolation:** Klaro init is wrapped so a failure leaves the
+  site fully functional with defaults still denied; `pushConsentUpdate`
+  never throws (hostile/absent dataLayer included).
+
+### Owner-side setup
+
+**Klaro:** none. The consent layer ships in the bundle — there is no
+domain-group ID, account, or hosted service to configure. Service and
+category changes are code changes (`CONSENT_SERVICES`), shipped through
+the normal PR process.
+
+**GTM container `GTM-MVTVCMDC` (in addition to the tag setup below):**
+
+1. Admin → Container Settings → enable **Consent Overview**; verify each
+   GA4 tag lists its built-in consent checks (`analytics_storage`, and the
+   ad signals where shown). No additional consent checks are needed —
+   built-in checks are what Consent Mode gates on. No advertising tags
+   should exist.
+2. Do **not** add a separate "consent initialization" tag — defaults are
+   application-emitted before `gtm.start`, so a Consent Initialization tag
+   would be redundant and risks ordering drift.
+3. Keep `send_page_view=false` and Enhanced Measurement history-change
+   page views OFF — unchanged by consent work.
+
+**Rollback:** revert the commit (or remove the `<ConsentManager />` mount
+and the consent push in `buildGtmInitScript`) and redeploy — no external
+service is involved. To disable analytics entirely, unset
+`NEXT_PUBLIC_GTM_ID` instead.
+
+### Accessibility boundary
+
+The consent UI is Klaro's own rendered component — the repository controls
+its configuration (keyboard-focusable dialog, dark theme, no forced
+modal, optional services off by default) but not its internals. Verify
+manually in production: keyboard operation of the notice and manager,
+visible focus, no keyboard trap, and the footer reopen control. Do not
+claim conformance certification for the vendor-rendered UI.
+
+### Future extraction
+
+The consent layer is deliberately organized for later extraction into a
+shared internal package (e.g. `privacy-consent`): the generic pieces —
+`ConsentService` registry shape, `consentUpdateFromStates`,
+`buildKlaroConfig`, `pushConsentUpdate`, the mount component, and the
+reopen control — consume only the site-provided service registry,
+storage namespace, and translations. DDB-specific values live in
+`CONSENT_SERVICES`, `CONSENT_POLICY_VERSION`/`CONSENT_STORAGE_NAME`, and
+the translation strings in `lib/consent.ts`.
 
 ## GTM container configuration (operator, one-time)
 
@@ -208,14 +332,24 @@ configure the container in Google Tag Manager (tagmanager.google.com):
 ## Verification & debugging
 
 - **Automated (CI):** `smoke-tests/analytics.spec.ts` asserts the absence of
-  any GTM/gtag bootstrap in the test build, exactly-once `page_view` on
-  landing and per SPA nav, zero dataLayer activity on `/admin` and
-  `/admin-fixture`, a full-document reload boundary when a container-
-  carrying document transitions into `/admin*`, exactly-once custom events
-  with expected params, `trade_form_success` only on server acceptance, no
-  form PII in any payload, and link navigation under a hostile dataLayer.
-  `tests/lib/analytics.test.ts` unit-tests the push helper, the `/admin`
-  gate, and the marketing-container detection used by the guard.
+  any GTM/gtag bootstrap or consent **default** in the test build,
+  exactly-once `page_view` on landing and per SPA nav, zero dataLayer
+  activity on `/admin` and `/admin-fixture`, a full-document reload boundary
+  when a container-carrying document transitions into `/admin*`,
+  exactly-once custom events with expected params, `trade_form_success`
+  only on server acceptance, no form PII in any payload, and link
+  navigation under a hostile dataLayer. `smoke-tests/consent.spec.ts`
+  exercises the real bundled consent UI offline: the undecided-visitor
+  notice, decline → denied `consent` `update`, accept →
+  `analytics_storage: granted` (ad signals still denied), stored-choice
+  persistence and re-application across reloads, the footer reopen
+  control, and `/admin` cleanliness. `tests/lib/analytics.test.ts`
+  unit-tests the push helper, the `/admin` gate, and the
+  marketing-container detection used by the guard;
+  `tests/lib/consent.test.ts` unit-tests the Consent Mode defaults, their
+  ordering before `gtm.start`, the service registry, the Klaro → Consent
+  Mode mapping, and the Klaro config (policy-versioned storage, optional
+  services off by default).
 - **Manual (production):** GTM → Preview (Tag Assistant) against
   `https://deepdivebrewing.com`, plus GA4 → Reports → Realtime / DebugView:
   - land on `/` → exactly one `page_view`
@@ -226,6 +360,16 @@ configure the container in Google Tag Manager (tagmanager.google.com):
   - visit `/admin` → no GTM container, no events
   - inspect every payload in Tag Assistant → no PII fields
   - confirm preview/local traffic never appears in the property
+- **Manual (consent, production):** —
+  - first visit → consent notice shows; Tag Assistant's Consent tab shows
+    all optional signals `denied` before choice
+  - decline → no analytics cookies stored; only cookieless GA4 pings
+  - accept analytics → `consent update` grants `analytics_storage`;
+    `page_view` and events reach GA4 normally
+  - footer "Cookie preferences" → the manager reopens; declining stops
+    analytics cookie use on subsequent loads
+  - consent tooling/GTM blocked (ad-blocker) → site navigates and forms
+    work; only the notice and analytics are absent
 
 ## Cutover procedure (prevents double-counting)
 

@@ -37,6 +37,25 @@ export const test = base.extend({
     const origin = new URL(testInfo.project.use.baseURL as string).origin;
     const problems: string[] = [];
 
+    // The bundled Klaro consent notice appears for every undecided visitor.
+    // Pre-seed a stored "decline optional" choice so it stays closed and can
+    // never overlap interactive elements; consent tests clear cookies to see
+    // the real notice. The value is Klaro's own storage format —
+    // encodeURIComponent(JSON.stringify(consents)) under the app's
+    // policy-versioned storage name (see lib/consent.ts).
+    await page.context().addCookies([
+      {
+        name: "ddb-consent-v1",
+        value: encodeURIComponent(
+          JSON.stringify({
+            "consent-preferences": true,
+            "google-analytics": false,
+          })
+        ),
+        url: origin,
+      },
+    ]);
+
     await page.route("**/*", (route) => {
       const url = new URL(route.request().url());
       if (url.origin !== origin) return route.abort();
