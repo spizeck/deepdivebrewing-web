@@ -91,9 +91,9 @@ export default function PrivacyPage() {
       <h2>Analytics, if you&rsquo;re okay with it</h2>
       <p>
         If you allow analytics, we use Google Analytics 4 — delivered through Google Tag Manager —
-        to see things like which pages people visit and how they move through the site. We look at
-        this in aggregate; we&rsquo;re a small brewery trying to make a better website, not build
-        profiles of our visitors.
+        to see things like which pages people visit and how they move through the site. The data
+        we see is aggregated and pseudonymized; we&rsquo;re a small brewery trying to make a better
+        website, and we don&rsquo;t use analytics to personally identify visitors.
       </p>
       <p>
         Google Analytics runs under Google Consent Mode: analytics cookies are stored and read
