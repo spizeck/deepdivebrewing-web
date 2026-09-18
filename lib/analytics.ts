@@ -1,7 +1,9 @@
 /**
- * Marketing analytics (GA4 via gtag). Non-PII only — never send email
- * addresses, names, phone numbers, form contents, UIDs, or tokens.
- * See docs/operations/analytics.md for the canonical event taxonomy.
+ * Marketing analytics (GA4 delivered via Google Tag Manager). The app pushes
+ * structured events to `window.dataLayer`; GTM forwards them to GA4. Non-PII
+ * only — never send email addresses, names, phone numbers, form contents,
+ * UIDs, or tokens. See docs/operations/analytics.md for the canonical event
+ * taxonomy and the GTM-side tag/trigger configuration.
  */
 export type AnalyticsEventName =
   | "where_to_buy_click"
@@ -33,47 +35,62 @@ export interface AnalyticsEventParams
   filter?: string;
 }
 
-type GtagFn = (...args: unknown[]) => void;
+type DataLayerEntry = Record<string, unknown>;
 
-function getGtag(): GtagFn | undefined {
-  if (typeof window === "undefined") return undefined;
-  const gtag = (window as Window & { gtag?: GtagFn }).gtag;
-  return typeof gtag === "function" ? gtag : undefined;
+// Admin activity belongs to the application audit logs, not marketing
+// analytics. This boundary lives in the push helper itself so no caller —
+// click tracker, page-view tracker, or any future one — can leak events on
+// /admin or /admin-fixture, even when a GTM container was loaded earlier in
+// the session (the script cannot be unloaded on SPA navigation).
+function isAdminPath(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.location?.pathname?.startsWith("/admin") === true
+  );
 }
 
 /**
- * Safely emit a GA4 / gtag event. Non-PII only.
- * No-ops when gtag is unavailable (SSR, previews, localhost, ad-blockers,
- * or consent-mode denial) — analytics must never break site behavior.
+ * Return the live dataLayer array, creating it if needed. The queue exists
+ * independently of GTM: pushes made before gtm.js loads (or when it never
+ * loads — ad-blockers, non-production builds) are simply buffered/ignored.
  */
-export function trackEvent(
-  eventName: AnalyticsEventName,
-  params: AnalyticsEventParams = {}
-): void {
-  const gtag = getGtag();
-  if (!gtag) return;
+function getDataLayer(): DataLayerEntry[] | undefined {
+  if (typeof window === "undefined") return undefined;
+  const w = window as Window & { dataLayer?: DataLayerEntry[] };
+  w.dataLayer = w.dataLayer ?? [];
+  return w.dataLayer;
+}
 
+function pushToDataLayer(entry: DataLayerEntry): void {
+  if (isAdminPath()) return;
   try {
-    gtag("event", eventName, params);
+    getDataLayer()?.push(entry);
   } catch {
     // Ignore analytics failures so they never break site functionality.
   }
 }
 
 /**
- * Emit a GA4 page_view for an App Router client-side navigation.
- * The landing page view is sent by `gtag('config', …)` itself; this helper
- * exists because gtag does not observe Next.js route transitions on its own.
+ * Emit a canonical business event to the dataLayer.
+ * Shape consumed by GTM Custom Event triggers:
+ *   { event: "trade_form_success", venue_type: "bar", cta_location: "trade_page" }
+ * Non-PII only — the param vocabulary below is the boundary.
+ */
+export function trackEvent(
+  eventName: AnalyticsEventName,
+  params: AnalyticsEventParams = {}
+): void {
+  pushToDataLayer({ event: eventName, ...params });
+}
+
+/**
+ * Emit a page_view event. The application owns ALL page_view generation —
+ * the initial landing view and every App Router client navigation — and the
+ * GTM Google tag is configured with send_page_view=false, so nothing else
+ * emits page views and duplication is impossible by construction.
  */
 export function sendPageView(path: string): void {
-  const gtag = getGtag();
-  if (!gtag) return;
-
-  try {
-    gtag("event", "page_view", { page_path: path });
-  } catch {
-    // Observational only — never throw.
-  }
+  pushToDataLayer({ event: "page_view", page_path: path });
 }
 
 /**
