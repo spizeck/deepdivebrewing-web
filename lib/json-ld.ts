@@ -35,7 +35,16 @@ const JSON_LD_ESCAPES: Record<string, string> = {
 };
 
 export function serializeJsonLd(data: unknown): string {
-  return JSON.stringify(data).replace(
+  const serialized = JSON.stringify(data);
+  if (serialized === undefined) {
+    // JSON.stringify returns undefined for top-level values it cannot
+    // represent (undefined, functions, symbols) — fail with a clear error
+    // rather than a confusing "cannot read replace of undefined".
+    throw new TypeError(
+      "serializeJsonLd: value is not representable as JSON"
+    );
+  }
+  return serialized.replace(
     UNSAFE_JSON_LD_CHARS,
     (char) => JSON_LD_ESCAPES[char]
   );

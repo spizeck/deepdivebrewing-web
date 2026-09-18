@@ -81,6 +81,12 @@ describe("serializeJsonLd", () => {
     const data = { n: 4.5, ok: false, nothing: null, list: [1, "two", null] };
     assert.deepEqual(JSON.parse(serializeJsonLd(data)), data);
   });
+
+  it("throws a clear error for top-level values JSON cannot represent", () => {
+    for (const value of [undefined, () => {}, Symbol("x")]) {
+      assert.throws(() => serializeJsonLd(value), TypeError);
+    }
+  });
 });
 
 describe("JSON-LD script render path", () => {
