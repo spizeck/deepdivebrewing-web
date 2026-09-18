@@ -1,18 +1,24 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import Script from "next/script";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 import { SiteFooter } from "@/components/site-footer";
 import { AnalyticsClickTracker } from "@/components/analytics-click-tracker";
 import { PageViewTracker } from "@/components/page-view-tracker";
+import { GtmBootstrap } from "@/components/gtm-bootstrap";
+import { AdminAnalyticsGuard } from "@/components/admin-analytics-guard";
 import { siteUrl } from "@/lib/site";
 import "./globals.css";
-const gaId = process.env.NEXT_PUBLIC_GA_ID ?? "G-5VBQTMP37H";
-// GA ships only in Vercel production builds: VERCEL_ENV is set by Vercel and
-// is "preview" on preview deployments and unset locally, so tests, local dev,
-// and previews never send events to the production property.
-const analyticsEnabled = process.env.VERCEL_ENV === "production";
+
+// Marketing analytics is delivered by Google Tag Manager → GA4. The GTM
+// container ID is operator configuration (NEXT_PUBLIC_GTM_ID); there is no
+// default because a container must be created and configured first — see
+// docs/operations/analytics.md. GTM ships only in Vercel production builds
+// with a configured ID: VERCEL_ENV is "preview" on preview deployments and
+// unset locally/in CI, so tests, local dev, and previews can never reach the
+// production property.
+const gtmId = process.env.NEXT_PUBLIC_GTM_ID;
+const analyticsEnabled = process.env.VERCEL_ENV === "production" && !!gtmId;
 
 const inter = Inter({
   variable: "--font-inter",
@@ -96,6 +102,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased`}>
+        {/* Renders unconditionally: a client-side transition into /admin*
+            from a GTM-carrying public page must force a document load so no
+            live container survives inside admin. */}
+        <AdminAnalyticsGuard />
         <AnalyticsClickTracker />
         <PageViewTracker />
         <a
@@ -108,22 +118,7 @@ export default function RootLayout({
         <SiteFooter />
         <SpeedInsights />
         <Analytics />
-        {analyticsEnabled && (
-          <>
-            <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-              strategy="lazyOnload"
-            />
-            <Script id="gtag-init" strategy="afterInteractive">
-              {`
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                gtag('js', new Date());
-                gtag('config', '${gaId}');
-              `}
-            </Script>
-          </>
-        )}
+        {analyticsEnabled && <GtmBootstrap gtmId={gtmId!} />}
       </body>
     </html>
   );

@@ -530,16 +530,20 @@ notification.** (Owner decision, #57.)
 
 ## 12. Analytics and observability
 
-- **GA4:** `app/layout.tsx` loads the `gtag.js` script via `next/script` with
-  `NEXT_PUBLIC_GA_ID` (hardcoded fallback `G-5VBQTMP37H`), gated to
-  `VERCEL_ENV === "production"` so previews/local/CI never send events.
-  `lib/analytics.ts` exposes a typed `trackEvent(name, params)` wrapper over
-  `gtag` with a fixed event-name union; it silently no-ops when gtag is
-  unavailable (consent, ad-blockers, SSR, non-production).
-- **Page views:** `gtag('config')` sends the landing page_view;
-  `components/page-view-tracker.tsx` emits `page_view` on each App Router
-  navigation (skipping first render and `/admin*`) — gtag does not observe
-  Next.js route transitions itself.
+- **GA4 via GTM:** `app/layout.tsx` renders `components/gtm-bootstrap.tsx`
+  (gtm.js via `next/script`, container id from `NEXT_PUBLIC_GTM_ID`, no
+  default), gated to `VERCEL_ENV === "production"` so previews/local/CI
+  never send events; the component additionally renders nothing on
+  `/admin*` paths. `lib/analytics.ts` exposes a typed
+  `trackEvent(name, params)` helper that pushes
+  `{ event: name, ...params }` to `window.dataLayer` with a fixed
+  event-name union; pushes are refused on `/admin` pathnames and failures
+  never propagate (consent, ad-blockers, SSR, non-production).
+- **Page views:** the application owns all `page_view` generation —
+  `components/page-view-tracker.tsx` pushes `page_view` on the initial
+  mount and each App Router navigation (excluding `/admin*`); the GTM
+  Google tag is configured `send_page_view=false`, so nothing else emits
+  page views and duplication is impossible by construction.
 - **Custom events:** `beer_detail_view` (`BeerViewTracker` on beer detail),
   `trade_form_start/success/error` (`trade-inquiry-form`), `beer_filter`
   (`beers-filter-grid`), and outbound/CTA clicks via `TrackedLink`/
@@ -583,7 +587,7 @@ Names only — never commit values. Source of truth for names:
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Firebase client config | Runtime only |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | Firebase/GA measurement | Optional in code, used by GA fallback |
 | `NEXT_PUBLIC_SITE_URL` | Canonical/OG/sitemap/robots base URL | Optional — defaults to `https://deepdivebrewing.com` everywhere |
-| `NEXT_PUBLIC_GA_ID` | GA4 measurement id | Optional — hardcoded `G-5VBQTMP37H` fallback in `app/layout.tsx` |
+| `NEXT_PUBLIC_GTM_ID` | GTM container id (`GTM-XXXXXXX`) | Production only — no default; the GA4 id `G-5VBQTMP37H` lives in the GTM container config |
 
 ### Server-only secrets/config
 
@@ -754,3 +758,4 @@ Issue-indexed follow-ups (unchanged scope, listed for orientation):
 | #30 | Harden Firebase client-write authorization — **resolved**: `firestore.rules`/`storage.rules` now require an active, role-matching `adminUsers` record in addition to claims (Storage via cross-service `firestore.get()`); covered by emulator rules tests |
 | #34 | Critical `next` advisories — **resolved**: `next`/`@next/mdx`/`eslint-config-next` 16.2.10 → 16.3.5 (vulnerable range `<=16.3.2`); transitive `sharp` 0.35.4, `postcss` 8.5.28 (override floor raised `^8.5.10` → `^8.5.23`), `nanoid` 3.3.19, `baseline-browser-mapping` 2.11.24. `npm audit --omit=dev` is clean; remaining findings are dev-only transitive deps |
 | #46 | `/trade` route collision — **resolved**: `page.mdx` stub removed; `page.tsx` is the sole canonical route (collision resolution was platform-dependent — Windows served TSX, Linux served MDX). Smoke test asserts TSX-only markers (see §4) |
+| #56 | GTM migration — **resolved**: direct `gtag.js` replaced by `components/gtm-bootstrap.tsx` (production + `NEXT_PUBLIC_GTM_ID` gated, never rendered on `/admin*`); `lib/analytics.ts` pushes canonical `{ event, ...params }` to `window.dataLayer` with push-time `/admin` exclusion; app owns all `page_view`s (GTM Google tag `send_page_view=false`); taxonomy unchanged (see §12 and `docs/operations/analytics.md`) |

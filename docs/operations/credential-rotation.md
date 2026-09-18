@@ -18,7 +18,7 @@ credential rotation unless a procedure below explicitly says so.
 | `FIREBASE_ADMIN_*` | Firebase console → Project settings → Service accounts (key pair lives in Google Cloud IAM) |
 | `VERCEL_DEPLOY_HOOK_URL` | Vercel project → Settings → Git → Deploy Hooks |
 | `SUPER_ADMIN_EMAIL`, cooldowns, `TRADE_INQUIRY_TO_EMAIL` | Vercel environment variables (no external issuer) |
-| `NEXT_PUBLIC_*` | Firebase console → web app config; GA4 admin for `NEXT_PUBLIC_GA_ID` |
+| `NEXT_PUBLIC_*` | Firebase console → web app config; GTM admin for `NEXT_PUBLIC_GTM_ID` |
 
 - **Vercel environment variables** (Project → Settings → Environment
   Variables) are the source of truth for what the deployed application

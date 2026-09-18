@@ -2,60 +2,112 @@
 
 Analytics and conversion-tracking baseline for `deepdivebrewing.com` —
 systems, canonical event taxonomy, conversion candidates, privacy rules,
-environment behavior, and how to verify. Reflects the Issue #24 audit.
+environment behavior, GTM configuration, and how to verify. Reflects the
+Issue #24 audit and the Issue #56 GTM migration.
 
 ## Systems and their roles
 
 | System | Role | Loaded |
 | --- | --- | --- |
-| **GA4** (`gtag.js`, `G-5VBQTMP37H`) | Marketing analytics: page views, custom events, funnels | Production only — scripts render only when `VERCEL_ENV === "production"` |
-| **Vercel Analytics** (`@vercel/analytics`) | Independent page-view + Web Analytics product | All builds (Vercel handles environment behavior internally) |
+| **Google Tag Manager** → **GA4** (`G-5VBQTMP37H`) | Marketing analytics: page views, custom events, funnels | Production only — the container script renders only when `VERCEL_ENV === "production"` AND `NEXT_PUBLIC_GTM_ID` is set |
+| **Vercel Analytics** (`@vercel/analytics`) | Independent page-view + Web Analytics product | All builds (Vercel handles environment behavior internally) — not routed through GTM |
 | **Vercel Speed Insights** (`@vercel/speed-insights`) | Field RUM for Core Web Vitals — see `performance.md` | All builds; do not remove — it's the field-perf source |
 | `lib/log.ts` structured logs | Server observability | Server only — **separate system**, do not cross-wire |
 
-GA4 and Vercel Analytics both record page traffic. That overlap is
+GA4 (via GTM) and Vercel Analytics both record page traffic. That overlap is
 intentional and harmless: GA4 is the marketing/funnel tool; Vercel Analytics
 is the product analytics tool bundled with hosting.
 
 The historical `G-MZT00CPF0Y` measurement ID sometimes cited in docs/issues
-is stale — the live property is `G-5VBQTMP37H` (verified in production).
+is stale — the live property is `G-5VBQTMP37H` (verified in production). The
+measurement ID now lives in the **GTM container configuration**, not in the
+application.
 
-## Environment behavior (production-only GA)
+## Delivery architecture
 
-`app/layout.tsx` renders the gtag scripts only when
-`process.env.VERCEL_ENV === "production"`. `VERCEL_ENV` is set by Vercel at
+```
+Application → lib/analytics.ts → window.dataLayer → GTM container → GA4
+```
+
+- The **application** decides what happened: typed `trackEvent(name, params)`
+  calls and `data-analytics-*` attributes define canonical business events.
+- **`lib/analytics.ts`** pushes `{ event: <name>, ...params }` onto
+  `window.dataLayer` (creating the queue if absent — it works whether or not
+  GTM ever loads). Pushes are refused on `/admin*` paths.
+- **GTM** is the delivery/configuration layer: a Custom Event trigger per
+  event name forwards events and parameters to a GA4 event tag.
+- **GA4** stores/reports — property `G-5VBQTMP37H`.
+
+No GTM DOM scraping, CSS-selector triggers, or generic click triggers exist —
+and none should be added. Application events are the only event source.
+
+### dataLayer event shape
+
+```json
+{ "event": "trade_form_success", "venue_type": "bar", "cta_location": "trade_page" }
+```
+
+- `event` — the canonical event name (GTM Custom Event trigger key).
+- All other keys — whitelisted event parameters, forwarded to GA4 by the
+  event tag (see the parameter table below).
+- Page views use the same shape: `{ "event": "page_view", "page_path": "/beers?x=1" }`.
+
+## Environment behavior (production-only GTM)
+
+`app/layout.tsx` renders `GtmBootstrap` only when
+`process.env.VERCEL_ENV === "production"` **and**
+`process.env.NEXT_PUBLIC_GTM_ID` is set. `VERCEL_ENV` is set by Vercel at
 build time — `preview` on preview deploys, unset locally and in CI. Result:
 
-- **Production:** gtag loads lazily (`lazyOnload`), init at
-  `afterInteractive`.
-- **Preview deploys / local dev / CI / Playwright:** no gtag code at all —
+- **Production with a configured ID:** gtm.js loads lazily
+  (`lazyOnload`), the `gtm.start` push at `afterInteractive`.
+- **Production without `NEXT_PUBLIC_GTM_ID`:** no container loads — a safe
+  no-op state, not an error. There is deliberately no hardcoded default
+  container ID.
+- **Preview deploys / local dev / CI / Playwright:** no GTM code at all —
   previews and tests can never contaminate the production property.
-- `trackEvent`/`sendPageView` also no-op whenever `window.gtag` is missing
-  (ad-blockers, consent denial, failures) — analytics never breaks a link,
-  form, or navigation.
+- `trackEvent`/`sendPageView` push to `window.dataLayer` regardless; with no
+  container the entries simply sit in the queue (or fail silently if the
+  queue itself is broken) — analytics never breaks a link, form, or
+  navigation.
 
-## Page views
+## Page views — who owns what
 
-- **Landing page:** sent by `gtag('config', GA_ID)` — GA4's standard initial
-  page_view. Do not add a manual landing-page event; that double-counts.
-- **Client-side navigations:** `components/page-view-tracker.tsx` emits
-  `page_view` with `page_path` on each App Router navigation (verified: gtag
-  does not observe Next.js route transitions by itself — enhanced
-  measurement history tracking was not firing in lab testing).
-- **`/admin*` is excluded** — admin activity belongs to the application
-  audit logs, not marketing analytics.
-- Duplicate-avoidance: the tracker skips its first render; if the GA4
-  dashboard's *Enhanced Measurement → Page views → browser history events*
-  is ever enabled, SPA navigations would double-count — keep it off.
+**The application owns ALL `page_view` generation.** This is the deliberate,
+explicit contract:
+
+- **Initial landing view:** `components/page-view-tracker.tsx` pushes
+  `{ event: "page_view", page_path }` on mount for non-admin paths.
+- **SPA navigations:** the same tracker pushes one `page_view` per App
+  Router client navigation.
+- **GTM forwards, never originates:** the container's Google tag must have
+  `send_page_view = false` so it does not emit its own automatic page view,
+  and no GTM history-change trigger may exist. With the app as the sole
+  producer, exactly-once holds by construction — including the edge case
+  where a session navigates `/admin` → public and the container loads
+  mid-session (no automatic page view can fire on container load).
+- **`/admin*` (including `/admin-fixture`):** excluded on three layers —
+  `GtmBootstrap` renders nothing, `pushToDataLayer` refuses to push on
+  `/admin` pathnames so no marketing event can even reach the queue, and
+  `AdminAnalyticsGuard` forces a full document load if a session enters
+  `/admin*` in a document that already carries a live container (a public
+  page → client-side transition — the root layout persists, and a loaded
+  script cannot be unloaded; only a fresh document removes it). The guard
+  is a no-op without a container, so direct admin entry and public
+  browsing are unaffected.
+- **GA4 Enhanced Measurement:** keep *Page views → "Page changes based on
+  browser history events"* **OFF** — that would double-count against the
+  app's SPA pushes.
 
 ## Canonical event taxonomy
 
 All names are stable snake_case and locked to the `AnalyticsEventName` union
 in `lib/analytics.ts` — TypeScript rejects unlisted names at the call site.
+**The GTM migration changed no event names or semantics.**
 
 | Event | Fires when | Params | Kind |
 | --- | --- | --- | --- |
-| `page_view` | Landing (gtag config) + each SPA navigation | `page_path` | page view |
+| `page_view` | Landing + each SPA navigation (app-pushed) | `page_path` | page view |
 | `beer_detail_view` | Beer detail page mounts (`BeerViewTracker`) | `beer_slug`, `beer_name`, `beer_style`, `beer_status` | engagement |
 | `beer_filter` | `/beers` filter button click | `filter`, `cta_location` | engagement |
 | `where_to_buy_click` | CTA that navigates to `/where-to-buy` (homepage hero, homepage teaser, beer detail) | `event_label`, `cta_location`, `beer_*` on beer detail | intent |
@@ -104,29 +156,91 @@ Never send to analytics: email addresses, names, phone numbers, form
 contents/messages, Firebase UIDs, admin identities, IPs, tokens, invitation
 emails, or URLs carrying sensitive query params. `collectAnalyticsParams`
 whitelists dataset keys, so arbitrary `data-*` attributes cannot leak into
-payloads; the smoke suite asserts typed form values never appear in gtag
-calls. All `trackEvent` params must stay non-PII by review — the type allows
-strings, discipline supplies the rest.
+payloads; the smoke suite asserts typed form values never appear in
+`dataLayer` pushes. All `trackEvent` params must stay non-PII by review —
+the type allows strings, discipline supplies the rest.
 
 ## Consent / privacy status (technical findings)
 
-- No consent banner or Google Consent Mode exists. gtag loads on production
-  for all visitors. The privacy policy already discloses Google Analytics +
-  Vercel Analytics and cookie use.
+- No consent banner or Google Consent Mode exists. GTM loads on production
+  for all visitors. The privacy policy discloses Google Analytics + Vercel
+  Analytics and cookie use; delivery via GTM does not change what data is
+  collected.
 - GA4 sets its own cookies on production visitors; Vercel Analytics is
-  cookieless (aggregate). Admin routes send no GA events.
+  cookieless (aggregate). Admin routes send no GA events — the GTM container
+  is not even loaded there.
 - Whether a CMP/consent gate is legally required for this audience is a
-  product/legal decision — deliberately not decided by this audit.
+  product/legal decision — deliberately not decided here.
 
-## How to verify events
+## GTM container configuration (operator, one-time)
 
-- **Automated:** `smoke-tests/analytics.spec.ts` mocks `window.gtag` and
-  asserts exact event names/params, exactly-once firing, page_view on SPA
-  nav, trade success/failure semantics, and no-PII — runs in CI.
-  `tests/lib/analytics.test.ts` unit-tests the helper.
-- **Manual:** DevTools → Network, filter `g/collect` (`en=` param = event
-  name); or GA4 → Reports → Realtime / DebugView (`debug_mode` via the GA
-  debugger extension). DebugView is optional, never required for CI.
+The repository ships the application side only. The operator must create and
+configure the container in Google Tag Manager (tagmanager.google.com):
+
+1. **Container** — create a Web container for `deepdivebrewing.com`. Set the
+   container ID as the Vercel env var `NEXT_PUBLIC_GTM_ID` (Production
+   scope). No repo secret is involved — the ID is public configuration.
+2. **Google tag (GA4 configuration)** — add a Google tag for measurement ID
+   `G-5VBQTMP37H`, fired on container load (or `Initialization - All Pages`).
+   In its configuration settings set **`send_page_view` = `false`** — the
+   application owns all page views; without this the initial page view
+   double-counts.
+3. **Custom Event triggers** — one trigger per canonical event name,
+   matching `event` equals e.g. `trade_form_success`. A single GA4 event tag
+   can serve all triggers (the trigger supplies the event name), or one tag
+   per event — operator preference. Do **not** create DOM/click/link
+   triggers.
+4. **GA4 event tag(s)** — tag type *GA4 Event*, measurement ID
+   `G-5VBQTMP37H`. For `page_view` create a tag named `page_view` triggered
+   by Custom Event `page_view`, forwarding the `page_path` data-layer
+   variable (GA4 also auto-captures `page_location`/`page_referrer`). For
+   business events, map each parameter in the taxonomy table as an event
+   parameter via Data Layer Variables (e.g. `cta_location`,
+   `venue_type`, `beer_slug`, `filter`, `social_network`, `island`,
+   `venue_slug`, `beer_name`, `beer_style`, `beer_status`, `event_label`,
+   `event_category`).
+5. **Key event** — in GA4, mark `trade_form_success` as a key event. Do not
+   mark weaker events as conversions.
+6. **Enhanced Measurement** — in the GA4 web stream, keep *Page views →
+   "Page changes based on browser history events"* **OFF** (double-count
+   protection for SPA page views).
+
+## Verification & debugging
+
+- **Automated (CI):** `smoke-tests/analytics.spec.ts` asserts the absence of
+  any GTM/gtag bootstrap in the test build, exactly-once `page_view` on
+  landing and per SPA nav, zero dataLayer activity on `/admin` and
+  `/admin-fixture`, a full-document reload boundary when a container-
+  carrying document transitions into `/admin*`, exactly-once custom events
+  with expected params, `trade_form_success` only on server acceptance, no
+  form PII in any payload, and link navigation under a hostile dataLayer.
+  `tests/lib/analytics.test.ts` unit-tests the push helper, the `/admin`
+  gate, and the marketing-container detection used by the guard.
+- **Manual (production):** GTM → Preview (Tag Assistant) against
+  `https://deepdivebrewing.com`, plus GA4 → Reports → Realtime / DebugView:
+  - land on `/` → exactly one `page_view`
+  - navigate to `/beers` → exactly one more `page_view`
+  - click a footer social icon → `social_click` with `social_network`
+  - submit the trade form (or watch `dataLayer` in DevTools) →
+    `trade_form_start` then `trade_form_success` only on acceptance
+  - visit `/admin` → no GTM container, no events
+  - inspect every payload in Tag Assistant → no PII fields
+  - confirm preview/local traffic never appears in the property
+
+## Cutover procedure (prevents double-counting)
+
+The app no longer loads `gtag.js` — there is no app-side duplicate. The only
+double-delivery risk is configuration drift:
+
+1. Deploy this change. Without `NEXT_PUBLIC_GTM_ID`, production loads no
+   analytics — a safe, event-free gap, not an error.
+2. Configure the GTM container as above, **with `send_page_view = false`**.
+   Publish the container.
+3. Set `NEXT_PUBLIC_GTM_ID` in Vercel (Production) and redeploy.
+4. Verify in Tag Assistant/DebugView (checklist above), then watch Realtime
+   for ~24h for anomalies.
+5. If rolling back is ever needed: remove `NEXT_PUBLIC_GTM_ID` and
+   redeploy — do not restore a direct gtag integration alongside GTM.
 
 ## Adding a new event
 
@@ -138,16 +252,4 @@ strings, discipline supplies the rest.
 4. Ask: does this answer a business question page views don't already?
    If not, don't add it.
 5. Add/extend a test; update the taxonomy table above.
-
-## GA4 dashboard checklist (manual, owner-side — not done by this change)
-
-- Confirm the property/stream is `G-5VBQTMP37H` and points at the apex host.
-- Keep **Enhanced Measurement → "Page changes based on browser history
-  events" OFF** — the repo now sends SPA page_views itself; both on = double
-  counts.
-- Mark `trade_form_success` as a **key event** (conversion).
-- Optionally mark `directions_click` / `retailer_click` / `email_click` /
-  `whatsapp_click` / `tour_inquiry_click` as key events.
-- Verify no preview/localhost traffic appears (should be impossible now —
-  no gtag outside production builds).
-- Consider an internal-traffic filter for the owner's own visits.
+6. Add a matching Custom Event trigger (+ parameter forwarding) in GTM.

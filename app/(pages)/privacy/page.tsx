@@ -88,7 +88,8 @@ export default function PrivacyPage() {
 
       <h2>Analytics</h2>
       <p>
-        We use analytics services, including Google Analytics and Vercel Analytics, to better
+        We use analytics services, including Google Analytics (delivered via Google Tag
+        Manager) and Vercel Analytics, to better
         understand how visitors use our website and to improve performance and usability. These
         services provide aggregated and pseudonymized information. We do not use analytics to
         personally identify visitors.

@@ -1,24 +1,22 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { sendPageView } from "@/lib/analytics";
 
 /**
- * Emits a GA4 page_view on App Router client-side navigations.
- * The landing page view is sent by `gtag('config', …)` — this skips the
- * first render to avoid double-counting it. Admin surfaces are excluded:
- * admin activity belongs to application audit logs, not marketing analytics.
+ * Emits a dataLayer page_view for the initial landing AND each App Router
+ * client-side navigation — the application owns all page_view generation.
+ * The GTM Google tag is configured with send_page_view=false (see
+ * docs/operations/analytics.md), so nothing else emits page views and
+ * duplication is impossible by construction. Admin surfaces are excluded:
+ * admin activity belongs to application audit logs, not marketing
+ * analytics (sendPageView also refuses to push on /admin paths).
  */
 export function PageViewTracker() {
   const pathname = usePathname();
-  const isFirstRender = useRef(true);
 
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
     if (pathname.startsWith("/admin")) return;
     sendPageView(pathname + window.location.search);
   }, [pathname]);

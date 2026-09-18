@@ -4,38 +4,23 @@ import {
   trackEvent,
   sendPageView,
   collectAnalyticsParams,
+  documentHasMarketingContainer,
   type AnalyticsEventName,
 } from "../../lib/analytics";
 
-type GtagCall = unknown[];
+type DataLayerEntry = Record<string, unknown>;
 
-function stubGtag(): { calls: GtagCall[]; restore: () => void } {
-  const calls: GtagCall[] = [];
+function stubWindow(
+  overrides: Record<string, unknown> = {}
+): { dataLayer: () => DataLayerEntry[] | undefined } {
   const g = globalThis as Record<string, unknown>;
-  const prevWindow = g.window;
-  g.window = { gtag: (...args: unknown[]) => calls.push(args) };
-  return {
-    calls,
-    restore: () => {
-      if (prevWindow === undefined) delete g.window;
-      else g.window = prevWindow;
-    },
-  };
-}
-
-function stubThrowingGtag(): { restore: () => void } {
-  const g = globalThis as Record<string, unknown>;
-  const prevWindow = g.window;
   g.window = {
-    gtag: () => {
-      throw new Error("gtag exploded");
-    },
+    location: { pathname: "/", search: "" },
+    ...overrides,
   };
   return {
-    restore: () => {
-      if (prevWindow === undefined) delete g.window;
-      else g.window = prevWindow;
-    },
+    dataLayer: () =>
+      (g.window as { dataLayer?: DataLayerEntry[] }).dataLayer,
   };
 }
 
@@ -45,47 +30,100 @@ afterEach(() => {
 });
 
 describe("trackEvent", () => {
-  it("no-ops harmlessly when window/gtag is unavailable (SSR, previews, blockers)", () => {
-    // In the node test environment `window` is undefined.
+  it("no-ops harmlessly in SSR (no window)", () => {
     assert.doesNotThrow(() => trackEvent("whatsapp_click", { island: "saba" }));
   });
 
-  it("no-ops when window exists but gtag is not a function", () => {
-    const g = globalThis as Record<string, unknown>;
-    g.window = {};
-    assert.doesNotThrow(() => trackEvent("email_click"));
-  });
-
-  it("dispatches the event name and params through gtag", () => {
-    const { calls } = stubGtag();
+  it("creates window.dataLayer and pushes { event, ...params }", () => {
+    const { dataLayer } = stubWindow();
     trackEvent("retailer_click", {
       venue_slug: "harbour-view",
       island: "saba",
       venue_type: "bar",
     });
-    assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0], [
-      "event",
-      "retailer_click",
-      { venue_slug: "harbour-view", island: "saba", venue_type: "bar" },
+    assert.deepEqual(dataLayer(), [
+      {
+        event: "retailer_click",
+        venue_slug: "harbour-view",
+        island: "saba",
+        venue_type: "bar",
+      },
     ]);
   });
 
-  it("never throws even when gtag itself throws", () => {
-    stubThrowingGtag();
+  it("appends to an existing dataLayer (e.g. created by the GTM snippet)", () => {
+    const existing: DataLayerEntry[] = [{ "gtm.start": 1, event: "gtm.js" }];
+    const { dataLayer } = stubWindow({ dataLayer: existing });
+    trackEvent("email_click");
+    assert.equal(dataLayer(), existing);
+    assert.deepEqual(dataLayer()![1], { event: "email_click" });
+  });
+
+  it("never throws even when dataLayer.push throws", () => {
+    const hostile: DataLayerEntry[] = [];
+    hostile.push = () => {
+      throw new Error("dataLayer exploded");
+    };
+    stubWindow({ dataLayer: hostile });
     assert.doesNotThrow(() => trackEvent("trade_form_success"));
   });
 });
 
 describe("sendPageView", () => {
-  it("emits a page_view event with the path", () => {
-    const { calls } = stubGtag();
+  it("pushes a page_view event with page_path", () => {
+    const { dataLayer } = stubWindow();
     sendPageView("/beers?x=1");
-    assert.deepEqual(calls, [["event", "page_view", { page_path: "/beers?x=1" }]]);
+    assert.deepEqual(dataLayer(), [
+      { event: "page_view", page_path: "/beers?x=1" },
+    ]);
+  });
+});
+
+describe("admin exclusion", () => {
+  it("pushes nothing on /admin — the queue is never even created", () => {
+    const { dataLayer } = stubWindow({
+      location: { pathname: "/admin", search: "" },
+    });
+    sendPageView("/admin");
+    trackEvent("email_click");
+    assert.equal(dataLayer(), undefined);
   });
 
-  it("no-ops without gtag", () => {
-    assert.doesNotThrow(() => sendPageView("/beers"));
+  it("pushes nothing on /admin-fixture", () => {
+    const { dataLayer } = stubWindow({
+      location: { pathname: "/admin-fixture", search: "" },
+    });
+    sendPageView("/admin-fixture");
+    trackEvent("beer_filter", { filter: "core" });
+    assert.equal(dataLayer(), undefined);
+  });
+});
+
+describe("documentHasMarketingContainer", () => {
+  it("is false in SSR (no window)", () => {
+    assert.equal(documentHasMarketingContainer(), false);
+  });
+
+  it("is false when only the app-created dataLayer exists", () => {
+    // pushToDataLayer creates the queue without GTM — that must not count
+    // as a live container or AdminAnalyticsGuard would reload-loop.
+    stubWindow({ dataLayer: [{ event: "page_view", page_path: "/" }] });
+    assert.equal(documentHasMarketingContainer(), false);
+  });
+
+  it("is false with no dataLayer at all", () => {
+    stubWindow();
+    assert.equal(documentHasMarketingContainer(), false);
+  });
+
+  it("is true when the gtm.start bootstrap entry is present", () => {
+    stubWindow({ dataLayer: [{ "gtm.start": 1, event: "gtm.js" }] });
+    assert.equal(documentHasMarketingContainer(), true);
+  });
+
+  it("is true when the google_tag_manager runtime exists", () => {
+    stubWindow({ google_tag_manager: {} });
+    assert.equal(documentHasMarketingContainer(), true);
   });
 });
 
