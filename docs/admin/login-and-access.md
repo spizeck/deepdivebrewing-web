@@ -24,13 +24,20 @@ If you were invited but have not accepted the invitation yet, the dashboard show
 
 - The site verifies your Google ID token with the Firebase Admin SDK.
 - The server reads your Firebase custom claims. A valid admin has claims like `{ admin: true, role: "superadmin" }` or `{ admin: true, role: "admin" }`.
-- If your claims are valid and your `adminUsers` record is active, the dashboard loads.
+- If your claims are valid and your `adminUsers` record is active with a matching role, the dashboard loads.
 - If you are signed in but have no admin claim, the server checks whether your account matches the configured bootstrap superadmin email and offers the setup step if appropriate.
 - If you are signed in but not authorized, you see a message saying your account is not authorized.
 
 ## How administrator authorization is determined
 
-Authorization is controlled by **Firebase custom claims** set by the server. The server uses the Firebase Admin SDK to set claims after verifying:
+Authorization requires **two things to agree**, and neither alone is sufficient:
+
+- **Firebase custom claims** on your ID token — `{ admin: true, role: "admin" | "superadmin" }` — carry the role assertion.
+- **An `adminUsers` record** in Firestore for your account that exists, is **active**, and carries the same role as the claims.
+
+The server APIs and Firebase Security Rules re-check both on every privileged request. Because claims are embedded in the token, they can lag behind a role or status change until the token is refreshed — the live `adminUsers` record is what makes demotion, disabling, and revocation take effect immediately, since a stale token no longer matches it.
+
+The server uses the Firebase Admin SDK to set claims and create the `adminUsers` record after verifying:
 
 - The user signed in with Google.
 - The email is verified.
@@ -97,7 +104,7 @@ Click the **Sign out** button in the dashboard header. This signs you out of Fir
 
 ## Claim refresh
 
-Custom claims are embedded in the Firebase ID token. If a superadmin changes your role, disables your account, or reactivates it, you must sign out and sign back in to get a fresh token. The dashboard will prompt you to do this when needed.
+Custom claims are embedded in the Firebase ID token. If a superadmin changes your role, disables your account, or reactivates it, the server updates your claims and your `adminUsers` record immediately — and enforcement is immediate too, because the record is checked live on every privileged request. You must sign out and sign back in to get a fresh token whose claims match the record again. The dashboard will prompt you to do this when needed.
 
 ## Troubleshooting
 
@@ -169,6 +176,7 @@ Custom claims are embedded in the Firebase ID token. If a superadmin changes you
 
 - Your custom claim has not been refreshed after a role change or invitation acceptance.
 - Your account is disabled.
+- Your `adminUsers` record's role no longer matches the claims in your token — for example, you were demoted and have not re-signed in. The server denies mismatched tokens until you refresh.
 - You signed in with a different email than the one that was invited.
 
 **Fix:**

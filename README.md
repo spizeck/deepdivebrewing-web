@@ -97,7 +97,7 @@ Never commit real values to source control. `.env.local` is already ignored by G
 
 - **Firestore** — beer records, venue records, trade leads metadata, and rebuild audit metadata.
 - **Firebase Storage** — beer card and hero images.
-- **Firebase Authentication** — Google sign-in with role-based admin access controlled by Firebase custom claims.
+- **Firebase Authentication** — Google sign-in with role-based admin access controlled by Firebase custom claims plus an active, role-matching `adminUsers` record.
 
 ## Development commands
 
@@ -160,7 +160,7 @@ verification commands, and pull request expectations.
 
 - No secrets, API keys, or private keys are stored in source control.
 - All sensitive configuration is injected via environment variables.
-- Firebase client configuration values prefixed with `NEXT_PUBLIC_` are safe to expose in the browser; access is controlled by Firebase Security Rules and Firebase custom claims.
+- Firebase client configuration values prefixed with `NEXT_PUBLIC_` are safe to expose in the browser; access is controlled by Firebase Security Rules (custom claims plus an active, role-matching `adminUsers` record).
 - The bootstrap superadmin email (`SUPER_ADMIN_EMAIL`) is a server-only environment variable and must never be exposed to the browser.
 - The Firebase service-account key (`FIREBASE_ADMIN_PRIVATE_KEY`) must stay in Vercel environment variables and local `.env.local` only.
 
