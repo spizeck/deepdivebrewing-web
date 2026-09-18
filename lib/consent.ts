@@ -146,7 +146,15 @@ export interface KlaroConfig {
   noticeAsModal: boolean;
   default: boolean;
   groupByPurpose: boolean;
-  styling: { theme: string[] };
+  showNoticeTitle: boolean;
+  disablePoweredBy: boolean;
+  /**
+   * Klaro's documented theming surface: each key is applied as a `--key`
+   * CSS custom property on the `.klaro` element and consumed by its
+   * stylesheet (`@include var(...)`). `theme` resolves a named preset
+   * first; the other keys then override it.
+   */
+  styling: Record<string, string | string[]>;
   services: Array<{
     name: string;
     title: string;
@@ -178,7 +186,32 @@ export function buildKlaroConfig(): KlaroConfig {
     noticeAsModal: false,
     default: false,
     groupByPurpose: false,
-    styling: { theme: ["dark"] },
+    showNoticeTitle: true,
+    disablePoweredBy: true,
+    // DDB palette mapped onto Klaro's CSS-variable surface. The `light`
+    // preset flips Klaro's default dark widget to light surfaces; the
+    // overrides below then land the site's Paper/Ink/Stone tokens and
+    // accent colors. Structural polish that variables cannot express
+    // (button hierarchy, toggle, spacing, focus rings) lives in a scoped
+    // `#klaro` section in globals.css — keep both in sync on Klaro upgrades.
+    styling: {
+      theme: ["light"],
+      "border-radius": "10px",
+      "font-size": "15px",
+      "dark1": "#FAFAF8",
+      "dark2": "#E6E7E3",
+      "dark3": "#334E68",
+      "light1": "#0B0F14",
+      "light2": "#E6E7E3",
+      "light3": "#0B0F14",
+      "green1": "#0B0F14",
+      "green2": "#2F6F4E",
+      "green3": "#334E68",
+      "blue1": "#0B0F14",
+      "white2": "#E6E7E3",
+      "white3": "#FAFAF8",
+      "button-text-color": "#0B0F14",
+    },
     services: CONSENT_SERVICES.filter((s) => s.consentManaged !== false).map(
       (s) => ({
         name: s.name,
@@ -193,10 +226,16 @@ export function buildKlaroConfig(): KlaroConfig {
     translations: {
       en: {
         privacyPolicyUrl: "/privacy",
+        ok: "Accept analytics",
+        decline: "Decline analytics",
+        acceptAll: "Accept analytics",
+        acceptSelected: "Save preferences",
+        save: "Save preferences",
         consentNotice: {
+          title: "Privacy choices",
           description:
-            "We store your privacy choices and — with your permission — count visits with Google Analytics. You can change your choice at any time.",
-          learnMore: "Choose settings",
+            "We use optional analytics to understand how people use our website. You can accept analytics, decline, or choose your preferences.",
+          learnMore: "Manage preferences",
         },
         consentModal: {
           title: "Privacy preferences",
@@ -206,6 +245,11 @@ export function buildKlaroConfig(): KlaroConfig {
             text: "Read our {privacyPolicy} for details.",
             name: "privacy policy",
           },
+        },
+        service: {
+          required: { title: "(always on)" },
+          purpose: "Purpose",
+          purposes: "Purposes",
         },
         purposes: {
           functional: "Essential",

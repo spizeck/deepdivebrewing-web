@@ -11,9 +11,10 @@ import { test, expect } from "./fixtures";
 // command queue the container would drain: `["consent","update",{…}]`
 // entries pushed by the Klaro → Consent Mode bridge.
 //
-// Selectors use Klaro's stable class hooks (#klaro-cookie-notice,
-// .cm-btn-success, .cn-decline, .cn-learn-more, .cm-modal) rather than
-// rendered strings, which are translation-dependent.
+// Selectors mix Klaro's stable class hooks (#klaro-cookie-notice,
+// .cm-modal, .cm-list-title) with role/name queries for the action
+// labels — the labels are repo-owned config (lib/consent.ts
+// translations), so asserting them verifies the DDB copy contract.
 
 type DataLayerEntry = Record<string, unknown> & { 0?: string; 1?: string };
 
@@ -42,10 +43,10 @@ const notice = (page: import("playwright").Page) =>
   page.locator("#klaro-cookie-notice");
 
 const acceptAll = (page: import("playwright").Page) =>
-  notice(page).locator(".cm-btn-success");
+  notice(page).getByRole("button", { name: "Accept analytics" });
 
 const declineAll = (page: import("playwright").Page) =>
-  notice(page).locator(".cn-decline");
+  notice(page).getByRole("button", { name: "Decline analytics" });
 
 const clearStoredConsent = async (page: import("playwright").Page) =>
   page.context().clearCookies();
@@ -60,11 +61,21 @@ test("undecided visitor sees accept, decline, and manage options", async ({
   await expect(acceptAll(page)).toBeVisible();
   await expect(declineAll(page)).toBeVisible();
 
-  // The learn-more control opens the full manager with per-service toggles.
-  await notice(page).locator(".cn-learn-more").click();
-  await expect(page.locator(".cm-modal")).toBeVisible();
+  // The manage control opens the full manager with per-service toggles
+  // and the modal's own accept/save actions.
+  await notice(page)
+    .getByRole("link", { name: "Manage preferences" })
+    .click();
+  const modal = page.locator(".cm-modal");
+  await expect(modal).toBeVisible();
   await expect(
-    page.locator(".cm-list-title", { hasText: "Google Analytics" })
+    modal.locator(".cm-list-title", { hasText: "Google Analytics" })
+  ).toBeVisible();
+  await expect(
+    modal.getByRole("button", { name: "Accept analytics" })
+  ).toBeVisible();
+  await expect(
+    modal.getByRole("button", { name: "Save preferences" })
   ).toBeVisible();
 });
 

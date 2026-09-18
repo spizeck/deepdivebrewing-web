@@ -152,6 +152,31 @@ describe("buildKlaroConfig", () => {
     assert.equal(config.noticeAsModal, false);
   });
 
+  it("labels every consent action in plain language", () => {
+    const config = buildKlaroConfig();
+    const en = config.translations.en as Record<string, unknown>;
+    assert.equal(en.ok, "Accept analytics");
+    assert.equal(en.decline, "Decline analytics");
+    assert.equal(en.acceptAll, "Accept analytics");
+    assert.equal(en.acceptSelected, "Save preferences");
+    const notice = en.consentNotice as Record<string, string>;
+    assert.equal(notice.title, "Privacy choices");
+    assert.equal(notice.learnMore, "Manage preferences");
+  });
+
+  it("themes the widget with the site's light palette tokens", () => {
+    const config = buildKlaroConfig();
+    assert.deepEqual(config.styling.theme, ["light"]);
+    // Paper surfaces, ink primary text/actions, stone borders.
+    assert.equal(config.styling.dark1, "#FAFAF8");
+    assert.equal(config.styling.light1, "#0B0F14");
+    assert.equal(config.styling.dark2, "#E6E7E3");
+    // Notice heading enabled; vendor "powered by" footer disabled (Klaro
+    // is credited in docs — BSD-3 requires no UI attribution).
+    assert.equal(config.showNoticeTitle, true);
+    assert.equal(config.disablePoweredBy, true);
+  });
+
   it("lists only consent-managed services in the Klaro config", () => {
     const config = buildKlaroConfig();
     const names = config.services.map((s) => s.name);
