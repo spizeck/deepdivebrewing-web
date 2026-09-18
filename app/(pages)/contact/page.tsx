@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone, Mail, Clock, MapPin } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { TrackedAnchor } from "@/components/tracked-link";
 import { siteUrl } from "@/lib/site";
 
@@ -83,116 +84,74 @@ export default function ContactPage() {
           Contact Us
         </h1>
         <p className="mt-3 max-w-180 text-muted-foreground">
-          Have a question, want to place a trade order, or just want to say hi?
-          We&rsquo;d love to hear from you.
+          Have a question, want to place a trade order, or want to see where
+          the beer is made? We&rsquo;d love to hear from you.
         </p>
       </div>
 
       <div className="grid gap-12 lg:grid-cols-2">
         {/* Contact info */}
-        <div className="space-y-8">
+        <div className="grid content-start gap-6 sm:grid-cols-2">
           {/* WhatsApp */}
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
+          <div className="rounded-lg border border-stone bg-paper p-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
               <Phone className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
-            <div>
-              <h2 className="font-semibold">WhatsApp</h2>
-              <TrackedAnchor
-                href="https://wa.me/5994163544"
-                eventName="whatsapp_click"
-                eventParams={{ event_category: "contact", cta_location: "contact_page", event_label: "WhatsApp" }}
-                className="mt-1 inline-flex min-h-[44px] items-center text-ocean transition-opacity duration-200 hover:opacity-85"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                +599-416-3544
-              </TrackedAnchor>
-            </div>
+            <h2 className="mt-4 font-semibold">WhatsApp</h2>
+            <TrackedAnchor
+              href="https://wa.me/5994163544"
+              eventName="whatsapp_click"
+              eventParams={{ event_category: "contact", cta_location: "contact_page", event_label: "WhatsApp" }}
+              className="mt-1 inline-flex min-h-[44px] items-center text-ocean transition-opacity duration-200 hover:opacity-85"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              +599-416-3544
+            </TrackedAnchor>
           </div>
 
           {/* Email */}
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
+          <div className="rounded-lg border border-stone bg-paper p-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
               <Mail className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
-            <div>
-              <h2 className="font-semibold">Email</h2>
-              <Link
-                href="mailto:info@deepdivebrewing.com"
-                className="mt-1 block text-ocean transition-opacity duration-200 hover:opacity-85"
-                data-analytics-event="email_click"
-                data-analytics-event-category="contact"
-                data-analytics-cta-location="contact_page"
-                data-analytics-event-label="Email"
-              >
-                info@deepdivebrewing.com
-              </Link>
-            </div>
+            <h2 className="mt-4 font-semibold">Email</h2>
+            <Link
+              href="mailto:info@deepdivebrewing.com"
+              className="mt-1 inline-flex min-h-[44px] items-center break-all text-sm text-ocean transition-opacity duration-200 hover:opacity-85"
+              data-analytics-event="email_click"
+              data-analytics-event-category="contact"
+              data-analytics-cta-location="contact_page"
+              data-analytics-event-label="Email"
+            >
+              info@deepdivebrewing.com
+            </Link>
           </div>
 
           {/* Hours */}
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
+          <div className="rounded-lg border border-stone bg-paper p-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
               <Clock className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
-            <div>
-              <h2 className="font-semibold">Hours</h2>
-              <p className="mt-1 text-muted-foreground">
-                Typically open Monday to Friday, 8:00 AM to 3:00 PM.
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Hours can vary. If the brewery is locked, check in with{" "}
-                <span className="font-medium text-ink">Sea Saba</span> next door.
-              </p>
-            </div>
-          </div>
-
-          {/* Location */}
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
-              <MapPin className="h-5 w-5 text-ink" aria-hidden="true" />
-            </div>
-            <div>
-              <h2 className="font-semibold">Location</h2>
-              <p className="mt-1 text-muted-foreground">
-                66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands
-              </p>
-            </div>
-          </div>
-
-          {/* Brewery tours */}
-          <div className="rounded-lg border border-stone bg-stone/20 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-ink">
-              Brewery Tours
-            </h2>
-            <p className="mt-2 text-muted-foreground">
-              Brewery tours are available by request. Reach out via WhatsApp to
-              schedule a visit.
+            <h2 className="mt-4 font-semibold">Hours</h2>
+            <p className="mt-1 text-muted-foreground">
+              Typically open Monday to Friday, 8:00 AM to 3:00 PM.
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Hours can vary. If the brewery is locked, check in with{" "}
+              <span className="font-medium text-ink">Sea Saba</span> next door.
             </p>
           </div>
 
+          {/* Location */}
           <div className="rounded-lg border border-stone bg-paper p-5">
-            <h2 className="text-base font-semibold text-ink">Contact FAQ</h2>
-            <div className="mt-3 space-y-3 text-sm text-muted-foreground">
-              <div>
-                <h3 className="font-medium text-ink">Do you have a taproom?</h3>
-                <p className="mt-1">No taproom at this time.</p>
-              </div>
-              <div>
-                <h3 className="font-medium text-ink">What is the fastest way to reach you?</h3>
-                <p className="mt-1">
-                  WhatsApp at +599-416-3544 is the fastest channel for inquiries.
-                </p>
-              </div>
-              <div>
-                <h3 className="font-medium text-ink">Where are you distributing?</h3>
-                <p className="mt-1">
-                  We currently focus on Saba and select partner accounts in SXM,
-                  with expansion in progress.
-                </p>
-              </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
+              <MapPin className="h-5 w-5 text-ink" aria-hidden="true" />
             </div>
+            <h2 className="mt-4 font-semibold">Location</h2>
+            <p className="mt-1 text-muted-foreground">
+              66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands
+            </p>
           </div>
         </div>
 
@@ -209,6 +168,122 @@ export default function ContactPage() {
           </div>
         </div>
       </div>
+
+      {/* Brewery tours */}
+      <section className="mt-16 border-t border-stone pt-16" aria-labelledby="brewery-tours">
+        <h2 id="brewery-tours" className="text-3xl font-bold tracking-tight">
+          Brewery Tours
+        </h2>
+        <p className="mt-3 max-w-180 text-muted-foreground">
+          See where the beer is made. Tours are available by request — send us
+          a WhatsApp message and we&rsquo;ll find a time that works.
+        </p>
+
+        <div className="mt-10 grid gap-6 md:grid-cols-2">
+          {/* Tour only */}
+          <div className="flex flex-col rounded-xl border border-stone bg-paper p-6">
+            <h3 className="text-lg font-semibold tracking-tight">
+              Brewery Tour
+            </h3>
+            <p className="mt-3">
+              <span className="text-3xl font-bold tracking-tight">$20</span>{" "}
+              <span className="text-muted-foreground">per person</span>
+            </p>
+            <ul className="mt-4 space-y-2 text-muted-foreground">
+              <li>Approximately 30 minutes</li>
+              <li>A walk through the brewery — how the beer actually gets made</li>
+              <li>No beer or tasting included</li>
+            </ul>
+            <div className="mt-6 pt-2">
+              <Button
+                asChild
+                variant="outline"
+                className="h-11 min-h-[44px] w-full px-6 sm:w-auto"
+              >
+                <Link
+                  href="https://wa.me/5994163544"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-analytics-event="tour_inquiry_click"
+                  data-analytics-event-category="conversion"
+                  data-analytics-event-label="Brewery Tour"
+                  data-analytics-cta-location="contact_page_tours"
+                >
+                  Arrange a brewery tour
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          {/* Tour + tasting */}
+          <div className="flex flex-col rounded-xl border-2 border-ink/20 bg-stone/30 p-6">
+            <p className="text-xs font-semibold uppercase tracking-wider text-moss">
+              Stay for a taste
+            </p>
+            <h3 className="mt-1 text-lg font-semibold tracking-tight">
+              Brewery Tour + Tasting
+            </h3>
+            <p className="mt-3">
+              <span className="text-3xl font-bold tracking-tight">$40</span>{" "}
+              <span className="text-muted-foreground">per person</span>
+            </p>
+            <ul className="mt-4 space-y-2 text-muted-foreground">
+              <li>Approximately 60 minutes total</li>
+              <li>The same brewery tour, then about 30 minutes for the important part</li>
+              <li>Generous beer tastings included</li>
+            </ul>
+            <div className="mt-6 pt-2">
+              <Button
+                asChild
+                className="h-11 min-h-[44px] w-full px-6 sm:w-auto"
+              >
+                <Link
+                  href="https://wa.me/5994163544"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-analytics-event="tour_inquiry_click"
+                  data-analytics-event-category="conversion"
+                  data-analytics-event-label="Brewery Tour + Tasting"
+                  data-analytics-cta-location="contact_page_tours"
+                >
+                  Arrange tour + tasting
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="mt-16 border-t border-stone pt-16" aria-labelledby="contact-faq">
+        <div className="max-w-180 rounded-lg">
+          <h2 id="contact-faq" className="text-2xl font-bold tracking-tight">
+            Contact FAQ
+          </h2>
+          <div className="mt-6 space-y-5 text-muted-foreground">
+            <div>
+              <h3 className="font-medium text-ink">Do you have a taproom?</h3>
+              <p className="mt-1">
+                No taproom at this time — but you can visit the brewery itself
+                on a tour.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-medium text-ink">What is the fastest way to reach you?</h3>
+              <p className="mt-1">
+                WhatsApp at +599-416-3544 is the fastest channel for inquiries.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-medium text-ink">Where are you distributing?</h3>
+              <p className="mt-1">
+                We currently focus on Saba and select partner accounts in SXM,
+                with expansion in progress.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
