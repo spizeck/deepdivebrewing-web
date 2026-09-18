@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import { getVenues } from "@/lib/venues";
 import { getBeers } from "@/lib/beers";
 import { VenueCard } from "@/components/venue-card";
+import { siteUrl } from "@/lib/site";
 import type { Venue } from "@/lib/types";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 
 export const metadata: Metadata = {
   title: "Where to Buy",

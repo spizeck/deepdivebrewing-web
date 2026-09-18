@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
+// tsconfig path aliases are not resolved inside next.config — keep this
+// import relative.
+import { siteUrl } from "./lib/site";
 
 const firebaseAuthDomain =
   process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "deepdivebrewing-web.firebaseapp.com";
@@ -52,7 +53,7 @@ const nextConfig: NextConfig = {
             value: "http",
           },
         ],
-        destination: "https://deepdivebrewing.com/:path*",
+        destination: `${siteUrl}/:path*`,
         permanent: true,
       },
       // www → non-www in one hop, permanent 308.
@@ -64,7 +65,7 @@ const nextConfig: NextConfig = {
             value: "www.deepdivebrewing.com",
           },
         ],
-        destination: "https://deepdivebrewing.com/:path*",
+        destination: `${siteUrl}/:path*`,
         permanent: true,
       },
     ];

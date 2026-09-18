@@ -6,8 +6,7 @@ import { notFound } from "next/navigation";
 import { BeerViewTracker } from "@/components/beer-view-tracker";
 import { getBeerBySlug } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
+import { siteUrl } from "@/lib/site";
 
 interface BeerDetailPageProps {
   params: Promise<{ slug: string }>;

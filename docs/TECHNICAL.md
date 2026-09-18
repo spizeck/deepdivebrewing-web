@@ -81,7 +81,8 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   Next.js app. `next.config.ts` also issues permanent 308 redirects
   (HTTP→HTTPS and `www.`→apex) based on `x-forwarded-proto`/host.
   `NEXT_PUBLIC_SITE_URL` defaults to `https://deepdivebrewing.com`
-  in code. `firebase.json` configures Firestore/Storage rules files and
+  in code, resolved once by `lib/site.ts` (`siteUrl`) — the single source of
+  truth for canonical/OG/sitemap/robots/JSON-LD URLs. `firebase.json` configures Firestore/Storage rules files and
   `firestore.indexes.json` (currently empty) — Firebase hosts no frontend here;
   the Firebase project is used only for Auth, Firestore, and Storage.
 - **Git → CI → production.** `main` is the production branch. GitHub Actions CI

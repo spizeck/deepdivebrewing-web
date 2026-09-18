@@ -8,9 +8,8 @@ import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
 import { getBeers } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
+import { siteUrl } from "@/lib/site";
 import type { CSSProperties } from "react";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
 
 export const metadata: Metadata = {
   title: "Craft Beer on Saba",

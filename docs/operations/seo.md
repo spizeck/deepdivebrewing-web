@@ -11,10 +11,14 @@ policy, metadata conventions, sitemap/robots behavior, and how to verify.
   `www.` → apex, one hop each at the application layer. (At the platform
   layer `http://www.` may take two hops through Vercel's own HTTPS upgrade —
   acceptable; domain config changes live in Vercel, not the repo.)
-- `NEXT_PUBLIC_SITE_URL` feeds `metadataBase`, canonical URLs, `og:url`,
-  `robots.txt` (`Host` + `Sitemap`), `sitemap.xml`, and JSON-LD entity URLs.
-  The code default is already the apex domain — production should keep the
-  env var set to `https://deepdivebrewing.com` and nothing else.
+- `lib/site.ts` is the single source of truth for the site origin: `siteUrl`
+  resolves `NEXT_PUBLIC_SITE_URL` with a fallback of
+  `https://deepdivebrewing.com` and strips trailing slashes. It feeds
+  `metadataBase`, canonical URLs, `og:url`, `robots.txt` (`Host` +
+  `Sitemap`), `sitemap.xml`, JSON-LD entity URLs, and the redirect/CSP logic
+  in `next.config.ts`. The code default is already the apex domain —
+  production should keep the env var set to `https://deepdivebrewing.com`
+  and nothing else.
 - Canonical URLs must never point at Vercel preview deployments; the
   smoke suite asserts the apex host on every checked route.
 
@@ -57,7 +61,9 @@ so CI/no-env builds produce a sitemap with only static routes — a deliberate,
 deterministic degradation (Issue #18 guarantee preserved; never make the
 sitemap require credentials).
 
-`lastModified` is build time for every entry — acceptable at this scale.
+`lastModified` is intentionally omitted: the build has no real per-page
+modification dates (beer/venue content changes in Firestore, not on
+deploy), so a build-time stamp would misreport freshness to crawlers.
 
 ## Structured data (JSON-LD)
 

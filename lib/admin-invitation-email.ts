@@ -3,6 +3,7 @@ import { buildAdminInvitationEmail } from "@/lib/admin-invitation-email-common";
 import { getResendClient } from "@/lib/resend";
 import { getAdminInviteFromEmail } from "@/lib/resend-config";
 import { logError } from "@/lib/log";
+import { siteUrl } from "@/lib/site";
 import type {
   ResendEmailResult,
   FailedEmailResult,
@@ -18,8 +19,7 @@ export type { ResendEmailResult, FailedEmailResult, SendEmailFunction };
 export { getAdminInviteFromEmail };
 
 export function getAdminSiteUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_SITE_URL ?? "https://deepdivebrewing.com";
-  return raw.replace(/\/+$/, "");
+  return siteUrl;
 }
 
 export const sendAdminInvitationEmail: SendEmailFunction = async (
