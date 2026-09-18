@@ -31,6 +31,16 @@ export const metadata: Metadata = {
   },
 };
 
+// Cookiebot's cookie declaration (cd.js) injects the auto-generated list of
+// cookies this site uses — kept current by Cookiebot's scanner — where the
+// script tag is placed, including "change your consent" links. It renders
+// only in Vercel production builds with a configured domain-group ID,
+// matching the CMP gate in app/layout.tsx; elsewhere the static policy text
+// above still describes cookie use accurately.
+const cookiebotId = process.env.NEXT_PUBLIC_COOKIEBOT_ID;
+const cookieDeclarationEnabled =
+  process.env.VERCEL_ENV === "production" && !!cookiebotId;
+
 export default function PrivacyPage() {
   return (
     <MdxLayout>
@@ -77,22 +87,36 @@ export default function PrivacyPage() {
         can unsubscribe at any time.
       </p>
 
-      <h3>Cookies</h3>
+      <h3>Cookies &amp; consent</h3>
       <p>
-        Our website uses cookies and similar technologies to support analytics and basic site
-        functionality. You can disable cookies through your browser settings, although some parts of
-        the website may not function as intended.
+        Our website uses cookies and similar technologies for basic site functionality and,
+        with your permission, for analytics. On your first visit a consent banner provided by
+        Cookiebot lets you accept or decline optional categories such as statistics and
+        marketing; analytics cookies are only stored if you choose to allow them. You can
+        change or withdraw your choice at any time through the cookie declaration below.
       </p>
+      {cookieDeclarationEnabled && (
+        <script
+          id="CookieDeclaration"
+          src={`https://consent.cookiebot.com/${cookiebotId}/cd.js`}
+          async
+        />
+      )}
 
       <hr />
 
       <h2>Analytics</h2>
       <p>
         We use analytics services, including Google Analytics (delivered via Google Tag
-        Manager) and Vercel Analytics, to better
-        understand how visitors use our website and to improve performance and usability. These
-        services provide aggregated and pseudonymized information. We do not use analytics to
-        personally identify visitors.
+        Manager) and Vercel Analytics, to better understand how visitors use our website and
+        to improve performance and usability. These services provide aggregated and
+        pseudonymized information. We do not use analytics to personally identify visitors.
+      </p>
+      <p>
+        Google Analytics operates under Google Consent Mode: analytics cookies are stored and
+        read only when you allow the statistics category in the Cookiebot consent banner. If
+        you decline, no analytics cookies are stored. Vercel Analytics is cookieless and
+        collects only aggregate traffic data.
       </p>
 
       <hr />
@@ -113,6 +137,12 @@ export default function PrivacyPage() {
       <p>
         Trade inquiry submissions are delivered to our team as notification emails through Resend,
         which processes the submitted details solely to deliver those messages.
+      </p>
+
+      <h3>Cookiebot</h3>
+      <p>
+        We use Cookiebot to record and manage your cookie and analytics consent choices. It
+        stores your decision so the consent banner is not shown on every visit.
       </p>
 
       <h3>Google Maps</h3>

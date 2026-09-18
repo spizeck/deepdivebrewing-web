@@ -32,17 +32,27 @@ async function waitForEvents(
   return events(await getDataLayer(page), name);
 }
 
-test("test build serves no GTM or legacy gtag bootstrap", async ({ page }) => {
+test("test build serves no GTM, gtag, or CMP bootstrap", async ({ page }) => {
   await page.goto("/");
   await expect(
     page.locator('script[src*="googletagmanager.com"]')
   ).toHaveCount(0);
   await expect(page.locator('script[src*="/gtag/"]')).toHaveCount(0);
+  // Cookiebot CMP scripts render only in production builds with a configured
+  // domain-group id — absent here like GTM, and the fixture's cross-origin
+  // abort would block them anyway.
+  await expect(
+    page.locator('script[src*="cookiebot.com"]')
+  ).toHaveCount(0);
   expect(
     await page.evaluate(
       () => typeof (window as unknown as { gtag?: unknown }).gtag
     )
   ).toBe("undefined");
+  // No CMP → no Consent Mode default can be queued either.
+  expect(
+    (await getDataLayer(page)).some((e) => e[0] === "consent")
+  ).toBe(false);
 });
 
 test("the app owns page views: one on landing, exactly one per SPA navigation", async ({

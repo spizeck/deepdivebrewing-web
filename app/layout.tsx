@@ -19,6 +19,11 @@ import "./globals.css";
 // production property.
 const gtmId = process.env.NEXT_PUBLIC_GTM_ID;
 const analyticsEnabled = process.env.VERCEL_ENV === "production" && !!gtmId;
+// Cookiebot CMP is operator configuration like the GTM ID (public, not a
+// secret). Consent defaults only exist when a CMP can act on them, so the
+// Cookiebot ID is simply forwarded — an unconfigured deployment keeps the
+// pre-CMP behavior exactly.
+const cookiebotId = process.env.NEXT_PUBLIC_COOKIEBOT_ID;
 
 const inter = Inter({
   variable: "--font-inter",
@@ -106,6 +111,13 @@ export default function RootLayout({
             from a GTM-carrying public page must force a document load so no
             live container survives inside admin. */}
         <AdminAnalyticsGuard />
+        {/* GtmBootstrap must mount before the trackers: its inline script
+            pushes the Consent Mode defaults, and every dataLayer entry that
+            follows (page_view first among them) must queue after those
+            defaults so the Google tag never sees an event pre-consent. */}
+        {analyticsEnabled && (
+          <GtmBootstrap gtmId={gtmId!} cookiebotId={cookiebotId} />
+        )}
         <AnalyticsClickTracker />
         <PageViewTracker />
         <a
@@ -118,7 +130,6 @@ export default function RootLayout({
         <SiteFooter />
         <SpeedInsights />
         <Analytics />
-        {analyticsEnabled && <GtmBootstrap gtmId={gtmId!} />}
       </body>
     </html>
   );
