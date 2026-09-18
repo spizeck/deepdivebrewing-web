@@ -93,6 +93,37 @@ test("contact page renders contact actions", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("contact page presents both brewery tour options with pricing", async ({
+  page,
+}) => {
+  await page.goto("/contact");
+  const tours = page.getByRole("region", { name: "Brewery Tours" });
+  await expect(tours).toBeVisible();
+
+  // $20 tour — no tasting; $40 tour — total price with tasting included.
+  const tour = tours.getByRole("heading", { name: "Brewery Tour", exact: true });
+  const tasting = tours.getByRole("heading", { name: "Brewery Tour + Tasting" });
+  await expect(tour).toBeVisible();
+  await expect(tasting).toBeVisible();
+  await expect(tours.getByText("$20")).toBeVisible();
+  await expect(tours.getByText("$40")).toBeVisible();
+  await expect(
+    tours.getByText(/no beer or tasting included/i)
+  ).toBeVisible();
+  await expect(
+    tours.getByText(/generous beer tastings included/i)
+  ).toBeVisible();
+  await expect(tours.getByText(/approximately 30 minutes/i)).toBeVisible();
+  await expect(tours.getByText(/approximately 60 minutes/i)).toBeVisible();
+
+  // Both CTAs arrange a tour via the same WhatsApp channel.
+  for (const name of ["Arrange a brewery tour", "Arrange tour + tasting"]) {
+    const cta = tours.getByRole("link", { name });
+    await expect(cta).toBeVisible();
+    await expect(cta).toHaveAttribute("href", "https://wa.me/5994163544");
+  }
+});
+
 test("where-to-buy page renders", async ({ page }) => {
   await page.goto("/where-to-buy");
   await expect(

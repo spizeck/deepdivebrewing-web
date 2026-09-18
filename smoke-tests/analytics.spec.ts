@@ -250,6 +250,29 @@ test("email link on /contact fires email_click", async ({ page }) => {
   });
 });
 
+test("tour CTAs on /contact fire tour_inquiry_click per option", async ({
+  page,
+}) => {
+  await page.goto("/contact");
+
+  // The CTAs open WhatsApp in a new tab; the delegated listener records the
+  // event on this document before the popup attempt.
+  await page.getByRole("link", { name: "Arrange a brewery tour" }).click();
+  await page.getByRole("link", { name: "Arrange tour + tasting" }).click();
+
+  const inquiries = await waitForEvents(page, "tour_inquiry_click", 2);
+  expect(inquiries[0]).toMatchObject({
+    event_category: "conversion",
+    cta_location: "contact_page_tours",
+    event_label: "Brewery Tour",
+  });
+  expect(inquiries[1]).toMatchObject({
+    event_category: "conversion",
+    cta_location: "contact_page_tours",
+    event_label: "Brewery Tour + Tasting",
+  });
+});
+
 test("trade inquiry success fires only after a successful server response", async ({
   page,
 }) => {
