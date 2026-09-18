@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Phone, Mail, Clock, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TrackedAnchor } from "@/components/tracked-link";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -77,7 +78,7 @@ export default function ContactPage() {
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(localBusinessJsonLd) }}
       />
       <div className="mb-12">
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">

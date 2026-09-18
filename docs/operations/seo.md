@@ -79,6 +79,12 @@ Rules: no fabricated `Offer`, price, rating, or review data — ever. Schema
 must reflect real page content. Entity blocks share `@id: <site>/#brewery`
 so crawlers see one consistent business entity.
 
+Every JSON-LD block is emitted through `serializeJsonLd` in `lib/json-ld.ts`,
+which escapes HTML-unsafe characters (`<`, `>`, `&`, U+2028, U+2029) so a
+stored value can never terminate the `<script>` element early. Never inline
+`JSON.stringify(...)` into a `dangerouslySetInnerHTML` script — always use
+the serializer.
+
 ## Social sharing
 
 - Default card: `/photos/og-default.jpg` (1200×630, `summary_large_image`).

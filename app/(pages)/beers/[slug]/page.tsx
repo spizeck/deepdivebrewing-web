@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { BeerViewTracker } from "@/components/beer-view-tracker";
 import { getBeerBySlug } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
 
 interface BeerDetailPageProps {
@@ -150,11 +151,11 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(beerJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(beerJsonLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }}
       />
       {/* Breadcrumb */}
       <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
