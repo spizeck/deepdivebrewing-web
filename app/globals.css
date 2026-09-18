@@ -340,6 +340,19 @@
   row-gap: 0.25em;
 }
 
+/* The notice stacks "Manage preferences" above the decision buttons; they
+   are one control group, so keep only the .cn-buttons top margin between
+   them — drop the extra row gap and Klaro's per-button offset (redundant:
+   .cn-buttons' own gap already spaces wrapped buttons). Scoped to the
+   notice so the modal's spacing is untouched. */
+#klaro .cookie-notice:not(.cookie-modal-notice) .cn-ok {
+  row-gap: 0;
+}
+
+#klaro .cookie-notice:not(.cookie-modal-notice) .cn-buttons .cm-btn {
+  margin-top: 0;
+}
+
 #klaro .cn-buttons {
   display: flex;
   flex-wrap: wrap;
