@@ -6,6 +6,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { AnalyticsClickTracker } from "@/components/analytics-click-tracker";
 import { PageViewTracker } from "@/components/page-view-tracker";
 import { GtmBootstrap } from "@/components/gtm-bootstrap";
+import { ConsentManager } from "@/components/consent-manager";
 import { AdminAnalyticsGuard } from "@/components/admin-analytics-guard";
 import { siteUrl } from "@/lib/site";
 import "./globals.css";
@@ -19,11 +20,10 @@ import "./globals.css";
 // production property.
 const gtmId = process.env.NEXT_PUBLIC_GTM_ID;
 const analyticsEnabled = process.env.VERCEL_ENV === "production" && !!gtmId;
-// Cookiebot CMP is operator configuration like the GTM ID (public, not a
-// secret). Consent defaults only exist when a CMP can act on them, so the
-// Cookiebot ID is simply forwarded — an unconfigured deployment keeps the
-// pre-CMP behavior exactly.
-const cookiebotId = process.env.NEXT_PUBLIC_COOKIEBOT_ID;
+// The consent layer is bundled Klaro — no vendor ID or hosted CMP service.
+// ConsentManager loads it from the application bundle on public pages in
+// every environment; the Consent Mode defaults it acts on are emitted by
+// GtmBootstrap only in production (where GTM exists to consume them).
 
 const inter = Inter({
   variable: "--font-inter",
@@ -115,9 +115,11 @@ export default function RootLayout({
             pushes the Consent Mode defaults, and every dataLayer entry that
             follows (page_view first among them) must queue after those
             defaults so the Google tag never sees an event pre-consent. */}
-        {analyticsEnabled && (
-          <GtmBootstrap gtmId={gtmId!} cookiebotId={cookiebotId} />
-        )}
+        {analyticsEnabled && <GtmBootstrap gtmId={gtmId!} />}
+        {/* Bundled Klaro consent UI — loads on public pages in every
+            environment, never on /admin*. It governs only the Consent
+            Mode signals the bootstrap already defaulted to denied. */}
+        <ConsentManager />
         <AnalyticsClickTracker />
         <PageViewTracker />
         <a

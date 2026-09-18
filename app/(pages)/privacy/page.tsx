@@ -31,16 +31,6 @@ export const metadata: Metadata = {
   },
 };
 
-// Cookiebot's cookie declaration (cd.js) injects the auto-generated list of
-// cookies this site uses — kept current by Cookiebot's scanner — where the
-// script tag is placed, including "change your consent" links. It renders
-// only in Vercel production builds with a configured domain-group ID,
-// matching the CMP gate in app/layout.tsx; elsewhere the static policy text
-// above still describes cookie use accurately.
-const cookiebotId = process.env.NEXT_PUBLIC_COOKIEBOT_ID;
-const cookieDeclarationEnabled =
-  process.env.VERCEL_ENV === "production" && !!cookiebotId;
-
 export default function PrivacyPage() {
   return (
     <MdxLayout>
@@ -90,18 +80,13 @@ export default function PrivacyPage() {
       <h3>Cookies &amp; consent</h3>
       <p>
         Our website uses cookies and similar technologies for basic site functionality and,
-        with your permission, for analytics. On your first visit a consent banner provided by
-        Cookiebot lets you accept or decline optional categories such as statistics and
-        marketing; analytics cookies are only stored if you choose to allow them. You can
-        change or withdraw your choice at any time through the cookie declaration below.
+        with your permission, for analytics. On your first visit a consent notice lets you
+        accept all, decline all, or choose which optional services may run; analytics
+        cookies are only stored if you choose to allow them. Your choice is stored in a
+        cookie on your device so the notice is not shown on every visit. You can change or
+        withdraw your choice at any time using the &ldquo;Cookie preferences&rdquo; link in
+        the site footer.
       </p>
-      {cookieDeclarationEnabled && (
-        <script
-          id="CookieDeclaration"
-          src={`https://consent.cookiebot.com/${cookiebotId}/cd.js`}
-          async
-        />
-      )}
 
       <hr />
 
@@ -114,9 +99,9 @@ export default function PrivacyPage() {
       </p>
       <p>
         Google Analytics operates under Google Consent Mode: analytics cookies are stored and
-        read only when you allow the statistics category in the Cookiebot consent banner. If
-        you decline, no analytics cookies are stored. Vercel Analytics is cookieless and
-        collects only aggregate traffic data.
+        read only when you allow analytics in the consent manager. If you decline, no
+        analytics cookies are stored. Vercel Analytics is cookieless and collects only
+        aggregate traffic data.
       </p>
 
       <hr />
@@ -139,10 +124,11 @@ export default function PrivacyPage() {
         which processes the submitted details solely to deliver those messages.
       </p>
 
-      <h3>Cookiebot</h3>
+      <h3>Consent manager</h3>
       <p>
-        We use Cookiebot to record and manage your cookie and analytics consent choices. It
-        stores your decision so the consent banner is not shown on every visit.
+        We use Klaro, an open-source consent manager that runs in your browser as part of
+        this website, to record your cookie and analytics consent choices. Your decision is
+        stored in a cookie on your device — it is not sent to a separate consent service.
       </p>
 
       <h3>Google Maps</h3>

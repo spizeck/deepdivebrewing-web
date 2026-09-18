@@ -1,6 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { CONSENT_DEFAULTS, buildGtmInitScript } from "../../lib/consent";
+import {
+  CONSENT_DEFAULTS,
+  CONSENT_POLICY_VERSION,
+  CONSENT_SERVICES,
+  CONSENT_STORAGE_NAME,
+  buildGtmInitScript,
+  buildKlaroConfig,
+  consentUpdateFromStates,
+} from "../../lib/consent";
 
 describe("CONSENT_DEFAULTS", () => {
   it("denies every optional storage signal by default", () => {
@@ -20,35 +28,134 @@ describe("CONSENT_DEFAULTS", () => {
 });
 
 describe("buildGtmInitScript", () => {
-  it("always pushes gtm.start onto an ensured dataLayer", () => {
-    for (const script of [
-      buildGtmInitScript(),
-      buildGtmInitScript("cbid-123"),
-    ]) {
-      assert.match(script, /dataLayer=window\.dataLayer\|\|\[\]/);
-      assert.match(script, /'gtm\.start':Date\.now\(\),event:'gtm\.js'/);
-    }
-  });
-
-  it("pushes consent defaults BEFORE gtm.start when a Cookiebot id is configured", () => {
-    const script = buildGtmInitScript("cbid-123");
+  it("pushes consent defaults BEFORE gtm.start so no tag evaluates pre-consent", () => {
+    const script = buildGtmInitScript();
+    assert.match(script, /dataLayer=window\.dataLayer\|\|\[\]/);
     const consentIndex = script.indexOf('"consent","default"');
     const startIndex = script.indexOf("gtm.start");
     assert.ok(consentIndex !== -1, "consent default command missing");
     assert.ok(
       consentIndex < startIndex,
-      "consent defaults must precede gtm.start so no tag evaluates pre-consent"
+      "consent defaults must precede gtm.start"
     );
     assert.match(script, /"analytics_storage":"denied"/);
     assert.match(script, /"ad_user_data":"denied"/);
-    // The gtag stub exists so Cookiebot's later consent updates serialize
-    // onto the same queue.
+    // The gtag stub exists so later consent updates serialize onto the
+    // same queue the container drains.
     assert.match(script, /window\.gtag=/);
+    assert.match(script, /'gtm\.start':Date\.now\(\),event:'gtm\.js'/);
+  });
+});
+
+describe("CONSENT_SERVICES registry", () => {
+  it("contains only services the site actually uses", () => {
+    const names = CONSENT_SERVICES.map((s) => s.name);
+    assert.deepEqual(names, [
+      "consent-preferences",
+      "google-analytics",
+      "vercel-analytics",
+    ]);
   });
 
-  it("emits no consent commands when no Cookiebot id is configured", () => {
-    const script = buildGtmInitScript();
-    assert.ok(!script.includes("consent"), script);
-    assert.ok(!script.includes("window.gtag"), script);
+  it("marks the consent store itself as required (cannot be declined)", () => {
+    const required = CONSENT_SERVICES.filter((s) => s.required);
+    assert.deepEqual(
+      required.map((s) => s.name),
+      ["consent-preferences"]
+    );
+  });
+
+  it("gates only Google Analytics behind an optional consent toggle", () => {
+    const optional = CONSENT_SERVICES.filter(
+      (s) => s.consentManaged !== false && !s.required
+    );
+    assert.deepEqual(
+      optional.map((s) => s.name),
+      ["google-analytics"]
+    );
+    // Vercel Analytics is declared for transparency but is cookieless —
+    // it must not become a switchable service.
+    const vercel = CONSENT_SERVICES.find((s) => s.name === "vercel-analytics");
+    assert.equal(vercel?.consentManaged, false);
+    assert.equal(vercel?.consentSignals, undefined);
+  });
+
+  it("grants no advertising Consent Mode signals to any service", () => {
+    for (const service of CONSENT_SERVICES) {
+      for (const signal of Object.keys(service.consentSignals ?? {})) {
+        assert.ok(
+          !signal.startsWith("ad_"),
+          `${service.name} must not grant ${signal} — the site has no ads`
+        );
+      }
+    }
+  });
+});
+
+describe("consentUpdateFromStates", () => {
+  it("keeps analytics denied when the visitor has not consented", () => {
+    const update = consentUpdateFromStates({});
+    assert.equal(update.analytics_storage, "denied");
+    assert.equal(update.security_storage, "granted");
+  });
+
+  it("keeps analytics denied when analytics is explicitly declined", () => {
+    const update = consentUpdateFromStates({
+      "consent-preferences": true,
+      "google-analytics": false,
+    });
+    assert.equal(update.analytics_storage, "denied");
+  });
+
+  it("grants analytics_storage when analytics is accepted", () => {
+    const update = consentUpdateFromStates({
+      "consent-preferences": true,
+      "google-analytics": true,
+    });
+    assert.equal(update.analytics_storage, "granted");
+    // Advertising signals stay denied regardless — no ad services exist.
+    assert.equal(update.ad_storage, "denied");
+    assert.equal(update.ad_user_data, "denied");
+    assert.equal(update.ad_personalization, "denied");
+  });
+});
+
+describe("buildKlaroConfig", () => {
+  it("is fully local — no vendor id, no remote service configuration", () => {
+    const config = buildKlaroConfig();
+    const serialized = JSON.stringify(config);
+    assert.ok(!serialized.includes("http"), serialized);
+    assert.ok(!serialized.includes("cbid"), serialized);
+  });
+
+  it("embeds the consent policy version in the storage name", () => {
+    const config = buildKlaroConfig();
+    assert.equal(config.storageName, CONSENT_STORAGE_NAME);
+    assert.ok(CONSENT_STORAGE_NAME.includes(`v${CONSENT_POLICY_VERSION}`));
+    assert.equal(typeof CONSENT_POLICY_VERSION, "number");
+  });
+
+  it("defaults every optional service to off (no preselected consent)", () => {
+    const config = buildKlaroConfig();
+    assert.equal(config.default, false);
+    for (const service of config.services) {
+      assert.equal(service.default, false);
+    }
+    assert.ok(config.services.some((s) => s.required === true));
+  });
+
+  it("offers accept-all and decline-all without a forced modal", () => {
+    const config = buildKlaroConfig();
+    assert.equal(config.acceptAll, true);
+    assert.equal(config.hideDeclineAll, false);
+    assert.equal(config.mustConsent, false);
+    assert.equal(config.noticeAsModal, false);
+  });
+
+  it("lists only consent-managed services in the Klaro config", () => {
+    const config = buildKlaroConfig();
+    const names = config.services.map((s) => s.name);
+    assert.deepEqual(names, ["consent-preferences", "google-analytics"]);
+    assert.ok(!names.includes("vercel-analytics"));
   });
 });

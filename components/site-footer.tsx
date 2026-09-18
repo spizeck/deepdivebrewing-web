@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ConsentSettingsLink } from "@/components/consent-settings-link";
 
 export function SiteFooter() {
   return (
@@ -97,6 +98,7 @@ export function SiteFooter() {
             <ul className="mt-3 space-y-2">
               <FooterLink href="/privacy">Privacy Policy</FooterLink>
               <FooterLink href="/terms">Terms of Use</FooterLink>
+              <ConsentSettingsLink />
             </ul>
           </div>
         </div>

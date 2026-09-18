@@ -32,26 +32,27 @@ async function waitForEvents(
   return events(await getDataLayer(page), name);
 }
 
-test("test build serves no GTM, gtag, or CMP bootstrap", async ({ page }) => {
+test("test build serves no GTM, gtag, or consent-default bootstrap", async ({
+  page,
+}) => {
   await page.goto("/");
   await expect(
     page.locator('script[src*="googletagmanager.com"]')
   ).toHaveCount(0);
   await expect(page.locator('script[src*="/gtag/"]')).toHaveCount(0);
-  // Cookiebot CMP scripts render only in production builds with a configured
-  // domain-group id — absent here like GTM, and the fixture's cross-origin
-  // abort would block them anyway.
-  await expect(
-    page.locator('script[src*="cookiebot.com"]')
-  ).toHaveCount(0);
   expect(
     await page.evaluate(
       () => typeof (window as unknown as { gtag?: unknown }).gtag
     )
   ).toBe("undefined");
-  // No CMP → no Consent Mode default can be queued either.
+  // Consent Mode defaults are emitted only by the production GTM init
+  // script — none here. (The bundled consent manager may still queue a
+  // `consent` `update` reflecting the fixture's seeded choice; that is a
+  // client-side state command, not analytics delivery — see consent.spec.ts.)
   expect(
-    (await getDataLayer(page)).some((e) => e[0] === "consent")
+    (await getDataLayer(page)).some(
+      (e) => e[0] === "consent" && e[1] === "default"
+    )
   ).toBe(false);
 });
 
