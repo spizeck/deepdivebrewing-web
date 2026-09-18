@@ -75,9 +75,9 @@ export interface ConsentService {
 export const CONSENT_SERVICES: ConsentService[] = [
   {
     name: "consent-preferences",
-    title: "Consent preferences",
+    title: "Essential",
     description:
-      "Stores your privacy choices so the site remembers them between visits. Required for the site to work and always active.",
+      "Remembers your privacy choices so we don't keep asking.",
     purposes: ["functional"],
     required: true,
   },
@@ -85,7 +85,7 @@ export const CONSENT_SERVICES: ConsentService[] = [
     name: "google-analytics",
     title: "Google Analytics",
     description:
-      "Counts visits and page views via Google Analytics 4, delivered through Google Tag Manager. Helps us understand how the site is used. No advertising features are used.",
+      "Tells us which pages people visit and how the site is used — Google Analytics 4, delivered through Google Tag Manager. No advertising features are used.",
     purposes: ["analytics"],
     consentSignals: { analytics_storage: "granted" },
     cookies: [/^_ga/],
@@ -226,21 +226,21 @@ export function buildKlaroConfig(): KlaroConfig {
     translations: {
       en: {
         privacyPolicyUrl: "/privacy",
-        ok: "Accept analytics",
-        decline: "Decline analytics",
-        acceptAll: "Accept analytics",
+        ok: "Allow analytics",
+        decline: "No thanks",
+        acceptAll: "Allow analytics",
         acceptSelected: "Save preferences",
         save: "Save preferences",
         consentNotice: {
-          title: "Privacy choices",
+          title: "Cookies. Sadly, not the beer kind.",
           description:
-            "We use optional analytics to understand how people use our website. You can accept analytics, decline, or choose your preferences.",
+            "We use a necessary cookie to remember your choices. If you're okay with it, we'd also like to use analytics to see how people use the site. No ads, no selling your data, no following you around the internet.",
           learnMore: "Manage preferences",
         },
         consentModal: {
           title: "Privacy preferences",
           description:
-            "Choose which optional services may run. Essential functions are always on; analytics only runs with your consent.",
+            "The essential stuff is always on so the site can remember your choices. Analytics is optional — allow it if you'd like to help us understand what's working. Either way, the beer remains unaffected.",
           privacyPolicy: {
             text: "Read our {privacyPolicy} for details.",
             name: "privacy policy",

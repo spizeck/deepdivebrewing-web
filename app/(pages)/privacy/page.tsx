@@ -36,19 +36,24 @@ export default function PrivacyPage() {
     <MdxLayout>
       <h1>Privacy Policy</h1>
       <p>
-        We take your privacy seriously. This page explains what information we collect when you
-        visit our website, how we use it, and how we keep it safe.
+        The short version: we&rsquo;re a brewery, not a data company. We collect the information we
+        need to run this website, answer people who contact us, and — if you allow it — understand
+        how the site gets used. We don&rsquo;t sell your personal information, and we don&rsquo;t use
+        advertising trackers.
+      </p>
+      <p>
+        The longer version is below. We&rsquo;ve tried to write it like humans.
       </p>
 
       <hr />
 
-      <h2>Information We Collect</h2>
+      <h2>What we collect and why</h2>
       <p>
-        We collect only the information we need to respond to your inquiries and improve the
-        website. We do not sell personal information.
+        We collect only the information we need to respond to you and improve the website. We do
+        not sell personal information.
       </p>
 
-      <h3>Trade &amp; wholesale inquiries</h3>
+      <h3>If you&rsquo;re interested in carrying our beer</h3>
       <p>
         When you submit the Trade &amp; Wholesale form, we collect your business name, contact
         name, email address, phone or WhatsApp number, venue or business type, and the details of
@@ -57,58 +62,53 @@ export default function PrivacyPage() {
       </p>
       <p>
         Submitted inquiries are stored securely in our database (Google Cloud Firestore) and a
-        notification copy is emailed to our team through Resend. Trade and wholesale inquiries may
-        be retained for up to 24 months after our last meaningful interaction with the inquiry. We
-        may delete them sooner when they are no longer needed, or retain them longer where
-        reasonably necessary for legal, accounting, dispute-resolution, security, or other
-        legitimate business purposes.
+        notification copy is emailed to our team through Resend. We keep trade inquiries for up to
+        24 months after our last meaningful interaction with you. We may delete them sooner when
+        they are no longer needed, or keep them longer where reasonably necessary for legal,
+        accounting, dispute-resolution, security, or other legitimate business purposes.
       </p>
 
-      <h3>Other contact</h3>
+      <h3>Getting in touch directly</h3>
       <p>
-        If you contact us directly by email or WhatsApp, we use the contact details you provide
-        solely to respond to you and follow up on your request.
+        If you email or WhatsApp us, we use the contact details you provide to respond and follow
+        up on your request. That&rsquo;s it.
       </p>
 
-      <h3>Newsletter signups</h3>
+      <h2>Cookies, the less delicious kind</h2>
       <p>
-        We may offer a newsletter or email updates in the future. If you choose to sign up, we will
-        collect your email address and use it only to send you the communications you requested. You
-        can unsubscribe at any time.
+        We use one necessary cookie to remember your privacy choices, so the consent notice
+        doesn&rsquo;t ask again on every visit. With your permission, Google Analytics sets a few
+        more cookies to help us understand how the site is used.
       </p>
-
-      <h3>Cookies &amp; consent</h3>
       <p>
-        Our website uses cookies and similar technologies for basic site functionality and,
-        with your permission, for analytics. On your first visit a consent notice lets you
-        accept all, decline all, or choose which optional services may run; analytics
-        cookies are only stored if you choose to allow them. Your choice is stored in a
-        cookie on your device so the notice is not shown on every visit. You can change or
-        withdraw your choice at any time using the &ldquo;Cookie preferences&rdquo; link in
-        the site footer.
+        You can allow or decline analytics the first time you visit, and change your mind at any
+        time using the &ldquo;Cookie preferences&rdquo; link in the site footer. Declining
+        analytics doesn&rsquo;t stop the site from working.
       </p>
 
       <hr />
 
-      <h2>Analytics</h2>
+      <h2>Analytics, if you&rsquo;re okay with it</h2>
       <p>
-        We use analytics services, including Google Analytics (delivered via Google Tag
-        Manager) and Vercel Analytics, to better understand how visitors use our website and
-        to improve performance and usability. These services provide aggregated and
-        pseudonymized information. We do not use analytics to personally identify visitors.
+        If you allow analytics, we use Google Analytics 4 — delivered through Google Tag Manager —
+        to see things like which pages people visit and how they move through the site. We look at
+        this in aggregate; we&rsquo;re a small brewery trying to make a better website, not build
+        profiles of our visitors.
       </p>
       <p>
-        Google Analytics operates under Google Consent Mode: analytics cookies are stored and
-        read only when you allow analytics in the consent manager. If you decline, no
-        analytics cookies are stored. Vercel Analytics is cookieless and collects only
-        aggregate traffic data.
+        Google Analytics runs under Google Consent Mode: analytics cookies are stored and read
+        only when you allow analytics. If you decline, no analytics cookies are stored.
+      </p>
+      <p>
+        We also use Vercel Analytics from our hosting provider. It&rsquo;s cookieless and collects
+        only aggregate traffic and page-speed data.
       </p>
 
       <hr />
 
-      <h2>Third-Party Services</h2>
+      <h2>The third parties that keep this site running</h2>
       <p>
-        We use trusted third-party services to operate the website. Each service has its own privacy
+        These services handle some data as part of operating the website. Each has its own privacy
         policy and handles data according to its own terms.
       </p>
 
@@ -124,7 +124,7 @@ export default function PrivacyPage() {
         which processes the submitted details solely to deliver those messages.
       </p>
 
-      <h3>Consent manager</h3>
+      <h3>Klaro (our consent manager)</h3>
       <p>
         We use Klaro, an open-source consent manager that runs in your browser as part of
         this website, to record your cookie and analytics consent choices. Your decision is
@@ -133,9 +133,8 @@ export default function PrivacyPage() {
 
       <h3>Google Maps</h3>
       <p>
-        If we embed Google Maps to help you find our locations, Google may collect data in
-        accordance with its own privacy policy. We only embed maps where they add real value to the
-        page.
+        The contact page embeds a Google Map showing where to find us. Loading the map sends your
+        request to Google, which handles that data under its own privacy policy.
       </p>
 
       <h3>Social media links</h3>

@@ -43,10 +43,10 @@ const notice = (page: import("playwright").Page) =>
   page.locator("#klaro-cookie-notice");
 
 const acceptAll = (page: import("playwright").Page) =>
-  notice(page).getByRole("button", { name: "Accept analytics" });
+  notice(page).getByRole("button", { name: "Allow analytics" });
 
 const declineAll = (page: import("playwright").Page) =>
-  notice(page).getByRole("button", { name: "Decline analytics" });
+  notice(page).getByRole("button", { name: "No thanks" });
 
 const clearStoredConsent = async (page: import("playwright").Page) =>
   page.context().clearCookies();
@@ -58,6 +58,9 @@ test("undecided visitor sees accept, decline, and manage options", async ({
   await page.goto("/");
 
   await expect(notice(page)).toBeVisible();
+  await expect(
+    notice(page).getByText("Cookies. Sadly, not the beer kind.")
+  ).toBeVisible();
   await expect(acceptAll(page)).toBeVisible();
   await expect(declineAll(page)).toBeVisible();
 
@@ -72,7 +75,7 @@ test("undecided visitor sees accept, decline, and manage options", async ({
     modal.locator(".cm-list-title", { hasText: "Google Analytics" })
   ).toBeVisible();
   await expect(
-    modal.getByRole("button", { name: "Accept analytics" })
+    modal.getByRole("button", { name: "Allow analytics" })
   ).toBeVisible();
   await expect(
     modal.getByRole("button", { name: "Save preferences" })
