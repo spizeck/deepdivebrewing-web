@@ -91,13 +91,20 @@ describe("serializeJsonLd", () => {
 
 describe("JSON-LD script render path", () => {
   it("keeps an admin-controlled beer name inside the script element", () => {
-    // Mirrors the Product JSON-LD built by app/(pages)/beers/[slug]/page.tsx:
-    // beer.name comes from Firestore and is admin-managed.
+    // Mirrors the beer-page JSON-LD built by lib/beer-json-ld.ts: beer.name
+    // comes from Firestore and is admin-managed.
     const beerJsonLd = {
       "@context": "https://schema.org",
-      "@type": "Product",
-      name: SCRIPT_BREAKOUT,
-      description: `Brewed on Saba. ${SCRIPT_BREAKOUT}`,
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Our Beers" },
+        {
+          "@type": "ListItem",
+          position: 2,
+          name: SCRIPT_BREAKOUT,
+          item: `https://deepdivebrewing.com/beers/${SCRIPT_BREAKOUT}`,
+        },
+      ],
     };
 
     const html = renderToStaticMarkup(
@@ -117,8 +124,13 @@ describe("JSON-LD script render path", () => {
       html.indexOf(">") + 1,
       html.toLowerCase().lastIndexOf("</script")
     );
-    const parsed = JSON.parse(body) as { name: string; description: string };
-    assert.equal(parsed.name, SCRIPT_BREAKOUT);
-    assert.equal(parsed.description, `Brewed on Saba. ${SCRIPT_BREAKOUT}`);
+    const parsed = JSON.parse(body) as {
+      itemListElement: Array<{ name: string; item?: string }>;
+    };
+    assert.equal(parsed.itemListElement[1].name, SCRIPT_BREAKOUT);
+    assert.equal(
+      parsed.itemListElement[1].item,
+      `https://deepdivebrewing.com/beers/${SCRIPT_BREAKOUT}`
+    );
   });
 });

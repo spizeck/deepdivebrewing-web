@@ -73,7 +73,18 @@ deploy), so a build-time stamp would misreport freshness to crawlers.
 | `/contact` | `Brewery` (`#brewery`) | Same entity, linked by `@id` |
 | `/trade` | `Brewery` (`#brewery`) | Same entity |
 | `/where-to-buy` | `Brewery` (`#brewery`) + `FAQPage` | FAQ mirrors the visible on-page questions |
-| `/beers/[slug]` | `Product` + `BreadcrumbList` | Brand/manufacturer reference `#brewery`; ABV/IBU/SRM as `additionalProperty`; breadcrumb mirrors the visible nav |
+| `/beers/[slug]` | `BreadcrumbList` | Mirrors the visible breadcrumb nav; no `Product` markup — see below |
+
+Beer detail pages deliberately emit **no `Product` schema**. Google's
+[product snippet requirements](https://developers.google.com/search/docs/appearance/structured-data/product-snippet)
+mandate `offers`, `review`, or `aggregateRating`, and Deep Dive sells beer
+only through retailers — none of those properties exist on these pages, so
+a bare `Product` node only generated a Search Console error (Issue #81) while
+misrepresenting the page as a purchase candidate. There is no other
+Google-supported rich-result type that honestly describes a brewery's beer
+page, so `BreadcrumbList` alone is the accurate model. Schema.org permits a
+descriptive `Product`, but Google requires commerce/review data to make it
+a valid result — and it must never be invented.
 
 Rules: no fabricated `Offer`, price, rating, or review data — ever. Schema
 must reflect real page content. Entity blocks share `@id: <site>/#brewery`
@@ -117,7 +128,7 @@ host, and JSON-LD parseability/types.
 
 - Fetch `https://deepdivebrewing.com/robots.txt` and `/sitemap.xml`; confirm
   the beer URLs appear (production builds have real data).
-- Fetch a real beer page; confirm canonical, `og:image`, and the Product +
-  BreadcrumbList JSON-LD.
+- Fetch a real beer page; confirm canonical, `og:image`, and the
+  `BreadcrumbList` JSON-LD (no `Product` node — see Structured data above).
 - Google Search Console (owned outside the repo): submit/refresh the
   sitemap, watch Coverage for unexpected `/admin` or `/trade/*` URLs.

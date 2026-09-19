@@ -25,7 +25,7 @@ Run this checklist after every production deployment or after any significant co
 - [ ] The hero image loads.
 - [ ] The title, style, ABV, status, description, and tasting notes are correct.
 - [ ] The "Where to Buy" link works.
-- [ ] Product structured data is present in the page source (search for `"@type":"Product"`).
+- [ ] `BreadcrumbList` structured data is present in the page source (search for `"@type":"BreadcrumbList"`); no `Product` node is emitted.
 
 ## Where-to-buy page
 
@@ -88,7 +88,7 @@ Run this checklist after every production deployment or after any significant co
 - [ ] Beer detail pages have unique titles and descriptions.
 - [ ] Each page has a canonical URL.
 - [ ] Brewery structured data is present on the homepage and contact page.
-- [ ] Product structured data is present on beer detail pages.
+- [ ] Breadcrumb structured data is present on beer detail pages.
 
 ## Analytics
 
