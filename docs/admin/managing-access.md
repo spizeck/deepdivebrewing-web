@@ -9,18 +9,52 @@
 | **superadmin** | Manage beers and venues, manage all administrators, trigger rebuilds. |
 | **admin** | Manage beers and venues, trigger rebuilds. Cannot manage other administrators. |
 
-## How administrator access is stored
+## How administrator access is enforced
 
-Authorization is based on **Firebase custom claims**. A valid admin token contains claims like:
+Privileged access requires **two things to agree**, and neither alone is
+sufficient:
 
-```json
-{
-  "admin": true,
-  "role": "superadmin"
-}
-```
+1. **Firebase custom claims** on the signed-in user's ID token. A valid
+   admin token contains claims like:
 
-The website also keeps a read-only record in Firestore under the `adminUsers` collection for display and audit purposes. The custom claim is what actually grants access; the Firestore record is for reference and must stay in sync with the claim.
+   ```json
+   {
+     "admin": true,
+     "role": "superadmin"
+   }
+   ```
+
+2. **An `adminUsers/{uid}` record** in Firestore for the same user that
+   exists, has `status: "active"`, and carries the same `role` as the
+   claims.
+
+Every privileged API request re-checks both on the server, and the
+Firestore and Storage security rules apply the same check to the
+dashboard's direct client reads and writes. The `adminUsers` record is
+**not** reference-only data — it is half of the authorization check.
+
+### Why both exist
+
+Claims are baked into the ID token when it is issued, so a token can keep
+asserting an old role until it is refreshed. The `adminUsers` record is
+read live on every privileged request, which is what makes disabling,
+demoting, or revoking an administrator take effect immediately: a stale
+token whose claims no longer match the record is denied, even though the
+claims themselves are still "valid."
+
+Two lifecycle routes are deliberate exceptions to the
+pre-existing-record requirement because their job is to create that
+record:
+
+- **Bootstrap** (`/api/admin/bootstrap`) — creates the first superadmin
+  record; gated by a verified Google email matching the server-only
+  `SUPER_ADMIN_EMAIL` variable instead.
+- **Invitation acceptance** (`/api/admin/invitations/accept`) — creates
+  the invited user's record and sets claims; gated by a pending
+  invitation matching the verified sign-in email.
+
+These are lifecycle-specific authorization flows, not bypasses — each has
+its own enforced gate.
 
 ## Bootstrap superadmin
 
@@ -32,7 +66,7 @@ The bootstrap process:
 
 1. The owner signs in to https://deepdivebrewing.com/admin with the configured Google account.
 2. The dashboard shows **Complete Superadmin Setup** because the account has no admin claim yet.
-3. The owner clicks the button. The server verifies the ID token email against `SUPER_ADMIN_EMAIL`, confirms the email is verified, and sets the superadmin custom claim.
+3. The owner clicks the button. The server verifies the ID token email against `SUPER_ADMIN_EMAIL`, confirms the email is verified, sets the superadmin custom claim, and creates the `adminUsers` record as an active superadmin.
 4. The owner signs out and signs back in to refresh the ID token. The full dashboard now appears.
 
 The bootstrap superadmin account is protected. It cannot be demoted, disabled, or revoked through the admin interface.
@@ -49,7 +83,7 @@ The system creates a pending invitation. The invited person then:
 
 1. Opens https://deepdivebrewing.com/admin.
 2. Signs in with the invited Google account.
-3. Clicks **Accept Invitation** when prompted.
+3. Clicks **Accept Invitation** when prompted. Acceptance creates their `adminUsers` record and sets their custom claims to the invited role.
 4. Signs out and signs back in.
 
 > Invitations match the normalized email address exactly. The invited account must use that exact email and it must be verified by Google.
@@ -59,16 +93,18 @@ The system creates a pending invitation. The invited person then:
 In the **Access** tab, superadmins can:
 
 - **Promote** an admin to superadmin.
-- **Demote** a superadmin to admin (not allowed if it would remove the last active superadmin).
-- **Disable** an administrator, which removes their custom claims and blocks access.
-- **Reactivate** a disabled administrator, which restores their previous role claim.
-- **Revoke** an administrator permanently, which disables the account and revokes refresh tokens.
+- **Demote** a superadmin to admin (not allowed if it would remove the last active superadmin). The `adminUsers` record is updated first and the custom claim re-synced after — the record is rolled back if the claim update fails. The demoted person's old token is denied as soon as the record changes, even before they re-sign in.
+- **Disable** an administrator, which clears their custom claims and marks the `adminUsers` record disabled. Access stops immediately — a still-unexpired token is denied because the record is no longer active.
+- **Reactivate** a disabled administrator, which marks the record active and restores the previous role claim. An unexpired token from before the disable already matches the restored record, so it can resume access on its own; a fresh sign-in still synchronizes the session with the current claims.
+- **Revoke** an administrator permanently, which clears their custom claims, revokes their refresh tokens, and marks the record disabled.
 
 > The bootstrap superadmin and the last active superadmin cannot be disabled, demoted, or revoked. This prevents accidental lockout.
 
 ## Why you may need to sign out and back in
 
-Custom claims are baked into the Firebase ID token when it is issued. When a superadmin changes your role or reactivates your account, you must request a fresh token by signing out and signing back in. The dashboard will tell you when this is required.
+Custom claims are baked into the Firebase ID token when it is issued. When a superadmin changes your role, disables you, or reactivates your account, the server updates your claims and your `adminUsers` record right away — but your browser keeps the old token until it is refreshed.
+
+The live-record check means enforcement does not wait for that refresh: a token whose claims no longer match the record is denied immediately, so a demotion or disable takes effect at once. After a reactivation, an unexpired token from before the disable can even resume access on its own, because its claims already match the restored record. Either way, signing out and back in gives you a fresh token whose claims agree with the record, so the dashboard can load and show the right controls. The dashboard will tell you when this is required.
 
 ## Emergency recovery
 

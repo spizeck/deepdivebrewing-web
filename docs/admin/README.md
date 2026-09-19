@@ -27,14 +27,14 @@ Only a small set of trusted Deep Dive Brewing Co staff should be administrators.
 - **superadmin** — Full access, including the ability to manage other administrators.
 - **admin** — Can manage beers, venues, images, and trigger rebuilds, but cannot add or remove administrators.
 
-Access is granted through **Firebase custom claims** and stored in the `adminUsers` Firestore collection. The claims are the authoritative source of authorization; the UI simply hides controls that a user is not allowed to use.
+Access requires two things to agree: **Firebase custom claims** on the user's sign-in token, and an **active `adminUsers` record** in Firestore with a matching role. Neither alone is sufficient — the server and the Firebase security rules check both on every privileged request, so disabling or demoting an administrator takes effect immediately even if their token still carries old claims. The UI simply hides controls that a user is not allowed to use; the real enforcement is server-side. See [Managing access](./managing-access.md#how-administrator-access-is-enforced) for the full model.
 
 ## How to reach the admin login
 
 1. Go to https://deepdivebrewing.com/admin.
 2. Click **Sign in with Google**.
 3. Choose the Google account that has been invited or configured as the bootstrap superadmin.
-4. If your account has the right claims, the full dashboard appears.
+4. If your account has valid claims and an active administrator record, the full dashboard appears.
 
 > The first time the bootstrap superadmin signs in, they must click **Complete Superadmin Setup**. This is a one-time step.
 
@@ -47,7 +47,7 @@ After signing in, the dashboard shows:
 - The last rebuild information.
 - Tabs for **Beers**, **Venues**, and, if you are a superadmin, **Access**.
 
-If you see a message saying your account is not authorized, you are signed in to Google but do not have valid admin claims. Sign out and contact a superadmin.
+If you see a message saying your account is not authorized, you are signed in to Google but do not have valid admin claims and an active administrator record. Sign out and contact a superadmin.
 
 ## How to sign out
 

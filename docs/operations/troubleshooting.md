@@ -46,6 +46,7 @@ Use this guide to diagnose and fix common problems with the Deep Dive Brewing Co
 - The current domain is not authorized in Firebase Authentication.
 - The Firebase Auth helper iframe is blocked by CSP.
 - You are signing in with a Google account that does not have valid admin custom claims.
+- Your `adminUsers` record is missing, disabled, or its role no longer matches your token claims — the server and security rules require both to agree.
 - Your ID token has not been refreshed after a role change or invitation acceptance.
 - Third-party cookies are blocked.
 
@@ -213,6 +214,7 @@ For detailed steps, see [Login and access troubleshooting](../admin/login-and-ac
 **Likely causes:**
 
 - The signed-in user does not have an `admin: true` custom claim.
+- The signed-in user's `adminUsers` record is missing, disabled, or its role no longer matches the token claims — the security rules require both to agree, so a stale token after a role change or disable is denied.
 - The user's role is not authorized for the attempted action (for example, an admin trying to manage other admins).
 - The security rules have not been deployed.
 - The browser is using an expired or invalid Firebase Auth token.
