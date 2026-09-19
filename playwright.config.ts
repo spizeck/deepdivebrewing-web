@@ -4,7 +4,9 @@ import { defineConfig, devices } from "playwright/test";
 // on a fixed local port. CI builds once (the `npm run build` step) and reuses
 // that output here; locally `npm run test:smoke` builds first so the suite
 // stays a single command.
-const port = 3100;
+// DDB_SMOKE_PORT lets local runs sidestep unrelated dev servers already
+// bound to the default port; CI always uses 3100.
+const port = Number(process.env.DDB_SMOKE_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./smoke-tests",

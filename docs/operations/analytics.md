@@ -116,7 +116,7 @@ in `lib/analytics.ts` — TypeScript rejects unlisted names at the call site.
 | `beer_filter` | `/beers` filter button click | `filter`, `cta_location` | engagement |
 | `where_to_buy_click` | CTA that navigates to `/where-to-buy` (homepage hero, homepage teaser, beer detail) | `event_label`, `cta_location`, `beer_*` on beer detail | intent |
 | `retailer_click` | Venue **Website** link on `/where-to-buy` | `venue_slug`, `island`, `venue_type` | intent |
-| `directions_click` | Venue **Directions** link on `/where-to-buy` | `venue_slug`, `island`, `venue_type` | intent |
+| `directions_click` | Venue **Directions** link on `/where-to-buy`; **Get directions** link in the `/contact` map placeholder | `venue_slug`, `island`, `venue_type` (venue links); `event_label`, `cta_location` (`/contact`) | intent |
 | `whatsapp_click` | WhatsApp link on `/contact` | `cta_location` | lead intent |
 | `email_click` | `mailto:` links (`/contact`, `/trade`) | `cta_location` | lead intent |
 | `social_click` | Footer Facebook/Instagram/Untappd | `social_network`, `cta_location` | outbound |
@@ -217,6 +217,12 @@ has no advertising or optional-preference services, so `ad_storage`,
 `personalization_storage` stay `denied` in every update
 (`consentUpdateFromStates` only ever grants what a consented service
 declares). Do not add categories for services the site does not run.
+
+Google Maps on `/contact` is deliberately **not** a Klaro service either:
+it is a functional embed with its own contextual consent —
+`components/contact-map.tsx` renders the iframe only after an explicit
+**Load map** click, unpersisted, and independent of the analytics choice.
+Keep it out of `CONSENT_SERVICES` unless the embed model itself changes.
 
 ### Consent behavior
 

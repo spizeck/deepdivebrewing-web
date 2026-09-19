@@ -555,6 +555,16 @@ notification.** (Owner decision, #57.)
   preferences" control (`components/consent-settings-link.tsx`) reopens
   the manager. Full architecture and owner checklists:
   `docs/operations/analytics.md`.
+- **Google Maps (contextual consent, not Klaro):** the `/contact` embed is
+  click-to-load — `components/contact-map.tsx` renders an intentional
+  placeholder with **Load map** / **Get directions** actions and inserts
+  the iframe only on explicit click. The choice is component state (never
+  persisted, never reads `ddb-consent-v1`) and works whether analytics
+  consent is granted or denied — Maps is a functional embed, not an
+  analytics service, so it does not belong to Consent Mode signals.
+  `frame-src` still allows `https://www.google.com` for the embed itself;
+  the **Get directions** link is a user-initiated external navigation,
+  not an embedded frame.
 - **Custom events:** `beer_detail_view` (`BeerViewTracker` on beer detail),
   `trade_form_start/success/error` (`trade-inquiry-form`), `beer_filter`
   (`beers-filter-grid`), and outbound/CTA clicks via `TrackedLink`/

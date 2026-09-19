@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone, Mail, Clock, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ContactMap } from "@/components/contact-map";
 import { TrackedAnchor } from "@/components/tracked-link";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
@@ -156,17 +157,10 @@ export default function ContactPage() {
           </div>
         </div>
 
-        {/* Google Maps embed */}
+        {/* Google Maps embed — click-to-load so /contact sends no request to
+            Google until the visitor asks for it (see components/contact-map). */}
         <div className="rounded-xl border border-stone bg-paper p-4 md:p-5">
-          <div className="relative aspect-16/10 w-full overflow-hidden rounded-xl">
-            <iframe
-              className="absolute inset-0 h-full w-full"
-              src="https://www.google.com/maps?q=66+Fort+Bay+Road,+The+Bottom,+Saba&output=embed"
-              title="Deep Dive Brewing Co location"
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
-          </div>
+          <ContactMap />
         </div>
       </div>
 
