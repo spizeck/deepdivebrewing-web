@@ -93,9 +93,9 @@ The system creates a pending invitation. The invited person then:
 In the **Access** tab, superadmins can:
 
 - **Promote** an admin to superadmin.
-- **Demote** a superadmin to admin (not allowed if it would remove the last active superadmin). The `adminUsers` record and the custom claim are updated together; the demoted person's old token is denied as soon as the record changes, even before they re-sign in.
+- **Demote** a superadmin to admin (not allowed if it would remove the last active superadmin). The `adminUsers` record is updated first and the custom claim re-synced after — the record is rolled back if the claim update fails. The demoted person's old token is denied as soon as the record changes, even before they re-sign in.
 - **Disable** an administrator, which clears their custom claims and marks the `adminUsers` record disabled. Access stops immediately — a still-unexpired token is denied because the record is no longer active.
-- **Reactivate** a disabled administrator, which restores their previous role claim and marks the record active again.
+- **Reactivate** a disabled administrator, which marks the record active and restores the previous role claim. An unexpired token from before the disable already matches the restored record, so it can resume access on its own; a fresh sign-in still synchronizes the session with the current claims.
 - **Revoke** an administrator permanently, which clears their custom claims, revokes their refresh tokens, and marks the record disabled.
 
 > The bootstrap superadmin and the last active superadmin cannot be disabled, demoted, or revoked. This prevents accidental lockout.
@@ -104,7 +104,7 @@ In the **Access** tab, superadmins can:
 
 Custom claims are baked into the Firebase ID token when it is issued. When a superadmin changes your role, disables you, or reactivates your account, the server updates your claims and your `adminUsers` record right away — but your browser keeps the old token until it is refreshed.
 
-The live-record check means enforcement does not wait for that refresh: a token whose claims no longer match the record is denied immediately. Signing out and back in simply gives you a fresh token whose claims agree with the record again, so the dashboard can load. The dashboard will tell you when this is required.
+The live-record check means enforcement does not wait for that refresh: a token whose claims no longer match the record is denied immediately, so a demotion or disable takes effect at once. After a reactivation, an unexpired token from before the disable can even resume access on its own, because its claims already match the restored record. Either way, signing out and back in gives you a fresh token whose claims agree with the record, so the dashboard can load and show the right controls. The dashboard will tell you when this is required.
 
 ## Emergency recovery
 

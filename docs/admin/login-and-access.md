@@ -104,7 +104,7 @@ Click the **Sign out** button in the dashboard header. This signs you out of Fir
 
 ## Claim refresh
 
-Custom claims are embedded in the Firebase ID token. If a superadmin changes your role, disables your account, or reactivates it, the server updates your claims and your `adminUsers` record immediately — and enforcement is immediate too, because the record is checked live on every privileged request. You must sign out and sign back in to get a fresh token whose claims match the record again. The dashboard will prompt you to do this when needed.
+Custom claims are embedded in the Firebase ID token. If a superadmin changes your role, disables your account, or reactivates it, the server updates your claims and your `adminUsers` record right away — and enforcement is immediate too, because the record is checked live on every privileged request. A demotion or disable takes effect at once; after a reactivation, an unexpired token whose role still matches the record can resume access without waiting. Sign out and sign back in to get a fresh token that keeps your client session in sync with the current claims. The dashboard will prompt you to do this when needed.
 
 ## Troubleshooting
 
