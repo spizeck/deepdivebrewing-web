@@ -6,8 +6,8 @@ import { notFound } from "next/navigation";
 import { BeerViewTracker } from "@/components/beer-view-tracker";
 import { getBeerBySlug } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
+import { buildBeerJsonLd } from "@/lib/beer-json-ld";
 import { serializeJsonLd } from "@/lib/json-ld";
-import { siteUrl } from "@/lib/site";
 
 interface BeerDetailPageProps {
   params: Promise<{ slug: string }>;
@@ -70,76 +70,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
   const beer = await getBeerBySlug(slug);
   if (!beer) notFound();
 
-  const imageUrl = beerImageUrl(beer.images.heroPath);
-  const description = buildBeerMetaDescription(beer);
-
-  const additionalProperties: Array<Record<string, unknown>> = [
-    {
-      "@type": "PropertyValue",
-      name: "Alcohol by Volume",
-      value: beer.abv > 0 ? `${beer.abv}%` : "0%",
-      unitText: "percent",
-    },
-  ];
-
-  if (beer.ibu != null) {
-    additionalProperties.push({
-      "@type": "PropertyValue",
-      name: "International Bitterness Units",
-      value: String(beer.ibu),
-      unitText: "IBU",
-    });
-  }
-
-  if (beer.srm != null) {
-    additionalProperties.push({
-      "@type": "PropertyValue",
-      name: "Standard Reference Method",
-      value: String(beer.srm),
-      unitText: "SRM",
-    });
-  }
-
-  const beerJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    name: beer.name,
-    description,
-    image: imageUrl,
-    brand: {
-      "@type": "Brewery",
-      "@id": `${siteUrl}/#brewery`,
-      name: "Deep Dive Brewing Co",
-      url: siteUrl,
-    },
-    manufacturer: {
-      "@type": "Brewery",
-      "@id": `${siteUrl}/#brewery`,
-      name: "Deep Dive Brewing Co",
-      url: siteUrl,
-    },
-    additionalProperty: additionalProperties,
-  };
-
-  // Mirrors the visible breadcrumb nav below (Our Beers → beer name).
-  const breadcrumbJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      {
-        "@type": "ListItem",
-        position: 1,
-        name: "Our Beers",
-        item: `${siteUrl}/beers`,
-      },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name: beer.name,
-        item: `${siteUrl}/beers/${beer.slug}`,
-      },
-    ],
-  };
+  const breadcrumbJsonLd = buildBeerJsonLd(beer);
 
   return (
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
@@ -148,10 +79,6 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
         name={beer.name}
         style={beer.style}
         status={beer.status}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: serializeJsonLd(beerJsonLd) }}
       />
       <script
         type="application/ld+json"

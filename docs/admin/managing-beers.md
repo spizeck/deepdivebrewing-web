@@ -96,8 +96,13 @@ For more details about storage, caching, and troubleshooting image problems, see
 Each public beer page automatically generates:
 
 - A page title, meta description, Open Graph tags, and Twitter card.
-- `Product` structured data (JSON-LD) with name, description, image, ABV, IBU (if present), and SRM (if present).
+- `BreadcrumbList` structured data (JSON-LD) matching the visible breadcrumb.
 - Breadcrumb navigation back to `/beers`.
+
+Beer pages intentionally emit no `Product` schema: they are informational
+pages, not purchase offers, and Google's product-snippet rules require
+offers, reviews, or ratings the brewery does not have. See
+[docs/operations/seo.md](../operations/seo.md) for details.
 
 The meta description uses the beer name, style, ABV, and first tasting note. Writing a clear **Short Description** and **Style** improves search-engine snippets.
 
