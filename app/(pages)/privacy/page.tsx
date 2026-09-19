@@ -133,8 +133,12 @@ export default function PrivacyPage() {
 
       <h3>Google Maps</h3>
       <p>
-        The contact page embeds a Google Map showing where to find us. Loading the map sends your
-        request to Google, which handles that data under its own privacy policy.
+        The contact page offers an optional Google Map showing where to find us. The map is not
+        loaded until you choose &ldquo;Load map&rdquo; — visiting the page alone sends nothing to
+        Google Maps. When you do load it, your browser connects to Google, which handles that
+        request under its own privacy policy. The same applies to the &ldquo;Get directions&rdquo;
+        link: it opens Google Maps in a new tab, and once you leave our site Google&rsquo;s own
+        privacy practices apply.
       </p>
 
       <h3>Social media links</h3>

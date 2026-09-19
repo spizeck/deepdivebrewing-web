@@ -104,7 +104,9 @@ const nextConfig: NextConfig = {
               "font-src 'self'",
               "form-action 'self'",
               "frame-ancestors 'self'",
-              `frame-src 'self' https://www.google.com https://maps.google.com https://accounts.google.com ${firebaseAuthOrigin} https://www.youtube.com https://www.youtube-nocookie.com`,
+              // Google Maps only ever frames www.google.com — nothing frames
+              // maps.google.com (external Maps links are plain navigations).
+              `frame-src 'self' https://www.google.com https://accounts.google.com ${firebaseAuthOrigin} https://www.youtube.com https://www.youtube-nocookie.com`,
               "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://*.googleusercontent.com https://*.google-analytics.com https://*.googletagmanager.com https://*.gstatic.com https://va.vercel-scripts.com",
               "media-src 'self' https://firebasestorage.googleapis.com",
               "object-src 'none'",

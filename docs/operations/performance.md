@@ -111,8 +111,8 @@ re-creates the contention it solves.
   from #18) or fall back to per-request rendering anyway. Static-izing with
   a credential-tolerant `generateStaticParams` + `dynamicParams` is a
   possible follow-up, not done here.
-- **Google Maps embed** on `/contact` (~170KB third-party): already
-  `loading="lazy"`, below the fold, a business feature.
+- **Google Maps embed** on `/contact` (~170KB third-party): now click-to-load
+  (Issue #77) — zero third-party cost until the visitor requests it.
 - **GA4 gtag.js** (~155KB): already `strategy="lazyOnload"`; third-party
   cost, acceptable per scope. Analytics semantics are #24's territory.
 - **Fonts:** Inter via `next/font` (self-hosted, preloaded, 3 weights ~49KB)

@@ -73,7 +73,9 @@ For detailed steps, see [Login and access troubleshooting](../admin/login-and-ac
 
 ## Contact map blank
 
-**Visible symptom:** The `/contact` page shows an empty box where the Google Maps embed should be.
+**Visible symptom:** On `/contact`, the map stays blank or never appears **after** the visitor clicks **Load map**.
+
+Note: before that click, `/contact` intentionally shows a styled placeholder — "Find us at Fort Bay" with **Load map** and **Get directions** actions — instead of the map. That is the designed privacy behavior (the embed is click-to-load), not a failure.
 
 **Likely causes:**
 
@@ -83,13 +85,13 @@ For detailed steps, see [Login and access troubleshooting](../admin/login-and-ac
 
 **Safe diagnostic checks:**
 
-1. Open the browser console and look for CSP violations mentioning `maps.google.com` or `www.google.com`.
+1. Open the browser console and look for CSP violations mentioning `www.google.com`.
 2. Inspect the iframe element and confirm the `src` URL is `https://www.google.com/maps?q=66+Fort+Bay+Road,+The+Bottom,+Saba&output=embed`.
 3. Try loading the embed URL directly in a browser tab.
 
 **Recommended fix:**
 
-- Confirm `frame-src` in `next.config.ts` includes `https://www.google.com` and `https://maps.google.com`.
+- Confirm `frame-src` in `next.config.ts` includes `https://www.google.com`.
 - If testing on a Vercel preview protected by SSO, the automated test may not reach the page; verify with a signed-in browser session.
 - Disable privacy extensions temporarily for the site.
 

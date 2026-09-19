@@ -38,7 +38,9 @@ Run this checklist after every production deployment or after any significant co
 ## Contact map
 
 - [ ] `https://deepdivebrewing.com/contact` loads.
-- [ ] The Google Maps embed renders and shows the brewery location.
+- [ ] The map placeholder ("Find us at Fort Bay") renders — no Google Maps iframe exists before interaction.
+- [ ] Clicking **Load map** inserts the Google Maps embed, which loads and shows the brewery location.
+- [ ] **Get directions** opens Google Maps directions in a new tab.
 - [ ] WhatsApp, email, hours, and address information are correct.
 
 ## Admin login and access management
