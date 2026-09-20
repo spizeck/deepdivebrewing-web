@@ -114,6 +114,16 @@ Run this checklist after every production deployment or after any significant co
 - [ ] Confirm the site returns a styled 404 page.
 - [ ] Confirm the HTTP status is 404.
 
+## Error monitoring
+
+One-time setup (if not already done): create the Sentry project, set
+`SENTRY_DSN` in Vercel **Production** scope, and configure the alert rule —
+see [observability.md](./observability.md#error-monitoring-sentry).
+
+- [ ] `SENTRY_DSN` is set for the Production environment only.
+- [ ] A Sentry alert rule exists that notifies on new issues.
+- [ ] Vercel runtime logs still show structured JSON lines (monitoring does not replace them).
+
 ## Final steps
 
 - [ ] Note the production deployment URL and commit SHA.

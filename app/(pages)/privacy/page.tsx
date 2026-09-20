@@ -141,6 +141,14 @@ export default function PrivacyPage() {
         privacy practices apply.
       </p>
 
+      <h3>Sentry</h3>
+      <p>
+        When something goes wrong on our servers, we send a technical error report to Sentry so we
+        can find and fix the problem. These reports contain only the error and which part of the
+        site it came from — they do not include your inquiry contents, account details, cookies,
+        or other personal information, and they do not set cookies or track you.
+      </p>
+
       <h3>Social media links</h3>
       <p>
         Links to our social media profiles (Facebook, Instagram, and Untappd) are provided for your

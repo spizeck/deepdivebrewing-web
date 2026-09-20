@@ -184,6 +184,11 @@ Never log:
 - Customer or private data beyond what an operation genuinely needs
   (trade-inquiry contents, admin email addresses in unrelated logging).
 
+The same rules apply to error telemetry sent to Sentry — `lib/monitoring.ts`
+enforces them with `sendDefaultPii: false` plus an event scrubber that strips
+request headers, cookies, bodies, user context, and query strings. See
+[docs/operations/observability.md](docs/operations/observability.md).
+
 Accidental-disclosure surfaces to watch: build caches (`.next/`,
 Turbopack/webpack caches), terminal output and scrollback, CI logs,
 screenshots and screen recordings, and AI/agent transcripts. If a secret

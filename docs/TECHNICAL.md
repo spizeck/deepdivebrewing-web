@@ -623,6 +623,7 @@ Names only — never commit values. Source of truth for names:
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | Admin SDK credential | Yes for all `/api/admin/*` |
 | `FIREBASE_ADMIN_PRIVATE_KEY` | Admin SDK credential (PEM; stored with `\n` escapes) | Yes for all `/api/admin/*` |
 | `SUPER_ADMIN_EMAIL` | Bootstrap allowlist — the only email `admin/bootstrap` will promote | Yes for bootstrap |
+| `SENTRY_DSN` | Server-side error monitoring ingest (`lib/monitoring.ts`) | Optional — reporting is enabled only when this is set **and** `VERCEL_ENV=production`; preview/dev/CI never emit events |
 
 ### Operational/deployment configuration
 

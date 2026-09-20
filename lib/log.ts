@@ -8,8 +8,15 @@
 // - Context values are primitives only — never pass objects, request bodies,
 //   or records. Keys that look sensitive (token, secret, key, hook, …) are
 //   dropped defensively, but callers should simply never include them.
-// - This module is intentionally dependency-free so it is safe to import
+// - Error-level lines are also forwarded to production error monitoring
+//   (`lib/monitoring.ts`, Issue #85): logError is the curated funnel for
+//   actionable failures, so reporting here covers every call site without
+//   per-route wiring. logInfo/logWarn stay local-only.
+// - This module is intentionally dependency-free at runtime (the monitoring
+//   import is a light, lazily-loading module) so it is safe to import
 //   anywhere; it is designed for server-side use.
+import { reportError } from "@/lib/monitoring";
+
 export type LogContextValue = string | number | boolean | null;
 export type LogContext = Record<string, LogContextValue | undefined>;
 
@@ -69,10 +76,14 @@ function write(
   context?: LogContext,
   error?: unknown
 ) {
+  const safe = sanitizeContext(context ?? {});
+  // Forward actionable failures to monitoring with the already-sanitized
+  // context — sensitive keys are dropped before they can leave the process.
+  if (level === "error") reportError(event, error, safe);
   const line = {
     level,
     event,
-    ...sanitizeContext(context ?? {}),
+    ...safe,
     ...(error !== undefined ? { error: normalizeError(error) } : {}),
   };
   const output = JSON.stringify(line);
