@@ -147,6 +147,7 @@ test("sitemap.xml covers public routes only on the canonical host", async ({
 
 test("structured data blocks parse and use accurate types", async ({
   page,
+  request,
 }) => {
   const jsonLdTypes = async (route: string) => {
     await page.goto(route);
@@ -166,4 +167,14 @@ test("structured data blocks parse and use accurate types", async ({
   );
   expect(await jsonLdTypes("/contact")).toContain("Brewery");
   expect(await jsonLdTypes("/trade")).toContain("Brewery");
+
+  // Beer detail pages render only when Firestore data is available; when one
+  // exists, it must emit BreadcrumbList and never a Product candidate.
+  const sitemap = await (await request.get("/sitemap.xml")).text();
+  const beerUrl = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)]
+    .map((m) => new URL(m[1]).pathname)
+    .find((path) => /^\/beers\/[^/]+$/.test(path));
+  if (beerUrl) {
+    expect(await jsonLdTypes(beerUrl)).toEqual(["BreadcrumbList"]);
+  }
 });
