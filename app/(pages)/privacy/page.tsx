@@ -145,8 +145,10 @@ export default function PrivacyPage() {
       <p>
         When something goes wrong on our servers, we send a technical error report to Sentry so we
         can find and fix the problem. Reports are filtered before they leave our servers to remove
-        personal information — they never include inquiry contents, account details, cookies, or
-        request data, and they do not set cookies or track you.
+        sensitive content such as inquiry contents, cookies, authentication information, and
+        personal contact details. We send only the technical information needed to identify and
+        diagnose the failure — such as which page or process failed and an internal reference ID —
+        and error reports do not set cookies or track you.
       </p>
 
       <h3>Social media links</h3>

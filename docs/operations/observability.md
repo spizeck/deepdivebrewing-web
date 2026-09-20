@@ -72,8 +72,8 @@ remains available for filtering.
 Reporting is enabled only when **both** `VERCEL_ENV=production` (set by
 Vercel automatically) **and** `SENTRY_DSN` are present. Preview, dev, CI, and
 credential-free builds can never emit events — `next build` needs nothing.
-Each event is tagged with the stable `event` name and fingerprinted by it,
-so Sentry groups all occurrences of a failure mode into one issue.
+Every event retains the stable `event` tag for filtering; how issues group
+follows the fingerprint policy in "Issue grouping" above.
 
 ### Alert setup (required post-deployment step)
 
