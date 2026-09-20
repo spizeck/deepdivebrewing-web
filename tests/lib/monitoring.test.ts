@@ -2,9 +2,12 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert";
 import {
   __setReporterForTests,
+  fingerprintForEvent,
   monitoringEnabled,
   reportError,
   reportRequestError,
+  sanitizeError,
+  sanitizeErrorText,
   scrubEvent,
 } from "../../lib/monitoring";
 import { logError, logInfo, logWarn } from "../../lib/log";
@@ -131,9 +134,55 @@ describe("reportError funnel", () => {
       assert.equal(payloads.length, 1);
       assert.equal(payloads[0].event, "trade_inquiry.persistence_failed");
       assert.equal(payloads[0].error instanceof Error, true);
+      // The Sentry-bound error is the sanitized representation.
+      assert.equal(
+        (payloads[0].error as Error).message,
+        "firestore down"
+      );
       assert.equal(payloads[0].context?.requestId, "r1");
       assert.equal(payloads[0].context?.venueType, "bar");
       assert.equal(payloads[0].context?.authorization, undefined);
+    } finally {
+      consoleSpy.mock.restore();
+      __setReporterForTests(null);
+    }
+  });
+
+  it("sends only sanitized exception content for hostile provider errors", () => {
+    const payloads = captureReporter();
+    const consoleSpy = mock.method(console, "error", () => {});
+    try {
+      const providerFailure = new Error(
+        "delivery failed: smtp 550 for customer@example.com " +
+          "at https://api.resend.com/emails?api_key=re_secret_123 " +
+          "Authorization: Bearer bearer-token-value-456"
+      );
+      logError("trade_inquiry.notification_failed", providerFailure, {
+        leadId: "lead-1",
+        requestId: "req-1",
+      });
+
+      const bound = payloads[0].error as Error;
+      const serialized = `${bound.name}: ${bound.message}\n${bound.stack}`;
+      for (const sensitive of [
+        "customer@example.com",
+        "re_secret_123",
+        "api_key",
+        "bearer-token-value-456",
+      ]) {
+        assert.equal(
+          serialized.includes(sensitive),
+          false,
+          `Sentry-bound error still contains: ${sensitive}`
+        );
+      }
+      // Diagnostic identity survives.
+      assert.ok(bound.message.includes("delivery failed"));
+      assert.ok(bound.message.includes("https://api.resend.com/emails"));
+      // Correlation context (leadId/requestId) is retained — ids are chosen
+      // operational values, not customer content.
+      assert.equal(payloads[0].context?.leadId, "lead-1");
+      assert.equal(payloads[0].context?.requestId, "req-1");
     } finally {
       consoleSpy.mock.restore();
       __setReporterForTests(null);
@@ -203,6 +252,103 @@ describe("reportError funnel", () => {
   });
 });
 
+describe("sanitizeErrorText", () => {
+  it("removes emails, bearer tokens, URL queries, keys, and long tokens", () => {
+    const dirty =
+      'query for customer@example.com failed; auth Bearer super-secret-token; ' +
+      'fetch https://example.com/path?email=customer@example.com&token=secret ' +
+      'api_key=AIzaSyD4iE2xVSpkL1XLOq15n8vY qwer; ' +
+      'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlfUPjzTHs ' +
+      'token: ak_live_51H8xYzAbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd';
+
+    const clean = sanitizeErrorText(dirty);
+    for (const sensitive of [
+      "customer@example.com",
+      "super-secret-token",
+      "token=secret",
+      "email=",
+      "AIzaSyD4iE2xVSpkL1XLOq15n8vY",
+      "eyJhbGciOiJIUzI1NiJ9",
+      "ak_live_51H8xYzAbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd",
+    ]) {
+      assert.equal(
+        clean.includes(sensitive),
+        false,
+        `sanitized text still contains: ${sensitive}`
+      );
+    }
+    // Diagnostic skeleton survives: URL keeps origin+path, error context kept.
+    assert.ok(clean.includes("https://example.com/path"));
+    assert.ok(clean.includes("[redacted]"));
+    assert.ok(clean.includes("[email]"));
+  });
+
+  it("bounds excessively long messages", () => {
+    const long = `boom: ${"x".repeat(5000)}`;
+    const clean = sanitizeErrorText(long);
+    assert.ok(clean.length <= 301);
+    assert.ok(clean.startsWith("boom: "));
+  });
+});
+
+describe("sanitizeError", () => {
+  it("produces a safe Error preserving name, code, and stack shape", () => {
+    const raw = new Error(
+      "Firestore write failed for customer@example.com (Bearer tok-abc123)"
+    );
+    raw.name = "FirebaseError";
+    (raw as Error & { code?: string }).code = "permission-denied";
+
+    const safe = sanitizeError(raw);
+
+    assert.equal(safe.name, "FirebaseError");
+    assert.equal((safe as Error & { code?: string }).code, "permission-denied");
+    assert.equal(safe.message.includes("customer@example.com"), false);
+    assert.equal(safe.message.includes("tok-abc123"), false);
+    assert.ok(safe.message.includes("Firestore write failed"));
+    // Stack preserved with a sanitized first line and intact frames —
+    // Sentry can still group and locate the failure.
+    assert.ok(safe.stack!.startsWith("FirebaseError:"));
+    assert.equal(safe.stack!.includes("customer@example.com"), false);
+    assert.ok(safe.stack!.split("\n").some((l) => l.trim().startsWith("at ")));
+  });
+
+  it("sanitizes provider-style error objects and non-Error values", () => {
+    const providerError = {
+      name: "ResendError",
+      message: "send rejected for customer@example.com",
+      statusCode: 422,
+    };
+    const safe = sanitizeError(providerError);
+    assert.equal(safe.name, "ResendError");
+    assert.equal(safe.message.includes("customer@example.com"), false);
+    assert.equal((safe as Error & { code?: string }).code, "422");
+
+    const primitive = sanitizeError("plain string failure token=abc123secret");
+    assert.equal(primitive.message.includes("token=abc123secret"), false);
+  });
+});
+
+describe("fingerprintForEvent", () => {
+  it("keeps deterministic event-name grouping for curated logError events", () => {
+    for (const event of [
+      "trade_inquiry.persistence_failed",
+      "trade_inquiry.notification_failed",
+      "admin_rebuild.hook_failed",
+    ]) {
+      assert.deepEqual(fingerprintForEvent(event), [
+        "deepdivebrewing",
+        event,
+      ]);
+    }
+  });
+
+  it("does not force every uncaught exception into one issue", () => {
+    // No custom fingerprint: Sentry's normal exception grouping applies.
+    assert.equal(fingerprintForEvent("next.request_error"), undefined);
+  });
+});
+
 describe("reportRequestError", () => {
   it("reports uncaught server errors with path/method only", () => {
     const payloads = captureReporter();
@@ -217,6 +363,9 @@ describe("reportRequestError", () => {
       assert.equal(payloads[0].context?.path, "/beers/rock");
       assert.equal(payloads[0].context?.method, "GET");
       assert.equal(payloads[0].context?.routePath, "/beers/[slug]");
+      // Tag stays for filtering; grouping is not forced (see
+      // fingerprintForEvent tests) — distinct exceptions stay distinct.
+      assert.equal(fingerprintForEvent(String(payloads[0].event)), undefined);
     } finally {
       __setReporterForTests(null);
     }

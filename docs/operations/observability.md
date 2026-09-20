@@ -50,6 +50,22 @@ uncaught server render/route errors that bypass `logError`
   Log context is already key-filtered in `lib/log.ts` before it is ever
   forwarded. No tracing (`tracesSampleRate: 0`), no breadcrumbs, no session
   replay.
+- **Raw exceptions**: provider/runtime error objects are uncontrolled text —
+  they can embed emails, tokens, URLs with credentials, or customer values.
+  `sanitizeError` sends a reduced synthetic `Error` instead: name, code,
+  a message with emails/tokens/URL-queries/long-opaque-strings redacted and
+  capped at 300 chars, and a rebuilt stack whose frames (paths, function
+  names, line:column — never runtime values) are individually scrubbed. The
+  full original error still lands in Vercel logs per the logging policy.
+
+### Issue grouping
+
+Curated `logError` events fingerprint as `["deepdivebrewing", <event>]` —
+every occurrence of a failure class groups into one issue, so a "new issue"
+alert fires once per failure mode. `next.request_error` gets **no custom
+fingerprint**: uncaught exceptions group by Sentry's normal rules (type +
+sanitized stack), keeping distinct failures distinct while the `event` tag
+remains available for filtering.
 
 ### Environment behavior
 

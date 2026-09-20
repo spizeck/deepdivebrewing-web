@@ -185,8 +185,11 @@ Never log:
   (trade-inquiry contents, admin email addresses in unrelated logging).
 
 The same rules apply to error telemetry sent to Sentry — `lib/monitoring.ts`
-enforces them with `sendDefaultPii: false` plus an event scrubber that strips
-request headers, cookies, bodies, user context, and query strings. See
+enforces them with `sendDefaultPii: false`, an event scrubber that strips
+request headers/cookies/bodies/user context/query strings, and
+`sanitizeError`, which replaces raw exceptions with a reduced representation
+(sanitized name/message, scrubbed stack frames) since provider error text can
+embed customer data or secrets. See
 [docs/operations/observability.md](docs/operations/observability.md).
 
 Accidental-disclosure surfaces to watch: build caches (`.next/`,
