@@ -19,6 +19,13 @@ Sentry.init({
   sendDefaultPii: false,
   tracesSampleRate: 0,
   maxBreadcrumbs: 0,
+  integrations: (integrations) =>
+    // ProcessSession — the node-core default that starts a session on init
+    // and emits release-health session envelopes — is removed so no
+    // background telemetry is sent between exceptions.
+    integrations.filter(
+      (integration) => integration.name !== "ProcessSession"
+    ),
   beforeSend: (event) =>
     scrubEvent(
       event as unknown as Record<string, unknown>

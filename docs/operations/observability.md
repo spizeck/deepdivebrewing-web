@@ -84,6 +84,12 @@ Layout:
   and screen recording are off by construction), no profiling, and no
   performance tracing (`tracesSampleRate: 0`). Vercel Analytics/Speed
   Insights already cover performance.
+- **No release-health session tracking**: the SDK's default session
+  integrations are removed (`BrowserSession` in `instrumentation-client.ts`,
+  `ProcessSession` in `sentry.server.config.ts`), so Sentry receives error
+  events only — no session envelopes are emitted between exceptions. (SDK
+  v10 has no `autoSessionTracking` option; integration removal is the
+  supported mechanism.)
 
 ### Issue grouping
 

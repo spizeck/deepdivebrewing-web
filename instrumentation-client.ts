@@ -2,8 +2,12 @@
 // before hydration. Privacy boundary mirrors the server: no PII attachment,
 // no tracing, no Session Replay (never added to integrations), and the
 // Breadcrumbs integration is removed entirely so console/UI/network crumbs
-// are never collected rather than scrubbed after the fact. beforeSend strips
-// the page URL query, headers, user context, and frame locals regardless.
+// are never collected rather than scrubbed after the fact. BrowserSession —
+// the v10 default integration that emits release-health session envelopes on
+// page idle/hide and route change — is also removed: this app sends error
+// events only, with no background telemetry between exceptions. beforeSend
+// strips the page URL query, headers, user context, and frame locals
+// regardless.
 import * as Sentry from "@sentry/nextjs";
 import { clientMonitoringEnabled, scrubEvent } from "./lib/monitoring-shared";
 
@@ -23,7 +27,13 @@ Sentry.init({
   tracesSampleRate: 0,
   maxBreadcrumbs: 0,
   integrations: (integrations) =>
-    integrations.filter((integration) => integration.name !== "Breadcrumbs"),
+    integrations.filter(
+      (integration) =>
+        integration.name !== "Breadcrumbs" &&
+        // Release-health session tracking is opt-out via the integration,
+        // not an option — there is no `autoSessionTracking` in SDK v10.
+        integration.name !== "BrowserSession"
+    ),
   beforeSend: (event) =>
     scrubEvent(
       event as unknown as Record<string, unknown>

@@ -73,6 +73,23 @@ describe("Sentry init boundaries", () => {
     }
   });
 
+  it("removes the default session/release-health integrations on both runtimes", () => {
+    // SDK v10 has no `autoSessionTracking` option — release-health session
+    // envelopes come from default integrations: BrowserSession (browser)
+    // emits on idle/hide and route change, ProcessSession (node) starts a
+    // session at init. Both are filtered out so Sentry receives error events
+    // only, with no background telemetry between exceptions.
+    assert.ok(clientConfig.includes('integration.name !== "BrowserSession"'));
+    assert.ok(serverConfig.includes('integration.name !== "ProcessSession"'));
+    // Guard against reintroducing the removed option from older examples —
+    // it would be a silent no-op. Match only actual option usage (with a
+    // colon/assignment), not prose mentions in comments.
+    for (const src of [clientConfig, serverConfig]) {
+      assert.ok(!src.includes("autoSessionTracking:"));
+      assert.ok(!src.includes("autoSessionTracking ="));
+    }
+  });
+
   it("server register() loads the server config under the nodejs runtime", () => {
     assert.ok(instrumentation.includes('NEXT_RUNTIME === "nodejs"'));
     assert.ok(instrumentation.includes("sentry.server.config"));
