@@ -25,11 +25,11 @@ export const TOUR_INQUIRY = {
   breweryTour: {
     label: "Brewery Tour",
     message:
-      "Hi Deep Dive! I'm interested in the $20 Brewery Tour. Tours are by request — we're looking at [preferred date] for [party size] people. Is that available?",
+      "Hi Deep Dive! I'm interested in the $20 Brewery Tour. Tours are by request. We're looking at [preferred date] for [party size] people. Is that available?",
   },
   breweryTourTasting: {
     label: "Brewery Tour + Tasting",
     message:
-      "Hi Deep Dive! I'm interested in the $40 Brewery Tour + Tasting. Tours are by request — we're looking at [preferred date] for [party size] people. Is that available?",
+      "Hi Deep Dive! I'm interested in the $40 Brewery Tour + Tasting. Tours are by request. We're looking at [preferred date] for [party size] people. Is that available?",
   },
 } as const satisfies Record<string, TourInquiry>;
