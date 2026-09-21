@@ -116,11 +116,27 @@ test("contact page presents both brewery tour options with pricing", async ({
   await expect(tours.getByText(/~30 minutes/i)).toBeVisible();
   await expect(tours.getByText(/~60 minutes total/i)).toBeVisible();
 
-  // Both CTAs arrange a tour via the same WhatsApp channel.
-  for (const name of ["Arrange a brewery tour", "Arrange tour + tasting"]) {
+  // Both CTAs open the same WhatsApp number with a pre-filled inquiry naming
+  // the selected option — see lib/whatsapp.ts (Issue #87).
+  const ctas = [
+    { name: "Arrange a brewery tour", product: "Brewery Tour", price: "$20" },
+    {
+      name: "Arrange tour + tasting",
+      product: "Brewery Tour + Tasting",
+      price: "$40",
+    },
+  ];
+  for (const { name, product, price } of ctas) {
     const cta = tours.getByRole("link", { name });
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute("href", "https://wa.me/5994163544");
+    const href = await cta.getAttribute("href");
+    expect(href).toMatch(/^https:\/\/wa\.me\/5994163544\?text=.+/);
+    // One decode yields readable copy naming the option — no double encoding.
+    const message = new URL(href!).searchParams.get("text")!;
+    expect(message).toContain(product);
+    expect(message).toContain(price);
+    expect(message).toMatch(/preferred date/i);
+    expect(message).toMatch(/party size/i);
   }
 });
 
