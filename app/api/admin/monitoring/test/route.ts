@@ -1,9 +1,9 @@
-// TEMPORARY — Issue #85 production verification only.
+// TEMPORARY — Issue #85/#92 production verification only.
 // Admin-only endpoint that emits one controlled `monitoring.test_error`
 // logError event to verify the production Sentry pipeline end-to-end. It is
 // a no-op outside production (monitoring stays gated on VERCEL_ENV +
-// NEXT_RUNTIME + SENTRY_DSN) and must be removed once the production alert
-// has been confirmed. See docs/operations/observability.md.
+// NEXT_RUNTIME + a configured DSN) and must be removed once the production
+// alert has been confirmed. See docs/operations/observability.md.
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminActor } from "@/lib/admin-auth";
 import { getBearerToken } from "@/lib/api-auth";

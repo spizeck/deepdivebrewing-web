@@ -633,7 +633,11 @@ Names only — never commit values. Source of truth for names:
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | Admin SDK credential | Yes for all `/api/admin/*` |
 | `FIREBASE_ADMIN_PRIVATE_KEY` | Admin SDK credential (PEM; stored with `\n` escapes) | Yes for all `/api/admin/*` |
 | `SUPER_ADMIN_EMAIL` | Bootstrap allowlist — the only email `admin/bootstrap` will promote | Yes for bootstrap |
-| `SENTRY_DSN` | Server-side error monitoring ingest (`lib/monitoring.ts`) | Optional — reporting is enabled only when this is set **and** `VERCEL_ENV=production`; preview/dev/CI never emit events |
+| `NEXT_PUBLIC_SENTRY_DSN` | Error-monitoring ingest DSN for the server + browser SDKs (`lib/monitoring-shared.ts`); inlined into the client bundle by design — not a credential | Optional — reporting is enabled only when this is set **and** the environment is Vercel Production (`VERCEL_ENV` server-side / `NEXT_PUBLIC_VERCEL_ENV` client-side); preview/dev/CI never emit events |
+| `SENTRY_DSN` | Legacy server-only DSN — fallback during the Issue #92 cutover | Optional — remove from Vercel once `NEXT_PUBLIC_SENTRY_DSN` is verified live |
+| `SENTRY_ORG` | Sentry org slug for source-map upload (`withSentryConfig`) | Build time, Production scope — absent everywhere else |
+| `SENTRY_PROJECT` | Sentry project slug for source-map upload | Build time, Production scope |
+| `SENTRY_AUTH_TOKEN` | **Secret** — source-map upload auth (`withSentryConfig`) | Build time, Production scope; without it the upload step is disabled and builds stay inert |
 
 ### Operational/deployment configuration
 

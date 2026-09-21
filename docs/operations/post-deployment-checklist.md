@@ -117,10 +117,13 @@ Run this checklist after every production deployment or after any significant co
 ## Error monitoring
 
 One-time setup (if not already done): create the Sentry project, set
-`SENTRY_DSN` in Vercel **Production** scope, and configure the alert rule —
-see [observability.md](./observability.md#error-monitoring-sentry).
+`NEXT_PUBLIC_SENTRY_DSN` plus `SENTRY_ORG` / `SENTRY_PROJECT` /
+`SENTRY_AUTH_TOKEN` in Vercel **Production** scope, and configure the alert
+rule — see [observability.md](./observability.md#error-monitoring-sentry).
 
-- [ ] `SENTRY_DSN` is set for the Production environment only.
+- [ ] `NEXT_PUBLIC_SENTRY_DSN` is set for the Production environment only.
+- [ ] `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are set (Production scope) so source maps upload on build.
+- [ ] Legacy `SENTRY_DSN` removed from Vercel once the new DSN is verified live (it remains a code fallback until then).
 - [ ] A Sentry alert rule exists that notifies on new issues.
 - [ ] Vercel runtime logs still show structured JSON lines (monitoring does not replace them).
 

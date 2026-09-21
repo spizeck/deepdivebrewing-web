@@ -2,13 +2,14 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert";
 import {
   __setReporterForTests,
+  clientMonitoringEnabled,
   fingerprintForEvent,
   monitoringEnabled,
   reportError,
-  reportRequestError,
   sanitizeError,
   sanitizeErrorText,
   scrubEvent,
+  sentryDsn,
 } from "../../lib/monitoring";
 import { logError, logInfo, logWarn } from "../../lib/log";
 import { apiErrorResponse } from "../../lib/api-error";
@@ -41,20 +42,32 @@ describe("monitoringEnabled", () => {
       monitoringEnabled({
         VERCEL_ENV: "production",
         NEXT_RUNTIME: "nodejs",
+        NEXT_PUBLIC_SENTRY_DSN: "https://x@o0.ingest.sentry.io/1",
+      }),
+      true
+    );
+    // Legacy SENTRY_DSN still enables during the cutover.
+    assert.equal(
+      monitoringEnabled({
+        VERCEL_ENV: "production",
+        NEXT_RUNTIME: "nodejs",
         SENTRY_DSN: "https://x@o0.ingest.sentry.io/1",
       }),
       true
     );
     // Production build/prerender has VERCEL_ENV=production but no runtime.
     assert.equal(
-      monitoringEnabled({ VERCEL_ENV: "production", SENTRY_DSN: "d" }),
+      monitoringEnabled({
+        VERCEL_ENV: "production",
+        NEXT_PUBLIC_SENTRY_DSN: "d",
+      }),
       false
     );
     assert.equal(
       monitoringEnabled({
         VERCEL_ENV: "preview",
         NEXT_RUNTIME: "nodejs",
-        SENTRY_DSN: "d",
+        NEXT_PUBLIC_SENTRY_DSN: "d",
       }),
       false
     );
@@ -62,11 +75,61 @@ describe("monitoringEnabled", () => {
       monitoringEnabled({
         VERCEL_ENV: "development",
         NEXT_RUNTIME: "nodejs",
-        SENTRY_DSN: "d",
+        NEXT_PUBLIC_SENTRY_DSN: "d",
       }),
       false
     );
     assert.equal(monitoringEnabled({}), false);
+  });
+});
+
+describe("sentryDsn", () => {
+  it("prefers NEXT_PUBLIC_SENTRY_DSN and falls back to legacy SENTRY_DSN", () => {
+    assert.equal(
+      sentryDsn({ NEXT_PUBLIC_SENTRY_DSN: "new", SENTRY_DSN: "old" }),
+      "new"
+    );
+    assert.equal(sentryDsn({ SENTRY_DSN: "old" }), "old");
+    assert.equal(sentryDsn({}), undefined);
+  });
+});
+
+describe("clientMonitoringEnabled", () => {
+  it("reports only when the public DSN exists on a production Vercel build", () => {
+    assert.equal(
+      clientMonitoringEnabled({
+        NEXT_PUBLIC_SENTRY_DSN: "d",
+        NEXT_PUBLIC_VERCEL_ENV: "production",
+      }),
+      true
+    );
+    // Preview builds get NEXT_PUBLIC_VERCEL_ENV=preview — off even if the
+    // DSN were ever scoped too broadly.
+    assert.equal(
+      clientMonitoringEnabled({
+        NEXT_PUBLIC_SENTRY_DSN: "d",
+        NEXT_PUBLIC_VERCEL_ENV: "preview",
+      }),
+      false
+    );
+    // Local dev / CI / local next start: no Vercel env vars → inert.
+    assert.equal(
+      clientMonitoringEnabled({ NEXT_PUBLIC_SENTRY_DSN: "d" }),
+      false
+    );
+    assert.equal(
+      clientMonitoringEnabled({ NEXT_PUBLIC_VERCEL_ENV: "production" }),
+      false
+    );
+    assert.equal(clientMonitoringEnabled({}), false);
+    // The legacy server-only DSN never enables the browser SDK.
+    assert.equal(
+      clientMonitoringEnabled({
+        SENTRY_DSN: "d",
+        NEXT_PUBLIC_VERCEL_ENV: "production",
+      }),
+      false
+    );
   });
 });
 
@@ -111,6 +174,71 @@ describe("scrubEvent", () => {
     assert.equal(scrubbed.extra.leadId, "l9");
     assert.equal(scrubbed.extra.api_key, undefined);
     assert.equal(scrubbed.tags.event, "trade_inquiry.unexpected");
+  });
+
+  it("strips query strings from browser-style events and nextjs request_path", () => {
+    const event = {
+      // Shape produced by the browser SDK for a page error.
+      request: {
+        url: "https://deepdivebrewing.com/admin?invite_token=abc123#frag",
+        headers: { Referer: "https://deepdivebrewing.com/?token=x" },
+      },
+      contexts: {
+        nextjs: { request_path: "/api/x?secret=1", route_type: "route" },
+        browser: { name: "Chrome" },
+      },
+      user: { ip_address: "203.0.113.7" },
+    };
+
+    const scrubbed = scrubEvent(event) as {
+      request: Record<string, unknown>;
+      contexts: { nextjs: Record<string, unknown> };
+    };
+    assert.equal(
+      scrubbed.request.url,
+      "https://deepdivebrewing.com/admin"
+    );
+    assert.equal(scrubbed.request.headers, undefined);
+    assert.equal(scrubbed.contexts.nextjs.request_path, "/api/x");
+    assert.equal(scrubbed.contexts.nextjs.route_type, "route");
+    assert.equal((scrubbed as Record<string, unknown>).user, undefined);
+  });
+
+  it("removes stack-frame local variables (may embed customer data)", () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: "send failed for customer@example.com",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "app/api/trade-inquiry/route.ts",
+                  function: "POST",
+                  vars: { email: "customer@example.com", token: "abc" },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    const scrubbed = scrubEvent(event) as {
+      exception: {
+        values: Array<{
+          value: string;
+          stacktrace: { frames: Array<Record<string, unknown>> };
+        }>;
+      };
+    };
+    const frame = scrubbed.exception.values[0].stacktrace.frames[0];
+    assert.equal(frame.vars, undefined);
+    assert.equal(
+      scrubbed.exception.values[0].value.includes("customer@example.com"),
+      false
+    );
   });
 });
 
@@ -342,32 +470,9 @@ describe("fingerprintForEvent", () => {
       ]);
     }
   });
-
-  it("does not force every uncaught exception into one issue", () => {
-    // No custom fingerprint: Sentry's normal exception grouping applies.
-    assert.equal(fingerprintForEvent("next.request_error"), undefined);
-  });
 });
 
-describe("reportRequestError", () => {
-  it("reports uncaught server errors with path/method only", () => {
-    const payloads = captureReporter();
-    try {
-      reportRequestError(
-        new Error("render blew up"),
-        { path: "/beers/rock", method: "GET" },
-        { routerKind: "App Router", routePath: "/beers/[slug]", routeType: "render" }
-      );
-      assert.equal(payloads.length, 1);
-      assert.equal(payloads[0].event, "next.request_error");
-      assert.equal(payloads[0].context?.path, "/beers/rock");
-      assert.equal(payloads[0].context?.method, "GET");
-      assert.equal(payloads[0].context?.routePath, "/beers/[slug]");
-      // Tag stays for filtering; grouping is not forced (see
-      // fingerprintForEvent tests) — distinct exceptions stay distinct.
-      assert.equal(fingerprintForEvent(String(payloads[0].event)), undefined);
-    } finally {
-      __setReporterForTests(null);
-    }
-  });
-});
+// Uncaught server errors no longer flow through the curated funnel:
+// instrumentation.ts onRequestError delegates to Sentry.captureRequestError
+// (tagged `event: next.request_error`), so SDK-native grouping keeps
+// distinct exceptions distinct. See smoke-tests and sentry-config.test.ts.

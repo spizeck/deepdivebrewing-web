@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
+import { withSentryConfig } from "@sentry/nextjs/config";
 // tsconfig path aliases are not resolved inside next.config — keep this
 // import relative.
 import { siteUrl } from "./lib/site";
@@ -9,6 +10,19 @@ const firebaseAuthDomain =
 const firebaseAuthOrigin = firebaseAuthDomain.startsWith("http")
   ? firebaseAuthDomain
   : `https://${firebaseAuthDomain}`;
+
+// The browser SDK sends events to the ingest origin embedded in the public
+// DSN. Deriving the CSP entry from the configured DSN keeps connect-src to
+// exactly one Sentry origin — and adds nothing when the DSN is unset
+// (local dev, CI, previews).
+const sentryIngestOrigin = (() => {
+  try {
+    const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+    return dsn ? new URL(dsn).origin : null;
+  } catch {
+    return null;
+  }
+})();
 
 const versionedCacheHeaders = [
   {
@@ -100,7 +114,7 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              `connect-src 'self' ${siteUrl} https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://apis.google.com https://accounts.google.com https://firebasestorage.googleapis.com https://*.firebaseio.com https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com`,
+              `connect-src 'self' ${siteUrl} https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://apis.google.com https://accounts.google.com https://firebasestorage.googleapis.com https://*.firebaseio.com https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com${sentryIngestOrigin ? ` ${sentryIngestOrigin}` : ""}`,
               "font-src 'self'",
               "form-action 'self'",
               "frame-ancestors 'self'",
@@ -143,4 +157,28 @@ const nextConfig: NextConfig = {
 
 const withMDX = createMDX({});
 
-export default withMDX(nextConfig);
+// Sentry build integration (Issue #92): uploads production source maps so
+// minified stack traces symbolicate, and stamps the release. Credentials
+// come from the environment — SENTRY_ORG/SENTRY_PROJECT/SENTRY_AUTH_TOKEN
+// (Vercel Production scope). Without an auth token the upload is disabled
+// entirely, keeping credential-free local/CI/preview builds inert; the
+// auth token is build-time only and never enters the client bundle.
+// deleteSourcemapsAfterUpload keeps the maps out of the publicly served
+// assets after upload.
+export default withSentryConfig(withMDX(nextConfig), {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  // Release matches the runtime release (VERCEL_GIT_COMMIT_SHA /
+  // NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA) so events and maps line up.
+  release: process.env.VERCEL_GIT_COMMIT_SHA
+    ? { name: process.env.VERCEL_GIT_COMMIT_SHA }
+    : undefined,
+  telemetry: false,
+  silent: true,
+  sourcemaps: {
+    disable: !process.env.SENTRY_AUTH_TOKEN,
+    deleteSourcemapsAfterUpload: true,
+  },
+  widenClientFileUpload: true,
+});

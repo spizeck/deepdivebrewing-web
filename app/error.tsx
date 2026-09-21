@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 import Link from "next/link";
 import { SiteHeaderDefault } from "@/components/site-header-default";
@@ -8,7 +9,10 @@ import { Button } from "@/components/ui/button";
 // Root error boundary: an unhandled render error in any page lands here with
 // the site chrome intact instead of the bare framework error screen. The
 // digest is logged so a user report can be matched to the server-side entry
-// in Vercel logs; nothing sensitive is rendered or logged.
+// in Vercel logs; nothing sensitive is rendered or logged. The client-side
+// capture reports errors that only exist in the browser (post-hydration
+// render failures); server-side instances of the same failure are already
+// captured by onRequestError and group separately.
 export default function Error({
   error,
   reset,
@@ -22,6 +26,9 @@ export default function Error({
       error.digest ?? "none",
       error.message
     );
+    Sentry.captureException(error, {
+      extra: { digest: error.digest ?? null },
+    });
   }, [error]);
 
   return (
