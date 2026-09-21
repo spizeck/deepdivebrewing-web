@@ -137,7 +137,7 @@ moving it into `lib/` or API routes without an explicit issue.
 | `/` | `app/page.tsx` | Server (static) | `beers` collection via `getBeers()` | Home page; hero, featured beer/carousel, intro, brewery/CTA sections. |
 | `/beers` | `app/(pages)/beers/page.tsx` | Server (static) | `beers` via `getBeers()` | Catalog grid; `BeersFilterGrid` (client) provides filtering. |
 | `/beers/[slug]` | `app/(pages)/beers/[slug]/page.tsx` | Server (**dynamic**, no `generateStaticParams`) | `beers` via `getBeerBySlug(slug)` | Beer detail; `generateMetadata` per slug, JSON-LD, `BeerViewTracker` (client) emits `beer_detail_view`; 404 via `notFound()`. |
-| `/where-to-buy` | `app/(pages)/where-to-buy/page.tsx` | Server (static) | `venues` + `beers` | Venue list grouped by island (Saba, SXM, Statia normalization in `islandDisplayName`), `VenueCard` entries. |
+| `/where-to-buy` | `app/(pages)/where-to-buy/page.tsx` | Server (static) | `venues` + `beers` | Venue list grouped by island (Saba, SXM, Statia normalization in `lib/venue-filters.ts`), `VenueCard` entries, client-side beer/format/island filtering via `VenueDirectory` (URL-mirrored `?beer=&format=&island=` state). |
 | `/about` | `app/(pages)/about/page.mdx` | Server (static) | none | MDX content styled by `mdx-components.tsx`. |
 | `/contact` | `app/(pages)/contact/page.tsx` | Server (static) | none | Contact details; `TrackedAnchor` for click analytics. |
 | `/trade` | `app/(pages)/trade/page.tsx` | Server (static) | none | Wholesale/trade page hosting `TradeInquiryForm` (client). See the `/trade` note below. |
@@ -146,7 +146,7 @@ moving it into `lib/` or API routes without an explicit issue.
 | `/admin` | `app/(pages)/admin/page.tsx` | Server wrapper (`robots: noindex`) rendering the client `AdminDashboard` | Auth state, `beers`, `venues`, `meta/siteRebuild`, Storage | Admin dashboard. Auth checks happen client-side; real enforcement is in rules + APIs. |
 | `/api/admin/*` | `app/api/admin/**` | Server (dynamic) | Admin SDK: Auth, Firestore | Bootstrap, `me`, users list/create-invitation, user patch/delete, invitation accept/resend, rebuild trigger. |
 | `/api/trade-inquiry` | `app/api/trade-inquiry/route.ts` | Server (dynamic) | Resend | Validates the form payload and emails it; see §11. |
-| `/sitemap.xml`, `/robots.txt` | `app/sitemap.ts`, `app/robots.ts` | Server (static — generated at build) | `beers` | SEO metadata routes; sitemap enumerates beer slugs at build time (empty without credentials — deterministic). robots.txt disallows `/admin`, `/admin-fixture`, `/trade/*` placeholders, and `/api/`; see `docs/operations/seo.md`. Favicons are static files in `public/` referenced from `app/layout.tsx` metadata. |
+| `/sitemap.xml`, `/robots.txt` | `app/sitemap.ts`, `app/robots.ts` | Server (static — generated at build) | `beers` | SEO metadata routes; sitemap enumerates beer slugs at build time (empty without credentials — deterministic). robots.txt disallows `/admin`, `/admin-fixture`, `/where-to-buy-fixture`, `/trade/*` placeholders, and `/api/`; see `docs/operations/seo.md`. Favicons are static files in `public/` referenced from `app/layout.tsx` metadata. |
 
 ### The `/trade` route: single canonical `page.tsx`
 
@@ -438,7 +438,17 @@ server-side.
   ordered by `sortOrder`. `/where-to-buy` groups by `locationName` with island
   normalization (Saba / SXM / Statia), maps `carriesBeerSlugs`/`tapBeerSlugs`/
   `canBeerSlugs` to beer names, and renders `VenueCard` entries with their
-  `links` and `notesPublic`.
+  `links` and `notesPublic`. `VenueDirectory` (`components/venue-directory.tsx`)
+  is a client component that filters the server-rendered list — logic lives in
+  the Firebase-free `lib/venue-filters.ts`: categories combine with AND,
+  `beer` matches any of the three slug lists, `format` (`tap`/`can`) checks the
+  matching list (for the selected beer when one is chosen), and `island`
+  matches the canonical island key. Filter state mirrors the
+  `?beer=&format=&island=` query string; stale/invalid values are dropped
+  safely. Controls are data-driven — the beer select only lists public beers a
+  listed venue carries, the format chips appear only when format data exists,
+  and the island select only when multiple islands are present. These fields
+  describe a listing, not live inventory — the page says so.
 - **Images:** stored in Firebase Storage; documents persist path strings
   (`images.cardPath`/`heroPath`) resolved to public URLs at render time
   (`beerImageUrl`).
@@ -700,7 +710,10 @@ either. No secrets or placeholder values exist anywhere in CI.
   `AdminAccessPanel` components with fixture data and Playwright-mocked
   `/api/admin/*` calls; axe scans each tab and assertions cover record-list
   `aria-current`, required markers, status announcements, named confirm
-  dialogs, and per-row accessible names. See
+  dialogs, and per-row accessible names. `smoke-tests/where-to-buy-filters.spec.ts`
+  covers the venue filters via `/where-to-buy-fixture` — the same env-gated
+  pattern (`WHERE_TO_BUY_FIXTURE`) rendering `VenueDirectory` against
+  deterministic records from `lib/where-to-buy-fixture.ts`. See
   [`docs/operations/accessibility.md`](./operations/accessibility.md).
 - **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
   (`screenshot-check`, `overflow-check`, `hero-video-*`),

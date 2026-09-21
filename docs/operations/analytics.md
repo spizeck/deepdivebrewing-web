@@ -113,7 +113,7 @@ in `lib/analytics.ts` — TypeScript rejects unlisted names at the call site.
 | --- | --- | --- | --- |
 | `page_view` | Landing + each SPA navigation (app-pushed) | `page_path` | page view |
 | `beer_detail_view` | Beer detail page mounts (`BeerViewTracker`) | `beer_slug`, `beer_name`, `beer_style`, `beer_status` | engagement |
-| `beer_filter` | `/beers` filter button click | `filter`, `cta_location` | engagement |
+| `beer_filter` | `/beers` status filter click; `/where-to-buy` filter change | `filter`, `cta_location`, `event_label` (facet: `beer`/`format`/`island`/`clear`), `beer_slug`/`island` when applicable | engagement |
 | `where_to_buy_click` | CTA that navigates to `/where-to-buy` (homepage hero, homepage teaser, beer detail) | `event_label`, `cta_location`, `beer_*` on beer detail | intent |
 | `retailer_click` | Venue **Website** link on `/where-to-buy` | `venue_slug`, `island`, `venue_type` | intent |
 | `directions_click` | Venue **Directions** link on `/where-to-buy`; **Get directions** link in the `/contact` Location item | `venue_slug`, `island`, `venue_type` (venue links); `event_label`, `cta_location` (`/contact`) | intent |
@@ -130,7 +130,9 @@ in `lib/analytics.ts` — TypeScript rejects unlisted names at the call site.
 - `cta_location`: `homepage_hero`, `homepage_where_to_find_us`,
   `beer_detail_page`, `beers_page`, `where_to_buy_page`, `contact_page`,
   `trade_page`, `footer`, `header`. Do not invent new values casually.
-- `filter`: `all` | `core` | `seasonal` | `limited`.
+- `filter`: `all` | `core` | `seasonal` | `limited` on `/beers`; on
+  `/where-to-buy`, the selected value (`all`, a beer slug, `tap`, `can`, or
+  an island key) with the facet named in `event_label`.
 - `social_network`: `facebook` | `instagram` | `untappd`.
 - Identifiers are stable slugs/types (`beer_slug`, `venue_slug`,
   `venue_type`, `island`) — never free-form content.

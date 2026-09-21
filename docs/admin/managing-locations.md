@@ -73,6 +73,7 @@ Examples:
 - Inside each group, venues are sorted by **Sort Order**.
 - Each venue card shows the name, type badge, public notes, and the beers listed under **On Tap** and **In Can**.
 - Links for Website, Directions, Instagram, and Facebook appear when those fields are filled.
+- Visitors can filter the list by **Beer**, **Format** (On Tap / In Can), and — when venues span more than one island — **Island**. The beer filter only lists beers that at least one public venue carries; the format and island filters read the same **On Tap**, **In Can**, and **Location Name** fields described above, so keeping them accurate keeps the filters useful. These lists describe what a venue is known to carry — they are not live stock counts.
 
 ## Making Directions links work reliably
 
