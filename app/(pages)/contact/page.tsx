@@ -6,6 +6,7 @@ import { ContactMap } from "@/components/contact-map";
 import { TrackedAnchor } from "@/components/tracked-link";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
+import { TOUR_INQUIRY, whatsappUrl } from "@/lib/whatsapp";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -198,12 +199,12 @@ export default function ContactPage() {
               className="mt-5 h-11 min-h-[44px] px-6"
             >
               <Link
-                href="https://wa.me/5994163544"
+                href={whatsappUrl(TOUR_INQUIRY.breweryTour.message)}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-analytics-event="tour_inquiry_click"
                 data-analytics-event-category="conversion"
-                data-analytics-event-label="Brewery Tour"
+                data-analytics-event-label={TOUR_INQUIRY.breweryTour.label}
                 data-analytics-cta-location="contact_page_tours"
               >
                 Arrange a brewery tour
@@ -234,12 +235,12 @@ export default function ContactPage() {
             </p>
             <Button asChild className="mt-5 h-11 min-h-[44px] px-6">
               <Link
-                href="https://wa.me/5994163544"
+                href={whatsappUrl(TOUR_INQUIRY.breweryTourTasting.message)}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-analytics-event="tour_inquiry_click"
                 data-analytics-event-category="conversion"
-                data-analytics-event-label="Brewery Tour + Tasting"
+                data-analytics-event-label={TOUR_INQUIRY.breweryTourTasting.label}
                 data-analytics-cta-location="contact_page_tours"
               >
                 Arrange tour + tasting
