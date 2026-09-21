@@ -105,6 +105,19 @@ stack and provider details.
   temporarily unset `RESEND_API_KEY` and submit the trade form (the lead
   persists, notification fails, `trade_inquiry.notification_failed` appears
   in Sentry). Never point CI or preview deploys at the production project.
+- **TEMPORARY verification endpoint** (remove after the production alert is
+  confirmed): `POST /api/admin/monitoring/test` — admin-only (the standard
+  `requireAdminActor` bearer-token check; anonymous calls get 401). It emits
+  one `monitoring.test_error` `logError` whose synthetic `Error` carries fake
+  sensitive values (a test email, bearer token, URL query, opaque token), so
+  the resulting Sentry issue proves sanitization as well as delivery and
+  alerting. It is a silent no-op outside production (the normal
+  `VERCEL_ENV`/`NEXT_RUNTIME`/`SENTRY_DSN` gate still applies). To verify:
+  sign in to `/admin`, copy your ID token, and POST with
+  `Authorization: Bearer <token>`; expect `{ "ok": true }`, one
+  `monitoring.test_error` line in Vercel logs, one new Sentry issue, and one
+  alert. Then remove the route, `lib/monitoring-test.ts`, its test, and this
+  note in a cleanup PR.
 
 ### If Sentry is unavailable or misconfigured
 
