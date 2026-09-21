@@ -93,6 +93,56 @@ test("contact page renders contact actions", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("contact page has no horizontal overflow and keeps content visible at small widths", async ({
+  page,
+}) => {
+  // Representative narrow mobile and tablet widths — the layout must never
+  // force horizontal scrolling or hide the primary contact actions.
+  for (const width of [320, 375, 768]) {
+    await page.setViewportSize({ width, height: 812 });
+    await page.goto("/contact");
+
+    const scrollOverflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth
+    );
+    expect(scrollOverflow).toBeLessThanOrEqual(0);
+
+    await expect(
+      page.getByRole("link", { name: /\+599-416-3544/ })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /info@deepdivebrewing\.com/i })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Get directions" })
+    ).toBeVisible();
+    await expect(page.getByText("66 Fort Bay Road").first()).toBeVisible();
+    await expect(
+      page.getByText(/Monday to Friday, 8:00 AM to 3:00 PM/)
+    ).toBeVisible();
+  }
+});
+
+test("contact email stays on one line at supported mobile widths", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto("/contact");
+
+  const email = page.getByRole("link", {
+    name: /info@deepdivebrewing\.com/i,
+  });
+  await expect(email).toBeVisible();
+
+  // The link carries a 44px touch target; a mid-address wrap would push the
+  // box well past a single line's height.
+  const box = await email.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.height).toBeLessThanOrEqual(48);
+});
+
 test("contact page presents both brewery tour options with pricing", async ({
   page,
 }) => {

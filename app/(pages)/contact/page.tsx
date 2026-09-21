@@ -8,6 +8,12 @@ import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
 import { TOUR_INQUIRY, whatsappUrl } from "@/lib/whatsapp";
 
+// User-initiated external navigation — opens Google Maps directions in a new
+// tab. No third-party content is loaded into this page; the embedded map has
+// its own click-to-load boundary in components/contact-map.tsx.
+const DIRECTIONS_URL =
+  "https://www.google.com/maps/dir/?api=1&destination=66+Fort+Bay+Road,+The+Bottom,+Saba";
+
 export const metadata: Metadata = {
   title: "Contact",
   description:
@@ -92,15 +98,21 @@ export default function ContactPage() {
         </p>
       </div>
 
-      <div className="grid gap-12 lg:grid-cols-2">
+      {/* Contact details + map share one bordered panel so the section reads
+          as a single composition. The map column stretches to the info
+          column's height on desktop, so the loaded map never leaves dead
+          space beneath it. */}
+      <div className="grid divide-y divide-stone overflow-hidden rounded-xl border border-stone bg-paper lg:grid-cols-5 lg:divide-x lg:divide-y-0">
         {/* Contact info */}
-        <div className="grid content-start gap-6 sm:grid-cols-2">
+        <ul className="grid content-start gap-8 p-6 sm:p-8 md:grid-cols-2 lg:col-span-2 lg:grid-cols-1">
           {/* WhatsApp */}
-          <div className="rounded-lg border border-stone bg-paper p-5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
-              <Phone className="h-5 w-5 text-ink" aria-hidden="true" />
+          <li>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
+                <Phone className="h-5 w-5 text-ink" aria-hidden="true" />
+              </div>
+              <h2 className="font-semibold">WhatsApp</h2>
             </div>
-            <h2 className="mt-4 font-semibold">WhatsApp</h2>
             <TrackedAnchor
               href="https://wa.me/5994163544"
               eventName="whatsapp_click"
@@ -111,17 +123,21 @@ export default function ContactPage() {
             >
               +599-416-3544
             </TrackedAnchor>
-          </div>
+          </li>
 
-          {/* Email */}
-          <div className="rounded-lg border border-stone bg-paper p-5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
-              <Mail className="h-5 w-5 text-ink" aria-hidden="true" />
+          {/* Email — break-words (not break-all) keeps the address on one
+              line whenever it fits and only breaks as a last resort on
+              ultra-narrow screens, instead of splitting mid-domain. */}
+          <li>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
+                <Mail className="h-5 w-5 text-ink" aria-hidden="true" />
+              </div>
+              <h2 className="font-semibold">Email</h2>
             </div>
-            <h2 className="mt-4 font-semibold">Email</h2>
             <Link
               href="mailto:info@deepdivebrewing.com"
-              className="mt-1 inline-flex min-h-[44px] items-center break-all text-sm text-ocean transition-opacity duration-200 hover:opacity-85"
+              className="mt-1 inline-flex min-h-[44px] items-center break-words text-ocean transition-opacity duration-200 hover:opacity-85"
               data-analytics-event="email_click"
               data-analytics-event-category="contact"
               data-analytics-cta-location="contact_page"
@@ -129,14 +145,16 @@ export default function ContactPage() {
             >
               info@deepdivebrewing.com
             </Link>
-          </div>
+          </li>
 
           {/* Hours */}
-          <div className="rounded-lg border border-stone bg-paper p-5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
-              <Clock className="h-5 w-5 text-ink" aria-hidden="true" />
+          <li>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
+                <Clock className="h-5 w-5 text-ink" aria-hidden="true" />
+              </div>
+              <h2 className="font-semibold">Hours</h2>
             </div>
-            <h2 className="mt-4 font-semibold">Hours</h2>
             <p className="mt-1 text-muted-foreground">
               Typically open Monday to Friday, 8:00 AM to 3:00 PM.
             </p>
@@ -144,28 +162,46 @@ export default function ContactPage() {
               Hours can vary. If the brewery is locked, check in with{" "}
               <span className="font-medium text-ink">Sea Saba</span> next door.
             </p>
-          </div>
+          </li>
 
-          {/* Location */}
-          <div className="rounded-lg border border-stone bg-paper p-5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone/50">
-              <MapPin className="h-5 w-5 text-ink" aria-hidden="true" />
+          {/* Location — Get directions lives here (not inside the map
+              placeholder) so it stays available before AND after the
+              embedded map is loaded. Same analytics contract as before. */}
+          <li>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone/50">
+                <MapPin className="h-5 w-5 text-ink" aria-hidden="true" />
+              </div>
+              <h2 className="font-semibold">Location</h2>
             </div>
-            <h2 className="mt-4 font-semibold">Location</h2>
             <p className="mt-1 text-muted-foreground">
-              66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands
+              66 Fort Bay Road
+              <br />
+              The Bottom, Saba, Caribbean Netherlands
             </p>
-          </div>
-        </div>
+            <a
+              href={DIRECTIONS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-analytics-event="directions_click"
+              data-analytics-event-category="conversion"
+              data-analytics-event-label="Directions"
+              data-analytics-cta-location="contact_page"
+              className="inline-flex min-h-[44px] items-center text-ocean transition-opacity duration-200 hover:opacity-85"
+            >
+              Get directions
+            </a>
+          </li>
+        </ul>
 
         {/* Google Maps embed — click-to-load so /contact sends no request to
             Google until the visitor asks for it (see components/contact-map). */}
-        <div className="rounded-xl border border-stone bg-paper p-4 md:p-5">
-          <ContactMap />
-        </div>
+        <ContactMap className="lg:col-span-3" />
       </div>
 
-      {/* Brewery tours — editorial two-option comparison, not pricing cards */}
+      {/* Brewery tours — editorial two-option comparison, not pricing cards.
+          The shared panel echoes the contact panel above so the transition
+          into tours reads as part of the same page rhythm. */}
       <section className="mt-16 border-t border-stone pt-16" aria-labelledby="brewery-tours">
         <h2 id="brewery-tours" className="text-3xl font-bold tracking-tight">
           Brewery Tours
@@ -175,9 +211,9 @@ export default function ContactPage() {
           a WhatsApp message and we&rsquo;ll find a time that works.
         </p>
 
-        <div className="mt-10 grid max-w-220 gap-10 md:grid-cols-2 md:gap-0">
+        <div className="mt-10 grid divide-y divide-stone overflow-hidden rounded-xl border border-stone bg-paper md:grid-cols-2 md:divide-x md:divide-y-0">
           {/* Tour only */}
-          <div className="md:pr-12">
+          <div className="p-6 sm:p-8">
             <h3 className="text-lg font-semibold tracking-tight">
               Brewery Tour
             </h3>
@@ -213,7 +249,7 @@ export default function ContactPage() {
           </div>
 
           {/* Tour + tasting */}
-          <div className="border-t border-stone pt-8 md:border-l md:border-t-0 md:pl-12 md:pt-0">
+          <div className="p-6 sm:p-8">
             <p className="text-xs font-semibold uppercase tracking-wider text-moss">
               Stay for a taste
             </p>
