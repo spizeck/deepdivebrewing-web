@@ -1,4 +1,4 @@
-// TEMPORARY — Issue #85 production verification only.
+// TEMPORARY — Issue #85/#92 production verification only.
 // Emits one controlled logError event through the normal monitoring funnel
 // so the owner can verify the production pipeline end-to-end:
 // admin request → logError → sanitizeError → Sentry issue → alert.

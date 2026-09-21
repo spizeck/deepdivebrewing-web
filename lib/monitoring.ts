@@ -1,4 +1,4 @@
-// Production error monitoring (Issue #85): server-side Sentry capture.
+// Production error monitoring (Issues #85, #92): the curated server funnel.
 //
 // Architecture:
 // - `lib/log.ts`'s `logError` is the curated funnel — every actionable
@@ -7,110 +7,47 @@
 //   routine 4xx/validation/denial paths never call it. `write()` reports
 //   error-level lines here, so all current and future `logError` call sites
 //   are covered without per-route wiring.
-// - `instrumentation.ts` `onRequestError` reports uncaught server render /
-//   route-handler errors (which bypass logError) via `reportRequestError`.
-// - `initMonitoring` initializes the SDK from `instrumentation.ts`
-//   `register()` — no `withSentryConfig`, no client bundle, no CSP changes:
-//   the browser never talks to Sentry.
+// - `instrumentation.ts` `register()` loads `sentry.server.config.ts`
+//   (nodejs runtime) which runs `Sentry.init`; `instrumentation-client.ts`
+//   initializes the browser SDK. `onRequestError` delegates to
+//   `Sentry.captureRequestError` so uncaught server render/route errors
+//   (which bypass logError) reach Sentry with full request context —
+//   sanitized by the shared `beforeSend` (`scrubEvent` in
+//   `lib/monitoring-shared.ts`).
+// - `next.config.ts` wraps the config with `withSentryConfig` for release
+//   and source-map upload (build-time, Production only).
 //
 // Hard guarantees:
-// - Disabled unless VERCEL_ENV=production AND SENTRY_DSN is set; preview,
-//   dev, CI, and credential-free builds can never emit events.
+// - Disabled unless VERCEL_ENV=production AND a DSN is set; preview, dev,
+//   CI, and credential-free builds can never emit events. The `enabled`
+//   flag (not "don't init") keeps stray capture calls silent no-ops.
 // - Never throws and never blocks a request: reporting is fire-and-forget,
 //   every failure is swallowed, and the flush is bounded. A Sentry outage
 //   cannot affect customer or admin workflows.
 // - Privacy: sendDefaultPii=false and scrubEvent strips request headers,
-//   cookies, bodies, user context, and query strings from every event.
+//   cookies, bodies, user context, query strings, breadcrumbs, and frame
+//   locals from every event — on server and browser alike.
 import type { LogContext, LogContextValue } from "@/lib/log";
+import { monitoringEnabled, sanitizeError } from "@/lib/monitoring-shared";
+
+// Re-exported so existing imports/tests keep working — the canonical home
+// for these helpers is monitoring-shared (shared with the browser bundle).
+export {
+  clientMonitoringEnabled,
+  monitoringEnabled,
+  sanitizeError,
+  sanitizeErrorText,
+  scrubEvent,
+  sentryDsn,
+} from "@/lib/monitoring-shared";
 
 const FLUSH_TIMEOUT_MS = 2000;
-// Event name used for uncaught server errors reported via instrumentation's
-// onRequestError hook. Unlike curated logError events it is deliberately
-// NOT fingerprinted — distinct exceptions must form distinct Sentry issues.
-const REQUEST_ERROR_EVENT = "next.request_error";
-const MAX_ERROR_TEXT_LENGTH = 300;
 
 // Mirrors the defensive key filter in lib/log.ts — duplicated here (rather
 // than imported) to keep this module free of a runtime dependency on the
 // logging module it is called from.
 const SENSITIVE_KEY =
   /authorization|cookie|token|secret|password|credential|private|api[-_]?key|deploy[-_]?hook/i;
-
-// Scrubs sensitive material out of free-text error content (exception
-// messages, error names, stack lines) before it can leave the process.
-// Provider and runtime exceptions are uncontrolled text: they can embed
-// emails, bearer tokens, URLs with query params, API keys, or customer
-// values. Bounded to keep Sentry payloads small.
-export function sanitizeErrorText(text: string): string {
-  const sanitized = text
-    // URLs: keep origin + path (route-level diagnosis), drop query/fragment
-    // where customer values actually live.
-    .replace(
-      /https?:\/\/[^\s"'<>()[\]]+/g,
-      (url) => url.split(/[?#]/)[0]
-    )
-    // Bearer / authorization tokens.
-    .replace(/\b(bearer|authorization)\s+[^\s"'<>]+/gi, "$1 [redacted]")
-    // Email addresses.
-    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "[email]")
-    // key=value / key: value secrets (api_key, token, secret, …).
-    .replace(
-      /\b(api[-_]?key|token|secret|password|credential|deploy[-_]?hook)\s*[=:]\s*[^\s"'<>]+/gi,
-      "$1=[redacted]"
-    )
-    // JWTs (three base64url segments starting with eyJ).
-    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/g, "[redacted]")
-    // Other long opaque tokens/keys/ids — a 32+ char unbroken run is never
-    // a human-readable word worth preserving.
-    .replace(/\b[\w-]{32,}\b/g, "[redacted]");
-  return sanitized.length > MAX_ERROR_TEXT_LENGTH
-    ? `${sanitized.slice(0, MAX_ERROR_TEXT_LENGTH)}…`
-    : sanitized;
-}
-
-// Produces the error representation sent to Sentry. The raw exception is
-// never forwarded: its message, name, and stack can carry customer data or
-// secrets, while Vercel logs already keep the full detail for operators.
-//
-// Stacks are preserved (with the same text scrubbing applied per line):
-// V8 stack frames are file paths, function names, and line:column — not
-// runtime values — so they stay useful for grouping/diagnosis. The stack's
-// first line embeds the raw message, so it is rebuilt from the sanitized
-// parts rather than kept verbatim.
-export function sanitizeError(error: unknown): Error {
-  const source =
-    error instanceof Error || (typeof error === "object" && error !== null)
-      ? (error as Error & { code?: unknown; statusCode?: unknown })
-      : null;
-
-  const name = sanitizeErrorText(
-    String(source?.name || "Error")
-  ).slice(0, 100);
-  const message = sanitizeErrorText(
-    source ? String(source.message ?? error) : String(error)
-  );
-  const code = source?.code ?? source?.statusCode;
-
-  const safe = new Error(message);
-  safe.name = name;
-  if (code !== undefined && (typeof code === "string" || typeof code === "number")) {
-    (safe as Error & { code?: string }).code = String(code);
-  }
-
-  if (source?.stack) {
-    // Rebuild: first line from sanitized name+message, frame lines scrubbed
-    // individually (frames are paths/functions, but they are still
-    // uncontrolled text — e.g. eval'd code names).
-    const frames = source.stack
-      .split("\n")
-      .slice(1)
-      .filter((line) => line.trimStart().startsWith("at "))
-      .map((line) => sanitizeErrorText(line));
-    safe.stack = [`${name}: ${message}`, ...frames].join("\n");
-  }
-
-  return safe;
-}
 
 interface MonitorPayload {
   event: string;
@@ -127,18 +64,6 @@ interface SentryLike {
 }
 
 let sentryPromise: Promise<SentryLike | null> | null = null;
-
-export function monitoringEnabled(
-  env: Record<string, string | undefined> = process.env
-): boolean {
-  // NEXT_RUNTIME is set only while serving requests — this also excludes
-  // `next build`/prerender, where VERCEL_ENV=production on Vercel too.
-  return (
-    env.VERCEL_ENV === "production" &&
-    env.NEXT_RUNTIME === "nodejs" &&
-    Boolean(env.SENTRY_DSN)
-  );
-}
 
 async function getSentry(): Promise<SentryLike | null> {
   sentryPromise ??= import("@sentry/nextjs")
@@ -159,72 +84,15 @@ function sanitizeContext(
   return safe;
 }
 
-// Strips anything a Sentry SDK may attach that this app's privacy rules
-// forbid: request headers/cookies/body (auth tokens, inquiry contents),
-// user context, query strings, and breadcrumbs. Applied as `beforeSend` in
-// initMonitoring and kept pure so unit tests can exercise it directly.
-export function scrubEvent(
-  event: Record<string, unknown>
-): Record<string, unknown> {
-  const scrubbed = { ...event };
-
-  delete scrubbed.user;
-  delete scrubbed.breadcrumbs;
-
-  const request = scrubbed.request;
-  if (request && typeof request === "object") {
-    const req = { ...(request as Record<string, unknown>) };
-    delete req.headers;
-    delete req.cookies;
-    delete req.data;
-    delete req.query_string;
-    if (typeof req.url === "string") {
-      // Keep origin + path; drop the query/fragment (can carry form params).
-      req.url = req.url.split("?")[0].split("#")[0];
-    }
-    scrubbed.request = req;
-  }
-
-  const extra = scrubbed.extra;
-  if (extra && typeof extra === "object") {
-    const clean: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(extra)) {
-      if (!SENSITIVE_KEY.test(key)) clean[key] = value;
-    }
-    scrubbed.extra = clean;
-  }
-
-  // Defense in depth: exceptions are sanitized before capture, but scrub the
-  // serialized values here too in case a future capture path bypasses
-  // sanitizeError.
-  const exception = scrubbed.exception;
-  if (exception && typeof exception === "object") {
-    const values = (exception as { values?: unknown }).values;
-    if (Array.isArray(values)) {
-      for (const value of values) {
-        if (value && typeof value === "object") {
-          const v = value as { type?: unknown; value?: unknown };
-          if (typeof v.type === "string") v.type = sanitizeErrorText(v.type);
-          if (typeof v.value === "string") v.value = sanitizeErrorText(v.value);
-        }
-      }
-    }
-  }
-
-  return scrubbed;
-}
-
 // Fingerprint policy: curated logError events get a stable event-name
 // fingerprint so all occurrences of one failure class group into a single
-// Sentry issue (alert-once semantics). Uncaught request errors get NO custom
-// fingerprint — Sentry's normal exception grouping (type + sanitized stack)
-// must distinguish genuinely different failures; only the `event` tag is
-// shared for filtering. Never fingerprint on request URLs, query strings,
-// customer values, or other high-cardinality/user-controlled data.
-export function fingerprintForEvent(event: string): string[] | undefined {
-  return event === REQUEST_ERROR_EVENT
-    ? undefined
-    : ["deepdivebrewing", event];
+// Sentry issue (alert-once semantics). Uncaught request errors reported via
+// onRequestError get NO custom fingerprint — Sentry's normal exception
+// grouping must keep genuinely different failures distinct. Never
+// fingerprint on request URLs, query strings, customer values, or other
+// high-cardinality/user-controlled data.
+export function fingerprintForEvent(event: string): string[] {
+  return ["deepdivebrewing", event];
 }
 
 async function deliver(payload: MonitorPayload): Promise<void> {
@@ -294,49 +162,5 @@ export function reportError(
     });
   } catch {
     // Reporting must never surface into the request path.
-  }
-}
-
-// Uncaught server errors (render, RSC, route handlers) arrive here from
-// instrumentation.ts's onRequestError hook — they bypass logError, so this
-// is their reporting path. Only path/method/route info is attached; request
-// headers/cookies/body are deliberately never touched.
-export function reportRequestError(
-  error: unknown,
-  request: { path: string; method: string },
-  context: { routerKind?: string; routePath?: string; routeType?: string }
-): void {
-  reportError(REQUEST_ERROR_EVENT, error, {
-    // Path is user-controlled text — scrub it like exception content.
-    path: sanitizeErrorText(request.path),
-    method: request.method,
-    routerKind: context.routerKind ?? null,
-    routePath: context.routePath ?? null,
-    routeType: context.routeType ?? null,
-  });
-}
-
-export async function initMonitoring(): Promise<void> {
-  try {
-    const Sentry = await import("@sentry/nextjs");
-    Sentry.init({
-      dsn: process.env.SENTRY_DSN,
-      // `enabled` (not "don't init") so capture calls in preview/dev/CI are
-      // silent no-ops rather than SDK warnings.
-      enabled: monitoringEnabled(),
-      environment: process.env.VERCEL_ENV ?? "development",
-      release: process.env.VERCEL_GIT_COMMIT_SHA,
-      // Privacy floor: no IP/user/cookie association, no performance
-      // tracing, no breadcrumbs — we send curated failure events only.
-      sendDefaultPii: false,
-      tracesSampleRate: 0,
-      maxBreadcrumbs: 0,
-      beforeSend: (event) =>
-        scrubEvent(
-          event as unknown as Record<string, unknown>
-        ) as unknown as typeof event,
-    });
-  } catch {
-    // Monitoring must never break application startup.
   }
 }
