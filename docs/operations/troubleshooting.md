@@ -75,7 +75,7 @@ For detailed steps, see [Login and access troubleshooting](../admin/login-and-ac
 
 **Visible symptom:** On `/contact`, the map stays blank or never appears **after** the visitor clicks **Load map**.
 
-Note: before that click, `/contact` intentionally shows a styled placeholder — "Find us at Fort Bay" with **Load map** and **Get directions** actions — instead of the map. That is the designed privacy behavior (the embed is click-to-load), not a failure.
+Note: before that click, `/contact` intentionally shows a styled placeholder — "Find us at Fort Bay" with a **Load map** action — instead of the map. That is the designed privacy behavior (the embed is click-to-load), not a failure. **Get directions** is always available under the Location contact details, with or without the embedded map.
 
 **Likely causes:**
 

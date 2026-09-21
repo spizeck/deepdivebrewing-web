@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MapPin } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 // Contextual consent boundary (Issue #77): the Google Maps embed is never
 // rendered into the page until the visitor explicitly asks for it. That keeps
@@ -12,21 +13,28 @@ import { MapPin } from "lucide-react";
 const MAP_EMBED_URL =
   "https://www.google.com/maps?q=66+Fort+Bay+Road,+The+Bottom,+Saba&output=embed";
 
-// User-initiated external navigation — opens Google Maps directions in a new
-// tab. No third-party content is loaded into this page.
-const DIRECTIONS_URL =
-  "https://www.google.com/maps/dir/?api=1&destination=66+Fort+Bay+Road,+The+Bottom,+Saba";
+interface ContactMapProps {
+  // Grid placement is owned by the page layout (e.g. "lg:col-span-3").
+  className?: string;
+}
 
-export function ContactMap() {
+export function ContactMap({ className }: ContactMapProps) {
   const [mapRequested, setMapRequested] = useState(false);
 
-  // Both states fill the same box, so swapping placeholder → iframe cannot
-  // shift the layout. sm:aspect-16/10 matches the previous embed's shape on
-  // larger screens; on narrow screens a fixed min-height stands in — an
-  // aspect ratio combined with min-height transfers into a min-width that
-  // would overflow small viewports.
+  // Sizing: on lg+ the page's grid stretches this cell to the contact-info
+  // column's height, so placeholder and iframe both fill the panel — no dead
+  // space beneath the map. Below lg the map sits in a stacked row: a fixed
+  // min-height on narrow screens (aspect + min-height transfers into a
+  // min-width that would overflow small viewports), then a 16:9 ratio once
+  // there's room. lg:min-h-80 floors the stretched height if the info column
+  // is ever shorter.
   return (
-    <div className="relative min-h-64 w-full overflow-hidden rounded-xl sm:aspect-16/10">
+    <div
+      className={cn(
+        "relative min-h-72 w-full overflow-hidden sm:aspect-video lg:aspect-auto lg:min-h-80",
+        className
+      )}
+    >
       {mapRequested ? (
         <iframe
           className="absolute inset-0 h-full w-full"
@@ -36,7 +44,7 @@ export function ContactMap() {
           referrerPolicy="no-referrer-when-downgrade"
         />
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-stone/40 px-4 text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-stone/40 px-4 py-6 text-center">
           <MapPin className="h-5 w-5 text-ink" aria-hidden="true" />
           <p className="font-semibold tracking-tight">Find us at Fort Bay</p>
           <p className="text-sm text-muted-foreground">
@@ -45,27 +53,13 @@ export function ContactMap() {
           <p className="text-sm text-muted-foreground">
             Want the interactive map? Load it when you need it.
           </p>
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => setMapRequested(true)}
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-opacity duration-200 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50"
-            >
-              Load map
-            </button>
-            <a
-              href={DIRECTIONS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-analytics-event="directions_click"
-              data-analytics-event-category="conversion"
-              data-analytics-event-label="Directions"
-              data-analytics-cta-location="contact_page"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ocean/50"
-            >
-              Get directions
-            </a>
-          </div>
+          <button
+            type="button"
+            onClick={() => setMapRequested(true)}
+            className="mt-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-opacity duration-200 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50"
+          >
+            Load map
+          </button>
           <p className="text-xs text-muted-foreground">
             Loading the map connects your browser to Google.
           </p>
