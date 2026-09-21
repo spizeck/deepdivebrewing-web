@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { getVenues } from "@/lib/venues";
 import { getBeers } from "@/lib/beers";
-import { VenueCard } from "@/components/venue-card";
+import { VenueDirectory } from "@/components/venue-directory";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
-import type { Venue } from "@/lib/types";
+import { carriedBeerOptions, distinctIslands } from "@/lib/venue-filters";
 
 export const metadata: Metadata = {
   title: "Where to Buy",
@@ -45,40 +45,12 @@ export const metadata: Metadata = {
   },
 };
 
-function groupByIsland(venues: Venue[]): Record<string, Venue[]> {
-  return venues.reduce<Record<string, Venue[]>>((acc, venue) => {
-    const island = venue.locationName || "Saba";
-    acc[island] = acc[island] ?? [];
-    acc[island].push(venue);
-    return acc;
-  }, {});
-}
-
-function islandDisplayName(island: string): string {
-  const normalized = island.trim().toLowerCase();
-  if (normalized === "sxm" || normalized.includes("maarten") || normalized.includes("martin")) {
-    return "Sint Maarten / Saint Martin / SXM";
-  }
-  if (normalized.includes("statia") || normalized.includes("eustatius")) {
-    return "Sint Eustatius / Statia";
-  }
-  // Capitalize first letter for Saba or any other value.
-  return island.charAt(0).toUpperCase() + island.slice(1);
-}
-
 export default async function WhereToBuyPage() {
   const [venues, beers] = await Promise.all([getVenues(), getBeers()]);
   const beerNameBySlug = Object.fromEntries(beers.map((beer) => [beer.slug, beer.name]));
-  const byIsland = groupByIsland(venues);
-  const islands = Object.keys(byIsland).sort();
-  const hasSxm = islands.some((island) => {
-    const normalized = island.trim().toLowerCase();
-    return (
-      normalized === "sxm" ||
-      normalized.includes("maarten") ||
-      normalized.includes("martin")
-    );
-  });
+  const beerOptions = carriedBeerOptions(venues, beers);
+  const islands = distinctIslands(venues);
+  const hasSxm = islands.includes("sxm");
 
   const faqJsonLd = {
     "@context": "https://schema.org",
@@ -172,26 +144,19 @@ export default async function WhereToBuyPage() {
         </ul>
       </section>
 
-      {islands.map((island) => (
-        <section key={island} className="mb-12">
-          <h2 className="mb-6 text-2xl font-bold tracking-tight">
-            {islandDisplayName(island)}
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {byIsland[island].map((venue: Venue) => (
-              <VenueCard key={venue.slug} venue={venue} beerNameBySlug={beerNameBySlug} />
-            ))}
-          </div>
-        </section>
-      ))}
-
-      {islands.length === 0 && (
+      {venues.length === 0 ? (
         <section className="mb-12 rounded-lg border border-stone bg-stone/20 p-5">
           <p className="text-muted-foreground">
             No partner locations are listed right now. Please check back soon or
             contact us directly.
           </p>
         </section>
+      ) : (
+        <VenueDirectory
+          venues={venues}
+          beerNameBySlug={beerNameBySlug}
+          beerOptions={beerOptions}
+        />
       )}
 
       <section className="mt-12 rounded-lg border border-stone bg-paper p-6">

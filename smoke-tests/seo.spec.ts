@@ -78,11 +78,13 @@ test("key pages expose Open Graph and Twitter metadata on the canonical host", a
 });
 
 test("private and placeholder routes are marked noindex", async ({ page }) => {
-  // /admin-fixture renders only under its server-side test flag (enabled by
-  // the smoke webServer); either way it must never be indexable.
+  // /admin-fixture and /where-to-buy-fixture render only under their
+  // server-side test flags (enabled by the smoke webServer); either way they
+  // must never be indexable.
   for (const route of [
     "/admin",
     "/admin-fixture",
+    "/where-to-buy-fixture",
     "/trade/login",
     "/trade/order",
     "/trade/orders",
@@ -112,6 +114,7 @@ test("robots.txt disallows private surfaces and advertises the canonical sitemap
   for (const path of [
     "/admin",
     "/admin-fixture",
+    "/where-to-buy-fixture",
     "/trade/login",
     "/api/",
   ]) {
@@ -131,6 +134,7 @@ test("sitemap.xml covers public routes only on the canonical host", async ({
   for (const forbidden of [
     "/admin",
     "/admin-fixture",
+    "/where-to-buy-fixture",
     "/trade/login",
     "/trade/order",
     "/trade/orders",
