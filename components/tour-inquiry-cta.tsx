@@ -10,9 +10,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { trackEvent } from "@/lib/analytics";
+import { TourDatePicker } from "@/components/tour-date-picker";
+import { toIsoDate } from "@/lib/calendar";
 import {
   TOUR_PRODUCTS,
   buildTourInquiryMessage,
+  parseCalendarDate,
   todayCalendarDate,
   validateTourInquiry,
   whatsappUrl,
@@ -55,7 +58,6 @@ export function TourInquiryCta({
   const [attempted, setAttempted] = useState(false);
 
   const today = todayCalendarDate();
-  const todayIso = `${today.year}-${String(today.month).padStart(2, "0")}-${String(today.day).padStart(2, "0")}`;
 
   const validation = validateTourInquiry({ date, partySize }, today);
   const errors = attempted && !validation.ok ? validation.errors : {};
@@ -73,8 +75,11 @@ export function TourInquiryCta({
 
   function handleContinue() {
     setAttempted(true);
-    if (!validation.ok) {
-      const firstInvalid = validation.errors.date ? dateId : partySizeId;
+    // Re-validate against the real "now" — the render-time `today` could be
+    // a minute stale if the modal sat open across midnight.
+    const result = validateTourInquiry({ date, partySize });
+    if (!result.ok) {
+      const firstInvalid = result.errors.date ? dateId : partySizeId;
       document.getElementById(firstInvalid)?.focus();
       return;
     }
@@ -84,7 +89,7 @@ export function TourInquiryCta({
       event_label: product.label,
     });
     window.open(
-      whatsappUrl(buildTourInquiryMessage(product, validation.value)),
+      whatsappUrl(buildTourInquiryMessage(product, result.value)),
       "_blank",
       "noopener,noreferrer"
     );
@@ -125,16 +130,13 @@ export function TourInquiryCta({
             >
               Preferred date
             </label>
-            <input
+            <TourDatePicker
               id={dateId}
-              type="date"
-              required
-              min={todayIso}
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              aria-invalid={errors.date != null}
-              aria-describedby={errors.date != null ? dateErrorId : undefined}
-              className={inputClass}
+              value={parseCalendarDate(date)}
+              onChange={(day) => setDate(toIsoDate(day))}
+              min={today}
+              invalid={errors.date != null}
+              describedBy={errors.date != null ? dateErrorId : undefined}
             />
             {errors.date != null && (
               <p

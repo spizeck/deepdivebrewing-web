@@ -264,11 +264,16 @@ test("tour CTAs on /contact fire tour_inquiry_click only on handoff", async ({
     0
   );
 
-  const future = new Date();
-  future.setDate(future.getDate() + 30);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const iso = `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(future.getDate())}`;
-  await dialog.getByLabel("Preferred date").fill(iso);
+  // The date field is a calendar picker — select today (always enabled).
+  await dialog.getByLabel("Preferred date").click();
+  const todayLabel = new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  await dialog
+    .getByRole("button", { name: todayLabel, exact: true })
+    .click();
   await dialog.getByLabel("Party size").fill("2");
 
   // Continue opens WhatsApp in a popup; trackEvent fires on this document.
