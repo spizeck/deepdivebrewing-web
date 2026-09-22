@@ -7,6 +7,7 @@ import {
   AdminAccessPanel,
   type AdminPanelUser,
 } from "@/components/admin-access";
+import { AdminMonitoringTest } from "@/components/admin-monitoring-test";
 import type { Beer, Venue } from "@/lib/types";
 
 export interface RebuildMeta {
@@ -193,6 +194,10 @@ export function AdminWorkspace({
           </p>
         )}
       </div>
+
+      {/* TEMPORARY (Issue #92): browser Sentry verification — remove with
+          the server monitoring probe after production confirmation. */}
+      <AdminMonitoringTest />
 
       <Tabs defaultValue="beers">
         <div className="flex flex-wrap items-center gap-2">

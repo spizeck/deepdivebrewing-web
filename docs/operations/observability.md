@@ -189,6 +189,17 @@ counterpart — that is the gap this integration fills.
   `monitoring.test_error` line in Vercel logs, one new Sentry issue, and one
   alert. Then remove the route, `lib/monitoring-test.ts`, its test, and this
   note in a cleanup PR.
+- **TEMPORARY browser verification** (remove after the production browser
+  event is confirmed): the admin dashboard contains a "Monitoring
+  diagnostics (temporary)" card with a *Send browser Sentry test* button.
+  It captures one synthetic `Error` (fake email/bearer/URL-query/opaque
+  token) through the already-initialized browser SDK — same production gate
+  and `beforeSend` scrubbing as real errors — tagged
+  `verification=browser-monitoring-test`, then flushes. Expect a new Sentry
+  issue with the probe values redacted, `environment=production`, the
+  production release, and no user attached. Then remove
+  `components/admin-monitoring-test.tsx`, its `AdminWorkspace` usage, and
+  its test in the same cleanup PR.
 
 ### Post-deployment verification (Issue #92 cutover)
 
