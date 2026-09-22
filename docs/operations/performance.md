@@ -105,12 +105,12 @@ re-creates the contention it solves.
   desktop without reduced-motion — it never competes with initial load.
   A lower-bitrate re-encode is a content/quality decision for the owner,
   not an engineering default.
-- **`/beers/[slug]` is dynamic** (ƒ, server-rendered per request): beer
-  slugs come from Firestore, and `generateStaticParams` would either require
-  credentials at build time (violating the credential-free build guarantee
-  from #18) or fall back to per-request rendering anyway. Static-izing with
-  a credential-tolerant `generateStaticParams` + `dynamicParams` is a
-  possible follow-up, not done here.
+- **`/beers/[slug]` is now static** (Issue #104): `generateStaticParams`
+  enumerates build-time slugs with `dynamicParams = false`, reading via
+  `getDocsFromServer` so a backend failure throws and fails the build
+  instead of silently falling back to an empty offline cache. A genuinely
+  empty public catalog remains a valid result, and credential-free builds
+  without Firebase config still generate zero params.
 - **Google Maps embed** on `/contact` (~170KB third-party): now click-to-load
   (Issue #77) — zero third-party cost until the visitor requests it.
 - **GA4 gtag.js** (~155KB): already `strategy="lazyOnload"`; third-party
