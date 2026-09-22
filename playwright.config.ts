@@ -19,6 +19,13 @@ export default defineConfig({
     baseURL: `http://localhost:${port}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    // Simulate TLS: production requests always arrive with
+    // x-forwarded-proto=https. On plain-HTTP `next start`, paths that match
+    // a static route pattern but were not generated (dynamicParams=false)
+    // re-dispatch internally as proto=http and hit the canonical
+    // HTTP→HTTPS redirect in next.config.ts — sending browsers to the real
+    // production domain mid-test. Declaring https keeps misses local.
+    extraHTTPHeaders: { "x-forwarded-proto": "https" },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

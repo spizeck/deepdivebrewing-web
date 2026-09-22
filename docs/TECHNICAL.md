@@ -58,10 +58,12 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   `mobile-menu.tsx`, `site-header-default.tsx`, and the home-page intro/CTA
   components.
 - **Rendering model.** The production build output marks every page static
-  (`○`) — including `/admin` and `/sitemap.xml` — except `/beers/[slug]` and
-  all `/api/*` routes, which are dynamic (`ƒ`). Because there is no
-  `generateStaticParams` for beer detail pages, each beer slug page is rendered
-  on demand at request time.
+  (`○`) — including `/admin` and `/sitemap.xml` — except all `/api/*`
+  routes, which are dynamic (`ƒ`). Beer detail pages are generated at build
+  time via `generateStaticParams` (`getBeerStaticParams` in `lib/beers.ts`)
+  with `dynamicParams = false`: only slugs known at build time exist, and
+  unknown slugs 404 without a render. A newly published beer becomes
+  reachable after the normal deploy-hook rebuild.
 - **Static generation reads live Firestore.** `getBeers()` / `getVenues()` use
   the Firebase *client* SDK, so `next build` performs real Firestore reads
   against the configured project during prerendering. If reads fail (denied,
@@ -69,6 +71,10 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   logs errors, falls back to offline mode, and the pages still build with
   empty states — see `lib/beers.ts` and `lib/venues.ts` and the Firestore
   `INVALID_ARGUMENT`/`permission-denied` warnings observed in build logs.
+  Beer detail pages add one safeguard (`resolveBeerStaticParams`): when
+  Firebase *is* configured but the catalog comes back empty, the build fails
+  rather than deploying zero beer pages — empty is only accepted when no
+  Firebase config is present (CI/credential-free builds).
 - **Node runtime.** The repository is normalized on **Node 24** (active LTS):
   `.nvmrc` declares `24` and is the single source of truth — CI reads it via
   `actions/setup-node`'s `node-version-file`, `package.json` declares
@@ -136,7 +142,7 @@ moving it into `lib/` or API routes without an explicit issue.
 | --- | --- | --- | --- | --- |
 | `/` | `app/page.tsx` | Server (static) | `beers` collection via `getBeers()` | Home page; hero, featured beer/carousel, intro, brewery/CTA sections. |
 | `/beers` | `app/(pages)/beers/page.tsx` | Server (static) | `beers` via `getBeers()` | Catalog grid; `BeersFilterGrid` (client) provides filtering. |
-| `/beers/[slug]` | `app/(pages)/beers/[slug]/page.tsx` | Server (**dynamic**, no `generateStaticParams`) | `beers` via `getBeerBySlug(slug)` | Beer detail; `generateMetadata` per slug, JSON-LD, `BeerViewTracker` (client) emits `beer_detail_view`; 404 via `notFound()`. |
+| `/beers/[slug]` | `app/(pages)/beers/[slug]/page.tsx` | Server (**static**, `generateStaticParams` + `dynamicParams = false`) | `beers` via `getBeerBySlug(slug)` at build time | Beer detail; `generateMetadata` per slug, JSON-LD, `BeerViewTracker` (client) emits `beer_detail_view`; unknown slugs 404. |
 | `/where-to-buy` | `app/(pages)/where-to-buy/page.tsx` | Server (static) | `venues` + `beers` | Venue list grouped by island (Saba, SXM, Statia normalization in `lib/venue-filters.ts`), `VenueCard` entries, client-side beer/format/island filtering via `VenueDirectory` (URL-mirrored `?beer=&format=&island=` state). |
 | `/about` | `app/(pages)/about/page.mdx` | Server (static) | none | MDX content styled by `mdx-components.tsx`. |
 | `/contact` | `app/(pages)/contact/page.tsx` | Server (static) | none | Contact details; `TrackedAnchor` for click analytics. |

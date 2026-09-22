@@ -19,6 +19,18 @@ function getFirebaseConfig() {
   };
 }
 
+/**
+ * True when the public Firebase web config is present in the environment.
+ * Used to distinguish "intentionally unconfigured" builds (CI, local
+ * without .env.local — Firestore reads resolve empty by design) from
+ * "configured but the catalog came back empty" builds, which indicates a
+ * failure rather than an empty brewery.
+ */
+export function hasFirebaseConfig(): boolean {
+  const config = getFirebaseConfig();
+  return Boolean(config.apiKey && config.projectId && config.appId);
+}
+
 let app: FirebaseApp | undefined;
 let dbInstance: Firestore | undefined;
 let authInstance: Auth | undefined;

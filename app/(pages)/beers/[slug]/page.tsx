@@ -4,10 +4,19 @@ import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { notFound } from "next/navigation";
 import { BeerViewTracker } from "@/components/beer-view-tracker";
-import { getBeerBySlug } from "@/lib/beers";
+import { getBeerBySlug, getBeerStaticParams } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
 import { buildBeerJsonLd } from "@/lib/beer-json-ld";
 import { serializeJsonLd } from "@/lib/json-ld";
+
+// Beer detail pages are statically generated for the slugs known at build
+// time; a brand-new beer becomes reachable after the normal deploy-hook
+// rebuild. Unknown slugs are never rendered on demand — they 404.
+export const dynamicParams = false;
+
+export async function generateStaticParams() {
+  return getBeerStaticParams();
+}
 
 interface BeerDetailPageProps {
   params: Promise<{ slug: string }>;
