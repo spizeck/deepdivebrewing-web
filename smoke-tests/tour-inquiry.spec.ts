@@ -366,6 +366,81 @@ test("reopening for the other product shows it with a fresh form", async ({
   await expect(tastingDialog.getByLabel("Party size")).toHaveValue("");
 });
 
+// Issue #108: the calendar used to render as a floating popover inside the
+// dialog's transformed, overflow-y-auto box — it extended the scrollable
+// overflow, so opening it added a scrollbar and clipped the grid. The panel
+// is in-flow now; these tests pin the calendar-open layout contract.
+test("the open calendar does not scroll the dialog on a desktop viewport", async ({
+  page,
+}) => {
+  // 720px is a normal-but-constrained laptop height.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/contact");
+  await page
+    .getByRole("button", { name: "Arrange a brewery tour" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Brewery Tour" });
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByLabel("Preferred date").click();
+  const grid = dialog.getByRole("grid");
+  await expect(grid).toBeVisible();
+
+  // Worst case is a six-week month — find one so the assertion does not
+  // depend on which month the suite happens to run in.
+  const rows = dialog.locator('[role="row"]');
+  const nextMonth = dialog.getByRole("button", { name: "Next month" });
+  for (let i = 0; i < 12 && (await rows.count()) - 1 < 6; i++) {
+    await nextMonth.click();
+  }
+  expect((await rows.count()) - 1).toBe(6);
+
+  // The calendar sits directly beneath its field, and every other control
+  // stays in the visible dialog — nothing is pushed behind a scrollbar.
+  const fieldBox = await dialog.getByLabel("Preferred date").boundingBox();
+  const gridBox = await grid.boundingBox();
+  expect(gridBox!.y).toBeGreaterThanOrEqual(
+    fieldBox!.y + fieldBox!.height - 1
+  );
+  await expect(dialog.getByLabel("Party size")).toBeInViewport();
+  await expect(
+    dialog.getByRole("button", { name: "Continue to WhatsApp" })
+  ).toBeInViewport();
+
+  const scrolls = await dialog.evaluate(
+    (el) => el.scrollHeight > el.clientHeight + 1
+  );
+  expect(scrolls).toBe(false);
+  const overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth
+  );
+  expect(overflows).toBe(false);
+});
+
+test("a genuinely short viewport still leaves every control reachable", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await page.goto("/contact");
+  await page
+    .getByRole("button", { name: "Arrange a brewery tour" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Brewery Tour" });
+  await dialog.getByLabel("Preferred date").click();
+  await expect(dialog.getByRole("grid")).toBeVisible();
+
+  // Internal scrolling is the accepted fallback at this height — every
+  // control just has to remain reachable inside it.
+  const partySize = dialog.getByLabel("Party size");
+  const submit = dialog.getByRole("button", { name: "Continue to WhatsApp" });
+  await partySize.scrollIntoViewIfNeeded();
+  await expect(partySize).toBeInViewport();
+  await expect(partySize).toBeEnabled();
+  await submit.scrollIntoViewIfNeeded();
+  await expect(submit).toBeInViewport();
+  await expect(submit).toBeEnabled();
+});
+
 test("the open dialog has no serious accessibility violations", async ({
   page,
 }) => {
