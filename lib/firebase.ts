@@ -21,10 +21,10 @@ function getFirebaseConfig() {
 
 /**
  * True when the public Firebase web config is present in the environment.
- * Used to distinguish "intentionally unconfigured" builds (CI, local
- * without .env.local — Firestore reads resolve empty by design) from
- * "configured but the catalog came back empty" builds, which indicates a
- * failure rather than an empty brewery.
+ * Distinguishes intentionally unconfigured builds (CI, local without
+ * .env.local) from configured builds where Firestore should be contacted.
+ * It says nothing about the result: a successful empty catalog is valid;
+ * configured server-read failures are handled by the caller.
  */
 export function hasFirebaseConfig(): boolean {
   const config = getFirebaseConfig();
