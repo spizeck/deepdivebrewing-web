@@ -94,16 +94,14 @@ export function sanitizeError(error: unknown): Error {
 }
 
 /**
- * The ingest DSN. `NEXT_PUBLIC_SENTRY_DSN` is the canonical variable — it is
- * inlined into the browser bundle at build time and read at runtime on the
- * server. `SENTRY_DSN` remains accepted during the Issue #92 cutover so the
- * previously configured variable keeps working until it is removed; drop
- * this fallback after production verification.
+ * The ingest DSN. `NEXT_PUBLIC_SENTRY_DSN` is the single canonical variable —
+ * it is inlined into the browser bundle at build time and read at runtime on
+ * the server.
  */
 export function sentryDsn(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
-  return env.NEXT_PUBLIC_SENTRY_DSN ?? env.SENTRY_DSN;
+  return env.NEXT_PUBLIC_SENTRY_DSN;
 }
 
 /**

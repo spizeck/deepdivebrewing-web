@@ -128,7 +128,6 @@ Vercel environment variables (Production scope):
 | `SENTRY_ORG` | Build time | Org slug for source-map upload (shared team value). |
 | `SENTRY_PROJECT` | Build time | Project slug for source-map upload. |
 | `SENTRY_AUTH_TOKEN` | Build time — **secret** | Auth for source-map upload. Never exposed to the client bundle, logs, or docs. |
-| `SENTRY_DSN` | Legacy — remove after cutover | Pre-#92 server-only variable. Still honored as a fallback so nothing breaks if it outlives the migration; remove it from Vercel once `NEXT_PUBLIC_SENTRY_DSN` is verified live. |
 
 Source maps: `withSentryConfig` uploads maps during `next build` when
 `SENTRY_AUTH_TOKEN` is present and deletes them from the served output, so
@@ -176,49 +175,6 @@ counterpart — that is the gap this integration fills.
   locally, `npm run build && npm run start`, open the site, and throw from
   DevTools (`setTimeout(() => { throw new Error("monitoring probe") })`) —
   an uncaught exception is captured without any app code.
-- **TEMPORARY verification endpoint** (remove after the production alert is
-  confirmed): `POST /api/admin/monitoring/test` — admin-only (the standard
-  `requireAdminActor` bearer-token check; anonymous calls get 401). It emits
-  one `monitoring.test_error` `logError` whose synthetic `Error` carries fake
-  sensitive values (a test email, bearer token, URL query, opaque token), so
-  the resulting Sentry issue proves sanitization as well as delivery and
-  alerting. It is a silent no-op outside production (the normal
-  `VERCEL_ENV`/DSN gate still applies). To verify:
-  sign in to `/admin`, copy your ID token, and POST with
-  `Authorization: Bearer <token>`; expect `{ "ok": true }`, one
-  `monitoring.test_error` line in Vercel logs, one new Sentry issue, and one
-  alert. Then remove the route, `lib/monitoring-test.ts`, its test, and this
-  note in a cleanup PR.
-- **TEMPORARY browser verification** (remove after the production browser
-  event is confirmed): the admin dashboard contains a "Monitoring
-  diagnostics (temporary)" card with a *Send browser Sentry test* button.
-  It captures one synthetic `Error` (fake email/bearer/URL-query/opaque
-  token) through the already-initialized browser SDK — same production gate
-  and `beforeSend` scrubbing as real errors — tagged
-  `verification=browser-monitoring-test`, then flushes. Expect a new Sentry
-  issue with the probe values redacted, `environment=production`, the
-  production release, and no user attached. Then remove
-  `components/admin-monitoring-test.tsx`, its `AdminWorkspace` usage, and
-  its test in the same cleanup PR.
-
-### Post-deployment verification (Issue #92 cutover)
-
-After the production deploy with the new variables configured:
-
-1. **Server**: POST `/api/admin/monitoring/test` as above; confirm a
-   `monitoring.test_error` issue appears in the `sea-saba` org's
-   `deepdivebrewing-web` project with `environment=production`, the commit
-   SHA as release, a source-mapped stack, and none of the probe's fake
-   sensitive values.
-2. **Browser**: open the production site in a normal tab and run
-   `setTimeout(() => { throw new Error("sentry client probe") })` in
-   DevTools; confirm a browser-platform issue with `environment=
-   production`, a source-mapped stack, the page URL **without** query
-   string, no user context, no breadcrumbs, and no Replay attachment.
-3. **Cutover**: once both land correctly, delete `SENTRY_DSN` from Vercel —
-   the code honors it only as a fallback — then the fallback in
-   `sentryDsn()` can be removed in a later cleanup PR with the temporary
-   probe endpoint.
 
 ### If Sentry is unavailable or misconfigured
 

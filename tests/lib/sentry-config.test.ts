@@ -6,8 +6,7 @@ import path from "node:path";
 // Static invariants for the Sentry architecture (Issue #92). These files are
 // config/boundary code that a unit test cannot import meaningfully (client
 // init would run Sentry.init; next.config executes build plugins), so we
-// assert on the source — the same approach monitoring-test.test.ts uses for
-// the verification route.
+// assert on the source.
 const read = (rel: string) =>
   fs.readFileSync(path.join(process.cwd(), ...rel.split("/")), "utf8");
 
@@ -155,6 +154,26 @@ describe("monitoring modules stay free of build credentials", () => {
       assert.ok(
         !src.includes("SENTRY_AUTH_TOKEN"),
         `${file} must not reference the auth token`
+      );
+    }
+  });
+
+  it("no code references the retired legacy SENTRY_DSN fallback", () => {
+    // NEXT_PUBLIC_SENTRY_DSN is the single canonical DSN — a bare SENTRY_DSN
+    // reference (not preceded by NEXT_PUBLIC_) must not appear in any
+    // runtime or build module.
+    const legacy = /(?<!NEXT_PUBLIC_)SENTRY_DSN/;
+    for (const file of [
+      "lib/monitoring.ts",
+      "lib/monitoring-shared.ts",
+      "instrumentation.ts",
+      "instrumentation-client.ts",
+      "sentry.server.config.ts",
+      "next.config.ts",
+    ]) {
+      assert.ok(
+        !legacy.test(read(file)),
+        `${file} must not reference legacy SENTRY_DSN`
       );
     }
   });
