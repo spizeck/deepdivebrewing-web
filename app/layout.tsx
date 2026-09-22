@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 import { SiteFooter } from "@/components/site-footer";
@@ -25,10 +25,29 @@ const analyticsEnabled = process.env.VERCEL_ENV === "production" && !!gtmId;
 // every environment; the Consent Mode defaults it acts on are emitted by
 // GtmBootstrap only in production (where GTM exists to consume them).
 
-const inter = Inter({
+// Inter is self-hosted (app/fonts/, SIL OFL 1.1 — see LICENSE.txt beside the
+// files) so builds never fetch from Google Fonts. Weights match the previous
+// next/font/google config exactly: 400/600/700, normal style, latin subset.
+const inter = localFont({
+  src: [
+    {
+      path: "./fonts/inter-latin-400-normal.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "./fonts/inter-latin-600-normal.woff2",
+      weight: "600",
+      style: "normal",
+    },
+    {
+      path: "./fonts/inter-latin-700-normal.woff2",
+      weight: "700",
+      style: "normal",
+    },
+  ],
   variable: "--font-inter",
-  subsets: ["latin"],
-  weight: ["400", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {

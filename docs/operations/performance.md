@@ -115,8 +115,10 @@ re-creates the contention it solves.
   (Issue #77) — zero third-party cost until the visitor requests it.
 - **GA4 gtag.js** (~155KB): already `strategy="lazyOnload"`; third-party
   cost, acceptable per scope. Analytics semantics are #24's territory.
-- **Fonts:** Inter via `next/font` (self-hosted, preloaded, 3 weights ~49KB)
-  + Festival Budaya woff2 (20KB, `font-display: swap`). No issues found.
+- **Fonts:** Inter vendored woff2 via `next/font/local` (`app/fonts/`,
+  latin subsets, 3 weights ~93KB, preloaded, `font-display: swap`; no
+  Google Fonts access at build time — Issue #105) + Festival Budaya woff2
+  (20KB, `font-display: swap`). No issues found.
 - **CLS:** 0 everywhere measured. Images use `fill` inside aspect-ratio
   containers — stable.
 - **Carousel:** embla-carousel is small (~8KB); no autoplay; card images
