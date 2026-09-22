@@ -120,7 +120,7 @@ in `lib/analytics.ts` — TypeScript rejects unlisted names at the call site.
 | `whatsapp_click` | WhatsApp link on `/contact` | `cta_location` | lead intent |
 | `email_click` | `mailto:` links (`/contact`, `/trade`) | `cta_location` | lead intent |
 | `social_click` | Footer Facebook/Instagram/Untappd | `social_network`, `cta_location` | outbound |
-| `tour_inquiry_click` | WhatsApp tour CTAs on `/` and `/contact` | `cta_location`, `event_label` (tour option) | lead intent |
+| `tour_inquiry_click` | WhatsApp tour handoffs — homepage hero link directly; `/contact` tour CTAs after the inquiry modal's **Continue to WhatsApp** (modal open alone does not fire it) | `cta_location`, `event_label` (tour option) | lead intent |
 | `trade_form_start` | First field interaction on `/trade` | `cta_location` | engagement |
 | `trade_form_success` | **Server accepted** the inquiry (`res.ok && data.ok`) | `venue_type`, `cta_location` | **conversion** |
 | `trade_form_error` | Server rejection or network failure | `venue_type`, `cta_location` | diagnostic |
