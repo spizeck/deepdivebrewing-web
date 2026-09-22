@@ -282,7 +282,10 @@ describe("contact page tour CTAs", () => {
     assert.ok(!ctaSource.includes('data-analytics-event="tour_inquiry_click"'));
     assert.ok(ctaSource.includes('trackEvent("tour_inquiry_click"'));
     assert.ok(ctaSource.includes('event_category: "conversion"'));
-    assert.ok(ctaSource.includes('cta_location: "contact_page_tours"'));
+    // cta_location comes from the ctaLocation prop so each surface
+    // attributes its own handoff; /contact pins the canonical value.
+    assert.ok(ctaSource.includes("cta_location: ctaLocation"));
+    assert.ok(pageSource.includes('ctaLocation="contact_page_tours"'));
     assert.ok(ctaSource.includes("event_label: product.label"));
   });
 
@@ -290,5 +293,30 @@ describe("contact page tour CTAs", () => {
     assert.ok(ctaSource.includes("whatsappUrl(buildTourInquiryMessage("));
     // No hand-built wa.me strings in the component.
     assert.ok(!ctaSource.includes('"https://wa.me/'));
+  });
+});
+
+describe("homepage tour CTA (Issue #106)", () => {
+  const homeSource = fs.readFileSync(
+    path.join(process.cwd(), "app", "page.tsx"),
+    "utf8"
+  );
+
+  it("routes through the inquiry modal, not a bare wa.me link", () => {
+    assert.ok(homeSource.includes('ctaLocation="homepage_hero"'));
+    assert.ok(homeSource.includes("<TourInquiryCta"));
+    // No raw WhatsApp links anywhere on the homepage — the handoff always
+    // carries the pre-filled inquiry message.
+    assert.ok(!homeSource.includes('href="https://wa.me/'));
+  });
+
+  it("lets product-agnostic dialogs offer the in-dialog tour choice", () => {
+    const ctaSource = fs.readFileSync(
+      path.join(process.cwd(), "components", "tour-inquiry-cta.tsx"),
+      "utf8"
+    );
+    // Optional `tour` prop gates the picker; the homepage omits it.
+    assert.ok(ctaSource.includes("tour?: TourProductKey"));
+    assert.ok(ctaSource.includes("Choose your tour"));
   });
 });

@@ -230,6 +230,7 @@ export default function ContactPage() {
             </p>
             <TourInquiryCta
               tour="breweryTour"
+              ctaLocation="contact_page_tours"
               variant="outline"
               className="mt-5 h-11 min-h-[44px] px-6"
             >
@@ -260,6 +261,7 @@ export default function ContactPage() {
             </p>
             <TourInquiryCta
               tour="breweryTourTasting"
+              ctaLocation="contact_page_tours"
               className="mt-5 h-11 min-h-[44px] px-6"
             >
               Arrange tour + tasting
