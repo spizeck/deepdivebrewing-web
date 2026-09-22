@@ -38,11 +38,22 @@ class FakeSafeError extends Error {
 
 describe("monitoringEnabled", () => {
   it("requires the production environment and a configured DSN", () => {
+    // NEXT_RUNTIME is deliberately absent: it is not reliably set in every
+    // serverless code path, and requiring it silently dropped production
+    // reports. Runtime selection lives in instrumentation.ts register().
+    assert.equal(
+      monitoringEnabled({
+        VERCEL_ENV: "production",
+        NEXT_PUBLIC_SENTRY_DSN: "https://x@o0.ingest.sentry.io/1",
+      }),
+      true
+    );
+    // Still enabled when NEXT_RUNTIME happens to be present.
     assert.equal(
       monitoringEnabled({
         VERCEL_ENV: "production",
         NEXT_RUNTIME: "nodejs",
-        NEXT_PUBLIC_SENTRY_DSN: "https://x@o0.ingest.sentry.io/1",
+        NEXT_PUBLIC_SENTRY_DSN: "d",
       }),
       true
     );
@@ -50,18 +61,9 @@ describe("monitoringEnabled", () => {
     assert.equal(
       monitoringEnabled({
         VERCEL_ENV: "production",
-        NEXT_RUNTIME: "nodejs",
         SENTRY_DSN: "https://x@o0.ingest.sentry.io/1",
       }),
       true
-    );
-    // Production build/prerender has VERCEL_ENV=production but no runtime.
-    assert.equal(
-      monitoringEnabled({
-        VERCEL_ENV: "production",
-        NEXT_PUBLIC_SENTRY_DSN: "d",
-      }),
-      false
     );
     assert.equal(
       monitoringEnabled({
@@ -77,6 +79,11 @@ describe("monitoringEnabled", () => {
         NEXT_RUNTIME: "nodejs",
         NEXT_PUBLIC_SENTRY_DSN: "d",
       }),
+      false
+    );
+    // Production without a DSN stays disabled.
+    assert.equal(
+      monitoringEnabled({ VERCEL_ENV: "production" }),
       false
     );
     assert.equal(monitoringEnabled({}), false);

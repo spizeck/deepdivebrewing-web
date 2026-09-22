@@ -80,8 +80,8 @@ describe("monitoring verification endpoint", () => {
 
   it("cannot emit outside the production runtime", () => {
     // The route performs no env check of its own; reporting stays gated in
-    // lib/monitoring-shared.ts on VERCEL_ENV=production + NEXT_RUNTIME=
-    // nodejs + a configured DSN, so preview/dev/CI calls are silent no-ops.
+    // lib/monitoring-shared.ts on VERCEL_ENV=production + a configured DSN,
+    // so preview/dev/CI calls are silent no-ops.
     for (const env of [
       {},
       {
@@ -94,11 +94,20 @@ describe("monitoring verification endpoint", () => {
         NEXT_RUNTIME: "nodejs",
         NEXT_PUBLIC_SENTRY_DSN: "d",
       },
-      { VERCEL_ENV: "production", NEXT_RUNTIME: "nodejs" },
-      { VERCEL_ENV: "production", NEXT_PUBLIC_SENTRY_DSN: "d" },
+      { VERCEL_ENV: "production" },
+      { NEXT_PUBLIC_SENTRY_DSN: "d" },
     ]) {
       assert.equal(monitoringEnabled(env), false);
     }
+    // The positive case — production + DSN, no NEXT_RUNTIME — is the
+    // regression this gate previously broke.
+    assert.equal(
+      monitoringEnabled({
+        VERCEL_ENV: "production",
+        NEXT_PUBLIC_SENTRY_DSN: "d",
+      }),
+      true
+    );
   });
 
   it("keeps the route admin-only and free of real secrets", () => {

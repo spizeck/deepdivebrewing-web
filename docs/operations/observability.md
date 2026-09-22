@@ -104,9 +104,12 @@ remains available for filtering.
 
 Reporting is **production-only** on both sides:
 
-- **Server:** `monitoringEnabled` requires `VERCEL_ENV=production`,
-  `NEXT_RUNTIME=nodejs` (request-serving only — never `next build`), and a
-  configured DSN.
+- **Server:** `monitoringEnabled` requires `VERCEL_ENV=production` and a
+  configured DSN — nothing else. `NEXT_RUNTIME` is used only by
+  `instrumentation.ts` `register()` to decide whether to load the Node
+  server config; it is not part of reporting eligibility (it is not
+  reliably set in every serverless code path, and requiring it silently
+  dropped production reports).
 - **Browser:** `clientMonitoringEnabled` requires `NEXT_PUBLIC_SENTRY_DSN`
   and `NEXT_PUBLIC_VERCEL_ENV=production` (Vercel publishes
   `NEXT_PUBLIC_VERCEL_*` to client builds automatically). Preview deploys
@@ -180,7 +183,7 @@ counterpart — that is the gap this integration fills.
   sensitive values (a test email, bearer token, URL query, opaque token), so
   the resulting Sentry issue proves sanitization as well as delivery and
   alerting. It is a silent no-op outside production (the normal
-  `VERCEL_ENV`/`NEXT_RUNTIME`/DSN gate still applies). To verify:
+  `VERCEL_ENV`/DSN gate still applies). To verify:
   sign in to `/admin`, copy your ID token, and POST with
   `Authorization: Bearer <token>`; expect `{ "ok": true }`, one
   `monitoring.test_error` line in Vercel logs, one new Sentry issue, and one
