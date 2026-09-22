@@ -26,6 +26,13 @@ export interface AdminSessionRefreshDeps {
   forceRefreshIdToken: () => Promise<string>;
   /** Canonical re-check of the refreshed token — GET /api/admin/me. */
   checkAdminAccess: (idToken: string) => Promise<AdminAccessCheckResult>;
+  /**
+   * Identity binding: returns false once the Firebase identity that started
+   * the refresh is no longer the current authenticated user (sign-out or
+   * account switch mid-refresh). A stale identity's authorization result is
+   * discarded — it must never authorize another identity's session.
+   */
+  isInitiatorCurrent?: () => boolean;
   /** Injectable for tests; defaults to a real timer. */
   delay?: (ms: number) => Promise<void>;
 }
@@ -52,6 +59,12 @@ export async function refreshAdminAccess(
   const delay = deps.delay ?? defaultDelay;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // The initiating identity signed out or was replaced while a previous
+    // attempt was in flight — its result can never apply, so stop now.
+    if (deps.isInitiatorCurrent && !deps.isInitiatorCurrent()) {
+      return null;
+    }
+
     try {
       const idToken = await deps.forceRefreshIdToken();
       const check = await deps.checkAdminAccess(idToken);
@@ -59,6 +72,11 @@ export async function refreshAdminAccess(
         check.isAdmin === true &&
         (check.role === "admin" || check.role === "superadmin")
       ) {
+        // The check resolved asynchronously; the identity may have changed
+        // while it was in flight — re-verify before reporting the result.
+        if (deps.isInitiatorCurrent && !deps.isInitiatorCurrent()) {
+          return null;
+        }
         return check.role;
       }
     } catch {

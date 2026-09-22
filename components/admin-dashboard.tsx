@@ -279,8 +279,17 @@ export function AdminDashboard() {
   // authorizes the workspace.
   async function refreshAdminSession(): Promise<boolean> {
     if (!user) return false;
+    // Bind the refresh to the identity that initiated it: the token refresh
+    // and canonical re-check are async, and sign-out or an account switch can
+    // land mid-flight. A confirmed role for the old identity must never be
+    // applied after the current user has changed.
+    const initiatingUser = user;
+    const expectedUid = user.uid;
+    const auth = getFirebaseAuth();
+    const isInitiatorCurrent = () => auth.currentUser?.uid === expectedUid;
+
     const confirmedRole = await refreshAdminAccess({
-      forceRefreshIdToken: () => user.getIdToken(true),
+      forceRefreshIdToken: () => initiatingUser.getIdToken(true),
       checkAdminAccess: async (idToken) => {
         const res = await fetch("/api/admin/me", {
           headers: { Authorization: `Bearer ${idToken}` },
@@ -288,8 +297,12 @@ export function AdminDashboard() {
         const me = (await res.json()) as { isAdmin?: boolean; role?: AdminRole };
         return { isAdmin: me.isAdmin === true, role: me.role };
       },
+      isInitiatorCurrent,
     });
-    if (!confirmedRole) return false;
+
+    // Final guard immediately before the authorization transition — no state
+    // writes may happen for a stale identity.
+    if (!confirmedRole || !isInitiatorCurrent()) return false;
 
     setRole(confirmedRole);
     setPendingInvitation(null);
