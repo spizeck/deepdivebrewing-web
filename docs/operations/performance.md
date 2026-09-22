@@ -106,11 +106,11 @@ re-creates the contention it solves.
   A lower-bitrate re-encode is a content/quality decision for the owner,
   not an engineering default.
 - **`/beers/[slug]` is now static** (Issue #104): `generateStaticParams`
-  enumerates build-time slugs with `dynamicParams = false`. The
-  credential-free build guarantee is preserved — builds without Firebase
-  config generate zero params (empty catalog, as before), while a
-  configured build that gets an empty catalog fails loudly instead of
-  deploying zero beer pages.
+  enumerates build-time slugs with `dynamicParams = false`, reading via
+  `getDocsFromServer` so a backend failure throws and fails the build
+  instead of silently falling back to an empty offline cache. A genuinely
+  empty public catalog remains a valid result, and credential-free builds
+  without Firebase config still generate zero params.
 - **Google Maps embed** on `/contact` (~170KB third-party): now click-to-load
   (Issue #77) — zero third-party cost until the visitor requests it.
 - **GA4 gtag.js** (~155KB): already `strategy="lazyOnload"`; third-party

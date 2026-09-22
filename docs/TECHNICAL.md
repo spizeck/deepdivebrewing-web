@@ -71,10 +71,12 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   logs errors, falls back to offline mode, and the pages still build with
   empty states — see `lib/beers.ts` and `lib/venues.ts` and the Firestore
   `INVALID_ARGUMENT`/`permission-denied` warnings observed in build logs.
-  Beer detail pages add one safeguard (`resolveBeerStaticParams`): when
-  Firebase *is* configured but the catalog comes back empty, the build fails
-  rather than deploying zero beer pages — empty is only accepted when no
-  Firebase config is present (CI/credential-free builds).
+  Beer detail pages add one safeguard (`getBeerStaticParams`): slug
+  enumeration uses `getDocsFromServer`, which never resolves from the
+  offline cache — a real backend failure (unavailable, permission-denied)
+  throws and fails the build rather than deploying zero beer pages, while a
+  genuinely empty public catalog is a valid successful result. Builds
+  without Firebase config skip the read entirely and generate no params.
 - **Node runtime.** The repository is normalized on **Node 24** (active LTS):
   `.nvmrc` declares `24` and is the single source of truth — CI reads it via
   `actions/setup-node`'s `node-version-file`, `package.json` declares

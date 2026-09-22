@@ -2,6 +2,7 @@ import { cache } from "react";
 import {
   collection,
   getDocs,
+  getDocsFromServer,
   query,
   where,
   orderBy,
@@ -9,13 +10,16 @@ import {
 import { getFirebaseDb, hasFirebaseConfig } from "@/lib/firebase";
 import type { Beer } from "@/lib/types";
 
-export async function getBeers(): Promise<Beer[]> {
-  const q = query(
+function publicBeersQuery() {
+  return query(
     collection(getFirebaseDb(), "beers"),
     where("isPublic", "==", true),
     orderBy("sortOrder", "asc")
   );
-  const snapshot = await getDocs(q);
+}
+
+export async function getBeers(): Promise<Beer[]> {
+  const snapshot = await getDocs(publicBeersQuery());
   return snapshot.docs.map((doc) => doc.data() as Beer);
 }
 
@@ -36,28 +40,25 @@ export const getBeerBySlug = cache(
 );
 
 /**
- * Map a beer list to `generateStaticParams` output, with a build-safety
- * guard: when Firebase is configured, an empty catalog means the build
- * could not enumerate Firestore (transient failure or offline fallback) —
- * not that the brewery publishes no beers. Failing the build is safer than
- * deploying a site with zero beer detail pages. When Firebase is
- * unconfigured (CI, local builds without .env.local), an empty list is the
- * documented intentional behavior and no params are generated.
+ * Slugs for `generateStaticParams` on /beers/[slug], from the canonical
+ * public-beers query.
+ *
+ * Semantics verified against the installed Firebase SDK in Node
+ * (build-time reads, scripts/diagnose-firestore-build-reads.ts):
+ * - Unconfigured build (CI, local without .env.local): returns `[]`
+ *   without initializing Firebase — credential-free builds are
+ *   intentional.
+ * - Configured build: `getDocsFromServer` (not `getDocs`) is deliberate.
+ *   Plain `getDocs` silently resolves from the offline cache on backend
+ *   failure, which is indistinguishable from a legitimately empty catalog.
+ *   A server read either returns the true result — including a valid empty
+ *   catalog — or throws (unavailable/permission-denied), failing the build
+ *   instead of deploying zero beer pages.
  */
-export function resolveBeerStaticParams(
-  beers: Pick<Beer, "slug">[],
-  firebaseConfigured: boolean
-): { slug: string }[] {
-  if (beers.length === 0 && firebaseConfigured) {
-    throw new Error(
-      "getBeers() returned no public beers while Firebase is configured. " +
-        "Refusing to statically generate zero beer pages — check Firestore connectivity and configuration."
-    );
-  }
-  return beers.map((beer) => ({ slug: beer.slug }));
-}
-
-/** Slugs for `generateStaticParams` on /beers/[slug], from the canonical beer source. */
 export async function getBeerStaticParams(): Promise<{ slug: string }[]> {
-  return resolveBeerStaticParams(await getBeers(), hasFirebaseConfig());
+  if (!hasFirebaseConfig()) {
+    return [];
+  }
+  const snapshot = await getDocsFromServer(publicBeersQuery());
+  return snapshot.docs.map((doc) => ({ slug: (doc.data() as Beer).slug }));
 }
