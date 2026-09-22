@@ -19,7 +19,7 @@ const PROBE_MESSAGE =
 
 export function AdminMonitoringTest() {
   const [status, setStatus] = useState<
-    "idle" | "sending" | "sent" | "failed"
+    "idle" | "sending" | "sent" | "disabled" | "failed"
   >("idle");
   const [eventId, setEventId] = useState<string | null>(null);
 
@@ -29,9 +29,14 @@ export function AdminMonitoringTest() {
       const id = Sentry.captureException(new Error(PROBE_MESSAGE), {
         tags: { verification: "browser-monitoring-test" },
       });
-      // Bounded flush so the admin gets deterministic delivery feedback;
-      // outside production the SDK is disabled and this is a harmless no-op.
+      // Bounded flush so the admin gets deterministic delivery feedback.
+      // Outside production the SDK is disabled — capture is a silent no-op,
+      // so report that honestly rather than claiming delivery.
       const flushed = await Sentry.flush(2000);
+      if (!Sentry.isEnabled()) {
+        setStatus("disabled");
+        return;
+      }
       setEventId(id);
       setStatus(flushed ? "sent" : "failed");
     } catch {
@@ -62,10 +67,16 @@ export function AdminMonitoringTest() {
           redacted.
         </p>
       )}
+      {status === "disabled" && (
+        <p role="status" className="mt-3 text-sm text-muted-foreground">
+          Browser Sentry is disabled in this environment — nothing was sent.
+          This control only reports in production.
+        </p>
+      )}
       {status === "failed" && (
         <p role="alert" className="mt-3 text-sm text-ember">
-          Test event was not confirmed delivered — expected outside
-          production; in production, check the browser console and Sentry.
+          Test event was not confirmed delivered — check the browser console
+          and Sentry.
         </p>
       )}
     </div>

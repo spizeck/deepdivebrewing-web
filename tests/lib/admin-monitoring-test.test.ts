@@ -81,10 +81,13 @@ describe("browser Sentry verification control", () => {
     assert.deepEqual(hits, ["components/admin-workspace.tsx"]);
   });
 
-  it("shows a bounded, non-crashing result", () => {
+  it("shows a bounded, non-crashing, honest result", () => {
     // Deliberate capture + flush — no thrown exception, no uncaught path.
     assert.ok(control.includes("Sentry.flush(2000)"));
     assert.ok(!control.includes("throw "));
     assert.ok(control.includes('role="status"'));
+    // Must not claim delivery when the SDK is disabled — captureException
+    // returns an id and flush resolves even when nothing is sent.
+    assert.ok(control.includes("Sentry.isEnabled()"));
   });
 });
