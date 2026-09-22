@@ -250,26 +250,48 @@ test("email link on /contact fires email_click", async ({ page }) => {
   });
 });
 
-test("tour CTAs on /contact fire tour_inquiry_click per option", async ({
+test("tour CTAs on /contact fire tour_inquiry_click only on handoff", async ({
   page,
 }) => {
   await page.goto("/contact");
 
-  // The CTAs open WhatsApp in a new tab; the delegated listener records the
-  // event on this document before the popup attempt.
-  await page.getByRole("link", { name: "Arrange a brewery tour" }).click();
-  await page.getByRole("link", { name: "Arrange tour + tasting" }).click();
+  // Issue #102: the CTAs open an inquiry modal — opening it is not a
+  // completed inquiry and must not fire the event.
+  await page.getByRole("button", { name: "Arrange a brewery tour" }).click();
+  const dialog = page.getByRole("dialog", { name: "Brewery Tour" });
+  await expect(dialog).toBeVisible();
+  expect(events(await getDataLayer(page), "tour_inquiry_click")).toHaveLength(
+    0
+  );
 
-  const inquiries = await waitForEvents(page, "tour_inquiry_click", 2);
+  // The date field is a calendar picker — select today (always enabled).
+  await dialog.getByLabel("Preferred date").click();
+  const todayLabel = new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  await dialog
+    .getByRole("button", { name: todayLabel, exact: true })
+    .click();
+  await dialog.getByLabel("Party size").fill("2");
+
+  // Continue opens WhatsApp in a popup; trackEvent fires on this document.
+  // The cross-origin request is aborted by the fixture, so observe the
+  // request rather than the popup's final URL.
+  const [request] = await Promise.all([
+    page
+      .context()
+      .waitForEvent("request", (r) => r.url().startsWith("https://wa.me/")),
+    dialog.getByRole("button", { name: "Continue to WhatsApp" }).click(),
+  ]);
+  expect(request.url()).toMatch(/^https:\/\/wa\.me\/5994163544\?text=/);
+
+  const inquiries = await waitForEvents(page, "tour_inquiry_click", 1);
   expect(inquiries[0]).toMatchObject({
     event_category: "conversion",
     cta_location: "contact_page_tours",
     event_label: "Brewery Tour",
-  });
-  expect(inquiries[1]).toMatchObject({
-    event_category: "conversion",
-    cta_location: "contact_page_tours",
-    event_label: "Brewery Tour + Tasting",
   });
 });
 

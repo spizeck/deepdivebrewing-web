@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone, Mail, Clock, MapPin } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ContactMap } from "@/components/contact-map";
 import { TrackedAnchor } from "@/components/tracked-link";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { siteUrl } from "@/lib/site";
-import { TOUR_INQUIRY, whatsappUrl } from "@/lib/whatsapp";
+import { TourInquiryCta } from "@/components/tour-inquiry-cta";
 
 // User-initiated external navigation — opens Google Maps directions in a new
 // tab. No third-party content is loaded into this page; the embedded map has
@@ -229,23 +228,13 @@ export default function ContactPage() {
             <p className="mt-2 text-sm font-medium text-ink">
               No beer or tasting included.
             </p>
-            <Button
-              asChild
+            <TourInquiryCta
+              tour="breweryTour"
               variant="outline"
               className="mt-5 h-11 min-h-[44px] px-6"
             >
-              <Link
-                href={whatsappUrl(TOUR_INQUIRY.breweryTour.message)}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-analytics-event="tour_inquiry_click"
-                data-analytics-event-category="conversion"
-                data-analytics-event-label={TOUR_INQUIRY.breweryTour.label}
-                data-analytics-cta-location="contact_page_tours"
-              >
-                Arrange a brewery tour
-              </Link>
-            </Button>
+              Arrange a brewery tour
+            </TourInquiryCta>
           </div>
 
           {/* Tour + tasting */}
@@ -269,19 +258,12 @@ export default function ContactPage() {
             <p className="mt-2 text-sm font-medium text-ink">
               Generous beer tastings included.
             </p>
-            <Button asChild className="mt-5 h-11 min-h-[44px] px-6">
-              <Link
-                href={whatsappUrl(TOUR_INQUIRY.breweryTourTasting.message)}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-analytics-event="tour_inquiry_click"
-                data-analytics-event-category="conversion"
-                data-analytics-event-label={TOUR_INQUIRY.breweryTourTasting.label}
-                data-analytics-cta-location="contact_page_tours"
-              >
-                Arrange tour + tasting
-              </Link>
-            </Button>
+            <TourInquiryCta
+              tour="breweryTourTasting"
+              className="mt-5 h-11 min-h-[44px] px-6"
+            >
+              Arrange tour + tasting
+            </TourInquiryCta>
           </div>
         </div>
       </section>
