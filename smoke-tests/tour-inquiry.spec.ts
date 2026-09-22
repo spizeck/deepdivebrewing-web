@@ -477,3 +477,156 @@ for (const width of [320, 375]) {
     expect(overflows).toBe(false);
   });
 }
+
+// ── Homepage hero CTA (Issue #106) ─────────────────────────────────────
+// The hero "Book a Brewery Tour" is product-agnostic, so its dialog opens
+// with an in-dialog product choice; everything else — date picker, party
+// size, validation, WhatsApp handoff, tour_inquiry_click on Continue — is
+// the same inquiry flow as /contact.
+
+test("homepage hero CTA opens the inquiry dialog, never a bare WhatsApp link", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // No raw WhatsApp link remains on the homepage.
+  await expect(page.locator('a[href^="https://wa.me/"]')).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Book a Brewery Tour" }).click();
+  const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+  await expect(dialog).toBeVisible();
+
+  // Opening is not the conversion.
+  expect(inquiryEvents(await getDataLayer(page))).toHaveLength(0);
+});
+
+test("homepage dialog offers both tours; /contact stays fixed-product", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Book a Brewery Tour" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+
+  // Real radio semantics — the first tour is the sensible default.
+  const tour = dialog.getByRole("radio", { name: /^Brewery Tour \$/ });
+  const tasting = dialog.getByRole("radio", { name: /\+ Tasting/ });
+  await expect(tour).toBeChecked();
+  await expect(tasting).not.toBeChecked();
+  // The sr-only inputs can't be hit-tested — visitors click the card label.
+  await dialog
+    .locator("label", { hasText: "Brewery Tour + Tasting" })
+    .click();
+  await expect(tasting).toBeChecked();
+  await page.keyboard.press("Escape");
+
+  // /contact keeps the fixed-product form — no picker is rendered there.
+  await page.goto("/contact");
+  await page
+    .getByRole("button", { name: "Arrange a brewery tour" })
+    .click();
+  const fixed = page.getByRole("dialog", { name: "Brewery Tour" });
+  await expect(fixed).toBeVisible();
+  await expect(fixed.getByRole("radio")).toHaveCount(0);
+});
+
+test("homepage handoff carries the chosen product and fires the event once", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Book a Brewery Tour" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+  await dialog
+    .locator("label", { hasText: "Brewery Tour + Tasting" })
+    .click();
+  const iso = await pickDate(page, 30);
+  await dialog.getByLabel("Party size").fill("3");
+
+  const [request] = await Promise.all([
+    page
+      .context()
+      .waitForEvent("request", (r) => r.url().startsWith("https://wa.me/")),
+    dialog.getByRole("button", { name: "Continue to WhatsApp" }).click(),
+  ]);
+  const url = new URL(request.url());
+  expect(`${url.origin}${url.pathname}`).toBe("https://wa.me/5994163544");
+  expect(url.searchParams.get("text")).toBe(
+    `Hi Deep Dive! I'm interested in the $40 Brewery Tour + Tasting for 3 people on ${expectedDateLabel(iso)}. Is that available?`
+  );
+
+  const inquiries = inquiryEvents(await getDataLayer(page));
+  expect(inquiries).toHaveLength(1);
+  expect(inquiries[0]).toMatchObject({
+    event_category: "conversion",
+    cta_location: "homepage_hero",
+    event_label: "Brewery Tour + Tasting",
+  });
+});
+
+test("closing the homepage dialog returns focus to the hero CTA", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const cta = page.getByRole("button", { name: "Book a Brewery Tour" });
+  await cta.click();
+  const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(cta).toBeFocused();
+});
+
+// Same #108 guarantee for the product-choice variant: opening the calendar
+// must not push the dialog's controls behind a scrollbar at laptop height.
+test("the homepage dialog does not scroll with the calendar open", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Book a Brewery Tour" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Preferred date").click();
+  await expect(dialog.getByRole("grid")).toBeVisible();
+
+  // Worst case: a six-week month.
+  const rows = dialog.locator('[role="row"]');
+  const nextMonth = dialog.getByRole("button", { name: "Next month" });
+  for (let i = 0; i < 12 && (await rows.count()) - 1 < 6; i++) {
+    await nextMonth.click();
+  }
+  expect((await rows.count()) - 1).toBe(6);
+
+  await expect(dialog.getByLabel("Party size")).toBeInViewport();
+  await expect(
+    dialog.getByRole("button", { name: "Continue to WhatsApp" })
+  ).toBeInViewport();
+  const scrolls = await dialog.evaluate(
+    (el) => el.scrollHeight > el.clientHeight + 1
+  );
+  expect(scrolls).toBe(false);
+});
+
+for (const width of [320, 375]) {
+  test(`homepage dialog has no horizontal overflow at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: "Book a Brewery Tour" })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Preferred date").click();
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth
+    );
+    expect(overflows).toBe(false);
+  });
+}

@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 import IntroSection from "@/components/home/IntroSection";
 import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
+import { TourInquiryCta } from "@/components/tour-inquiry-cta";
 import { getBeers } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
 import { serializeJsonLd } from "@/lib/json-ld";
@@ -143,23 +144,17 @@ export default async function Home() {
                 Where to Buy
               </Link>
             </Button>
-            <Button
+            {/* Issue #106: the hero CTA opens the tour inquiry dialog (with
+                product choice) instead of a bare wa.me link — the visitor
+                picks tour/date/party size and the handoff carries a
+                pre-filled message. tour_inquiry_click fires on Continue. */}
+            <TourInquiryCta
+              ctaLocation="homepage_hero"
               variant="outline"
-              asChild
               className="h-11 min-h-[44px] border-paper/30 px-6 text-paper hover:bg-paper/10"
             >
-              <Link
-                href="https://wa.me/5994163544"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-analytics-event="tour_inquiry_click"
-                data-analytics-event-category="conversion"
-                data-analytics-event-label="Book a Brewery Tour"
-                data-analytics-cta-location="homepage_hero"
-              >
-                Book a Brewery Tour
-              </Link>
-            </Button>
+              Book a Brewery Tour
+            </TourInquiryCta>
           </div>
         </div>
       </section>

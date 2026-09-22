@@ -120,7 +120,7 @@ in `lib/analytics.ts` — TypeScript rejects unlisted names at the call site.
 | `whatsapp_click` | WhatsApp link on `/contact` | `cta_location` | lead intent |
 | `email_click` | `mailto:` links (`/contact`, `/trade`) | `cta_location` | lead intent |
 | `social_click` | Footer Facebook/Instagram/Untappd | `social_network`, `cta_location` | outbound |
-| `tour_inquiry_click` | WhatsApp tour handoffs — homepage hero link directly; `/contact` tour CTAs after the inquiry modal's **Continue to WhatsApp** (modal open alone does not fire it) | `cta_location`, `event_label` (tour option) | lead intent |
+| `tour_inquiry_click` | WhatsApp tour handoffs — the inquiry modal's **Continue to WhatsApp** on the homepage hero (visitor picks the tour in-dialog) and `/contact` tour CTAs (product fixed by the CTA); modal open alone does not fire it | `cta_location`, `event_label` (tour option) | lead intent |
 | `trade_form_start` | First field interaction on `/trade` | `cta_location` | engagement |
 | `trade_form_success` | **Server accepted** the inquiry (`res.ok && data.ok`) | `venue_type`, `cta_location` | **conversion** |
 | `trade_form_error` | Server rejection or network failure | `venue_type`, `cta_location` | diagnostic |
@@ -129,7 +129,8 @@ in `lib/analytics.ts` — TypeScript rejects unlisted names at the call site.
 
 - `cta_location`: `homepage_hero`, `homepage_where_to_find_us`,
   `beer_detail_page`, `beers_page`, `where_to_buy_page`, `contact_page`,
-  `trade_page`, `footer`, `header`. Do not invent new values casually.
+  `contact_page_tours`, `trade_page`, `footer`, `header`. Do not invent new
+  values casually.
 - `filter`: `all` | `core` | `seasonal` | `limited` on `/beers`; on
   `/where-to-buy`, the selected value (`all`, a beer slug, `tap`, `can`, or
   an island key) with the facet named in `event_label`.

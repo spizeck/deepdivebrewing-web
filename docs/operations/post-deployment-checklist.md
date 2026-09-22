@@ -7,7 +7,7 @@ Run this checklist after every production deployment or after any significant co
 - [ ] `https://deepdivebrewing.com/` loads without errors.
 - [ ] The hero image or video renders correctly.
 - [ ] The main heading and call-to-action buttons are visible.
-- [ ] The "Book a Brewery Tour" WhatsApp link works and is tracked as `tour_inquiry_click`.
+- [ ] The "Book a Brewery Tour" CTA opens the tour inquiry dialog, and its **Continue to WhatsApp** handoff is tracked as `tour_inquiry_click`.
 - [ ] The featured beers section shows the expected beers.
 - [ ] The "Where to Find Us" section and link to `/where-to-buy` work.
 

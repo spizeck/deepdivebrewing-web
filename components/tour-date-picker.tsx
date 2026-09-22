@@ -166,7 +166,7 @@ export function TourDatePicker({
           id={panelId}
           role="group"
           aria-label="Choose a date"
-          className="mt-1.5 w-full rounded-lg border border-stone bg-paper p-2"
+          className="mt-1 w-full rounded-lg border border-stone bg-paper p-1.5"
         >
           <div className="flex items-center justify-between">
             <button
@@ -180,7 +180,7 @@ export function TourDatePicker({
                     : { year: v.year, month: v.month - 1 }
                 )
               }
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink/70 transition-colors hover:bg-stone disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink/70 transition-colors hover:bg-stone disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50"
             >
               <ChevronLeft className="size-5" aria-hidden="true" />
             </button>
@@ -200,7 +200,7 @@ export function TourDatePicker({
                     : { year: v.year, month: v.month + 1 }
                 )
               }
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink/70 transition-colors hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink/70 transition-colors hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50"
             >
               <ChevronRight className="size-5" aria-hidden="true" />
             </button>
@@ -209,7 +209,6 @@ export function TourDatePicker({
             role="grid"
             ref={gridRef}
             aria-label={`${monthName(view.month)} ${view.year}`}
-            className="mt-1"
           >
             <div role="row" className="grid grid-cols-7">
               {WEEKDAYS.map((d) => (
@@ -217,7 +216,7 @@ export function TourDatePicker({
                   key={d.long}
                   role="columnheader"
                   aria-label={d.long}
-                  className="flex h-8 items-center justify-center text-xs font-medium text-ink/70"
+                  className="flex h-7 items-center justify-center text-xs font-medium text-ink/70"
                 >
                   {d.short}
                 </span>
@@ -246,7 +245,7 @@ export function TourDatePicker({
                         tabIndex={toIsoDate(day) === focusedIso ? 0 : -1}
                         onClick={() => select(day)}
                         onKeyDown={(e) => handleDayKeyDown(e, day)}
-                        className="mx-auto flex h-9 w-full max-w-9 items-center justify-center rounded-full text-sm text-ink transition-colors hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50 aria-[disabled=true]:text-ink/30 aria-[disabled=true]:hover:bg-transparent data-[selected=true]:bg-ink data-[selected=true]:text-paper"
+                        className="mx-auto flex h-8 w-full max-w-8 items-center justify-center rounded-full text-sm text-ink transition-colors hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50 aria-[disabled=true]:text-ink/30 aria-[disabled=true]:hover:bg-transparent data-[selected=true]:bg-ink data-[selected=true]:text-paper"
                       >
                         {day.day}
                       </button>

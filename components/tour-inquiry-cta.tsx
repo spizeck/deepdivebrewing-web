@@ -23,7 +23,14 @@ import {
 } from "@/lib/whatsapp";
 
 interface TourInquiryCtaProps {
-  tour: TourProductKey;
+  /**
+   * Fixed product for the dialog (/contact CTAs). Omit when the trigger is
+   * product-agnostic (homepage hero) — the dialog then opens with a compact
+   * product choice above the same date/party-size form.
+   */
+  tour?: TourProductKey;
+  /** `cta_location` recorded on the `tour_inquiry_click` handoff event. */
+  ctaLocation: string;
   variant?: "default" | "outline";
   className?: string;
   children: React.ReactNode;
@@ -38,14 +45,22 @@ const inputClass =
  * size — transient UI state, nothing persisted — then builds the pre-filled
  * message and opens the canonical wa.me link. The `tour_inquiry_click`
  * analytics event fires only on a successful Continue, not on modal open.
+ * Product-agnostic triggers (homepage hero, Issue #106) omit `tour` and get
+ * an extra product choice inside the same dialog; `ctaLocation` keeps the
+ * handoff event attributed to the surface that opened it.
  */
 export function TourInquiryCta({
   tour,
+  ctaLocation,
   variant = "default",
   className,
   children,
 }: TourInquiryCtaProps) {
-  const product = TOUR_PRODUCTS[tour];
+  // Product-agnostic dialogs carry a choice state; fixed-product dialogs
+  // ignore it entirely.
+  const [selectedTour, setSelectedTour] =
+    useState<TourProductKey>("breweryTour");
+  const product = TOUR_PRODUCTS[tour ?? selectedTour];
   const uid = useId();
   const dateId = `${uid}-date`;
   const dateErrorId = `${uid}-date-error`;
@@ -66,6 +81,7 @@ export function TourInquiryCta({
     setDate("");
     setPartySize("");
     setAttempted(false);
+    setSelectedTour("breweryTour");
   }
 
   function handleOpenChange(next: boolean) {
@@ -85,7 +101,7 @@ export function TourInquiryCta({
     }
     trackEvent("tour_inquiry_click", {
       event_category: "conversion",
-      cta_location: "contact_page_tours",
+      cta_location: ctaLocation,
       event_label: product.label,
     });
     window.open(
@@ -106,23 +122,70 @@ export function TourInquiryCta({
       </DialogTrigger>
       <DialogContent>
         <DialogTitle className="text-xl font-semibold text-ink pr-12">
-          {product.label}
+          {tour ? product.label : "Book a Brewery Tour"}
         </DialogTitle>
-        <p className="mt-1 text-sm font-medium text-ink/70">
-          ${product.priceUsd} per person · {product.durationLabel}
-        </p>
-        <DialogDescription className="mt-2 text-sm text-ink/80">
+        {tour && (
+          <p className="mt-1 text-sm font-medium text-ink/70">
+            ${product.priceUsd} per person · {product.durationLabel}
+          </p>
+        )}
+        <DialogDescription className="mt-1.5 text-sm text-ink/80">
           Tours are by request. We&rsquo;ll confirm availability with you on
           WhatsApp.
         </DialogDescription>
         <form
-          className="mt-4 space-y-3.5"
+          className="mt-3 space-y-3"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
             handleContinue();
           }}
         >
+          {/* Product choice — product-agnostic triggers only (Issue #106).
+              Native radios in a fieldset give real group semantics; the
+              cards just dress them up. Price/duration live here, so the
+              generic header drops its per-product price line. */}
+          {tour === undefined && (
+            <fieldset>
+              <legend className="text-sm font-medium text-ink">
+                Choose your tour
+              </legend>
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                {(Object.keys(TOUR_PRODUCTS) as TourProductKey[]).map(
+                  (key) => {
+                    const option = TOUR_PRODUCTS[key];
+                    return (
+                      <label
+                        key={key}
+                        className="cursor-pointer rounded-md border border-stone bg-paper px-3 py-1.5 transition-colors has-checked:border-ink has-checked:bg-stone/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ocean/50"
+                      >
+                        <input
+                          type="radio"
+                          name={`${uid}-tour`}
+                          value={key}
+                          checked={selectedTour === key}
+                          onChange={() => setSelectedTour(key)}
+                          className="sr-only"
+                        />
+                        <span className="block text-sm font-semibold text-ink">
+                          {option.label}
+                        </span>
+                        {/* Compact rendering of the canonical price/duration
+                            — derived, so the cards can't drift from
+                            TOUR_PRODUCTS. */}
+                        <span className="mt-0.5 block text-xs text-ink/70">
+                          ${option.priceUsd}/person ·{" "}
+                          {option.durationLabel
+                            .replace("About ", "~")
+                            .replace(" minutes", " min")}
+                        </span>
+                      </label>
+                    );
+                  }
+                )}
+              </div>
+            </fieldset>
+          )}
           <div>
             <label
               htmlFor={dateId}
