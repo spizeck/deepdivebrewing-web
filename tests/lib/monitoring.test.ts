@@ -57,13 +57,14 @@ describe("monitoringEnabled", () => {
       }),
       true
     );
-    // Legacy SENTRY_DSN still enables during the cutover.
+    // The retired legacy variable no longer enables anything —
+    // NEXT_PUBLIC_SENTRY_DSN is the only DSN.
     assert.equal(
       monitoringEnabled({
         VERCEL_ENV: "production",
         SENTRY_DSN: "https://x@o0.ingest.sentry.io/1",
       }),
-      true
+      false
     );
     assert.equal(
       monitoringEnabled({
@@ -91,12 +92,10 @@ describe("monitoringEnabled", () => {
 });
 
 describe("sentryDsn", () => {
-  it("prefers NEXT_PUBLIC_SENTRY_DSN and falls back to legacy SENTRY_DSN", () => {
-    assert.equal(
-      sentryDsn({ NEXT_PUBLIC_SENTRY_DSN: "new", SENTRY_DSN: "old" }),
-      "new"
-    );
-    assert.equal(sentryDsn({ SENTRY_DSN: "old" }), "old");
+  it("returns NEXT_PUBLIC_SENTRY_DSN — the single canonical DSN", () => {
+    assert.equal(sentryDsn({ NEXT_PUBLIC_SENTRY_DSN: "new" }), "new");
+    // The retired legacy variable is ignored entirely.
+    assert.equal(sentryDsn({ SENTRY_DSN: "old" }), undefined);
     assert.equal(sentryDsn({}), undefined);
   });
 });
