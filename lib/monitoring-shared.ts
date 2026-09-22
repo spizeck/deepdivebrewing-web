@@ -107,19 +107,19 @@ export function sentryDsn(
 }
 
 /**
- * Server-side reporting gate. `NEXT_RUNTIME` is set only while serving
- * requests — this also excludes `next build`/prerender, where
- * VERCEL_ENV=production on Vercel too. The register() hook additionally
- * imports the server config only under the nodejs runtime.
+ * Server-side reporting gate: Production environment plus a configured DSN.
+ * NEXT_RUNTIME is deliberately NOT part of this gate — it belongs in
+ * instrumentation.ts register(), which uses it to decide whether to load the
+ * Node server config. NEXT_RUNTIME is not reliably present in every code
+ * path that calls logError (e.g. route handlers on Vercel serverless), so
+ * requiring it here silently dropped production reports. Capture calls made
+ * without an initialized SDK (build/prerender, non-nodejs runtimes) are
+ * harmless no-ops, so the wider gate is safe.
  */
 export function monitoringEnabled(
   env: Record<string, string | undefined> = process.env
 ): boolean {
-  return (
-    env.VERCEL_ENV === "production" &&
-    env.NEXT_RUNTIME === "nodejs" &&
-    Boolean(sentryDsn(env))
-  );
+  return env.VERCEL_ENV === "production" && Boolean(sentryDsn(env));
 }
 
 /**

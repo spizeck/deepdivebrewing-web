@@ -2,7 +2,7 @@
 // Admin-only endpoint that emits one controlled `monitoring.test_error`
 // logError event to verify the production Sentry pipeline end-to-end. It is
 // a no-op outside production (monitoring stays gated on VERCEL_ENV +
-// NEXT_RUNTIME + a configured DSN) and must be removed once the production
+// a configured DSN) and must be removed once the production
 // alert has been confirmed. See docs/operations/observability.md.
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminActor } from "@/lib/admin-auth";
