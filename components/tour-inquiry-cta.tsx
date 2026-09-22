@@ -111,12 +111,12 @@ export function TourInquiryCta({
         <p className="mt-1 text-sm font-medium text-ink/70">
           ${product.priceUsd} per person · {product.durationLabel}
         </p>
-        <DialogDescription className="mt-3 text-sm text-ink/80">
+        <DialogDescription className="mt-2 text-sm text-ink/80">
           Tours are by request. We&rsquo;ll confirm availability with you on
           WhatsApp.
         </DialogDescription>
         <form
-          className="mt-5 space-y-4"
+          className="mt-4 space-y-3.5"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
