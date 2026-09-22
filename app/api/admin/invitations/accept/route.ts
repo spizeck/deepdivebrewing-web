@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ok: true,
-        message: "Invitation accepted. Sign out and sign back in to refresh your session.",
+        message: "Invitation accepted.",
         uid: decoded.uid,
         role: existingRecord.role,
       });
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: "Invitation accepted. Sign out and sign back in to refresh your session.",
+      message: "Invitation accepted.",
       uid: decoded.uid,
       role: result.role,
     });
