@@ -29,6 +29,7 @@ import {
   AdminWorkspace,
   type RebuildMeta,
 } from "@/components/admin-workspace";
+import { refreshAdminAccess } from "@/lib/admin-session-refresh";
 import type { AdminRole, Beer, Venue } from "@/lib/types";
 
 const DEFAULT_BEER: Beer = {
@@ -102,6 +103,11 @@ export function AdminDashboard() {
     role: AdminRole;
   } | null>(null);
   const [isAcceptingInvitation, setIsAcceptingInvitation] = useState(false);
+  // Post-grant credential refresh (Issue #94): after the server grants admin
+  // access, the ID token must be force-refreshed and authorization re-checked
+  // before the workspace renders.
+  const [isRefreshingAccess, setIsRefreshingAccess] = useState(false);
+  const [accessRefreshFailed, setAccessRefreshFailed] = useState(false);
 
   const isAuthorized = useMemo(() => role === "admin" || role === "superadmin", [role]);
   const isSuperAdmin = useMemo(() => role === "superadmin", [role]);
@@ -123,6 +129,9 @@ export function AdminDashboard() {
           setUser(nextUser);
           setShowBootstrap(false);
           setRole(null);
+          setPendingInvitation(null);
+          setIsRefreshingAccess(false);
+          setAccessRefreshFailed(false);
 
           if (nextUser) {
             try {
@@ -262,6 +271,36 @@ export function AdminDashboard() {
     setPendingInvitation(null);
   }
 
+  // Re-evaluates authorization after a server-side grant (invitation
+  // acceptance or bootstrap). Force-refreshes the ID token so it carries the
+  // new custom claims, then has the server re-check the canonical invariant
+  // (admin claim + active, role-matching adminUsers record). Only a
+  // server-confirmed result sets role — a stale or missing claim never
+  // authorizes the workspace.
+  async function refreshAdminSession(): Promise<boolean> {
+    if (!user) return false;
+    const confirmedRole = await refreshAdminAccess({
+      forceRefreshIdToken: () => user.getIdToken(true),
+      checkAdminAccess: async (idToken) => {
+        const res = await fetch("/api/admin/me", {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const me = (await res.json()) as { isAdmin?: boolean; role?: AdminRole };
+        return { isAdmin: me.isAdmin === true, role: me.role };
+      },
+    });
+    if (!confirmedRole) return false;
+
+    setRole(confirmedRole);
+    setPendingInvitation(null);
+    setShowBootstrap(false);
+    setAccessRefreshFailed(false);
+    setStatusMessage("");
+    await loadData();
+    await loadRebuildMeta();
+    return true;
+  }
+
   async function handleBootstrap() {
     if (!user) return;
     setIsBootstrapping(true);
@@ -277,17 +316,18 @@ export function AdminDashboard() {
         setStatusMessage(data.error ?? "Bootstrap failed.");
         return;
       }
-      setStatusMessage(
-        data.message ?? "Superadmin access granted. Sign out and sign back in to continue."
-      );
-      // Force a token refresh so the dashboard can see the new claims on next sign-in.
-      await user.getIdToken(true);
       setShowBootstrap(false);
+      setIsRefreshingAccess(true);
+      const refreshed = await refreshAdminSession();
+      if (!refreshed) {
+        setAccessRefreshFailed(true);
+      }
     } catch (error) {
       console.error(error);
       setStatusMessage("Bootstrap failed. Please try again.");
     } finally {
       setIsBootstrapping(false);
+      setIsRefreshingAccess(false);
     }
   }
 
@@ -306,17 +346,35 @@ export function AdminDashboard() {
         setStatusMessage(data.error ?? "Failed to accept invitation.");
         return;
       }
-      setStatusMessage(
-        data.message ?? "Invitation accepted. Sign out and sign back in to continue."
-      );
       setPendingInvitation(null);
-      // Force a token refresh so the next session will pick up the new claims.
-      await user.getIdToken(true);
+      setIsRefreshingAccess(true);
+      const refreshed = await refreshAdminSession();
+      if (!refreshed) {
+        setAccessRefreshFailed(true);
+      }
     } catch (error) {
       console.error(error);
       setStatusMessage("Failed to accept invitation. Please try again.");
     } finally {
       setIsAcceptingInvitation(false);
+      setIsRefreshingAccess(false);
+    }
+  }
+
+  // Last-resort recovery when the automatic post-grant refresh could not
+  // confirm access: re-runs the same force-refresh + canonical re-check.
+  async function handleRetryAccessRefresh() {
+    setIsRefreshingAccess(true);
+    setStatusMessage("");
+    try {
+      const refreshed = await refreshAdminSession();
+      if (!refreshed) {
+        setStatusMessage(
+          "Access is still being finalized. Try again in a moment, or sign out and back in."
+        );
+      }
+    } finally {
+      setIsRefreshingAccess(false);
     }
   }
 
@@ -553,11 +611,30 @@ export function AdminDashboard() {
   }
 
   if (!isAuthorized) {
-    const isActionVisible = showBootstrap || pendingInvitation;
+    const isActionVisible =
+      showBootstrap || pendingInvitation || isRefreshingAccess || accessRefreshFailed;
     return (
       <div className="rounded-lg border border-stone bg-paper p-6">
         <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
-        {showBootstrap ? (
+        {isRefreshingAccess ? (
+          <p role="status" className="mt-2 text-sm text-muted-foreground">
+            Refreshing admin access...
+          </p>
+        ) : accessRefreshFailed ? (
+          <>
+            <p role="status" className="mt-2 text-sm text-muted-foreground">
+              Your admin access was granted, but this session could not pick it up
+              automatically.
+            </p>
+            <Button
+              onClick={handleRetryAccessRefresh}
+              disabled={isRefreshingAccess}
+              className="mt-4"
+            >
+              Refresh admin access
+            </Button>
+          </>
+        ) : showBootstrap ? (
           <>
             <p className="mt-2 text-sm text-muted-foreground">
               This account is configured as the bootstrap superadmin. Complete setup to grant

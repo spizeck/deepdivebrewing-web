@@ -16,9 +16,9 @@ This guide explains how to sign in to the Deep Dive Brewing Co admin dashboard, 
 3. A Google popup appears. Choose the authorized Google account.
 4. The popup closes and the dashboard loads.
 
-If you are the bootstrap superadmin and it is your first sign-in, the dashboard shows **Complete Superadmin Setup**. Click it, then sign out and sign back in.
+If you are the bootstrap superadmin and it is your first sign-in, the dashboard shows **Complete Superadmin Setup**. Click it — the dashboard refreshes your access and loads automatically.
 
-If you were invited but have not accepted the invitation yet, the dashboard shows **Accept Invitation**. Click it, then sign out and sign back in.
+If you were invited but have not accepted the invitation yet, the dashboard shows **Accept Invitation**. Click it — the dashboard refreshes your session and loads automatically, with no sign-out needed. If the automatic refresh cannot confirm access, a **Refresh admin access** retry appears; signing out and back in remains a fallback.
 
 ## What happens after you choose an account
 

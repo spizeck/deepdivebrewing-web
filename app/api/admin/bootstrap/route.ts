@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: "Bootstrap superadmin access granted. Sign out and sign back in to refresh your session.",
+      message: "Bootstrap superadmin access granted.",
       uid: decoded.uid,
       role: "superadmin",
     });

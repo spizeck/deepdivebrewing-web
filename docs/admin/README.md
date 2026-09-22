@@ -60,7 +60,7 @@ If you need admin access:
 1. Make sure you have a Google account you can use.
 2. Ask an existing superadmin to invite your email address from the **Access** tab.
 3. Once the invitation is created, sign in at https://deepdivebrewing.com/admin with that Google account.
-4. Click **Accept Invitation** when prompted, then sign out and sign back in.
+4. Click **Accept Invitation** when prompted — the dashboard refreshes the session and loads automatically (no sign-out needed).
 
 ## Recommended browser and troubleshooting
 
