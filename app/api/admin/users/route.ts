@@ -25,9 +25,8 @@ import {
   unauthorizedResponse,
 } from "@/lib/api-auth";
 import { apiErrorResponse } from "@/lib/api-error";
+import { isValidEmail } from "@/lib/email";
 import { getRequestId, logError } from "@/lib/log";
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function isValidRole(role: unknown): role is "admin" | "superadmin" {
   return role === "admin" || role === "superadmin";
@@ -78,7 +77,7 @@ export async function POST(req: NextRequest) {
     const email = normalizeEmail(String(body.email ?? ""));
     const role = body.role;
 
-    if (!email || !EMAIL_REGEX.test(email)) {
+    if (!email || !isValidEmail(email)) {
       return badRequestResponse("A valid email address is required.");
     }
     if (!isValidRole(role)) {

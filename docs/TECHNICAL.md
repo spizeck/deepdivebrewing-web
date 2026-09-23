@@ -123,7 +123,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry`. |
 | `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx` (auth + data orchestration), `admin-workspace.tsx` (props-driven authenticated view shared with `/admin-fixture`), `admin-access.tsx`, `admin-fixture.tsx` (test-only data), `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |
-| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
+| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `email.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
 | `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
 | `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `prune-trade-leads.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics and prune script do not (CI browser coverage lives in `smoke-tests/`). |
@@ -509,14 +509,18 @@ notification.** (Owner decision, #57.)
    Client-side state drives start/success/error analytics events
    (`trade_form_start`, `trade_form_success`, `trade_form_error`, category
    `conversion`).
-2. **API route:** `app/api/trade-inquiry/route.ts` validates and rate-limits,
-   then delegates to `submitTradeInquiry()` in `lib/trade-leads.ts`
-   (server-only). The route:
+2. **API route:** `app/api/trade-inquiry/route.ts` delegates to
+   `handleTradeInquiry()` in `lib/trade-leads-common.ts` (injectable and
+   unit-tested), which validates and rate-limits before calling
+   `submitTradeInquiry()` in `lib/trade-leads.ts` (server-only). The pipeline:
    - requires `businessName`, `contactName`, `email`, `venueType` (400 on
      missing);
-   - rejects oversized fields with 400 — `TRADE_LEAD_FIELD_LIMITS` in
-     `lib/trade-leads-common.ts` bounds each persisted field so a huge
-     submission is invalid input rather than a Firestore write failure;
+   - rejects oversized fields with 400 — `TRADE_LEAD_FIELD_LIMITS` bounds
+     each persisted field so a huge submission is invalid input rather than
+     a Firestore write failure;
+   - rejects a malformed `email` with 400 via the shared `isValidEmail()`
+     (`lib/email.ts`, also used by the admin invitation code) — before any
+     lead is persisted or notification attempted;
    - treats a filled `website` honeypot as spam and **returns fake `ok: true`
      without persisting or notifying**;
    - applies an in-memory rate limit — max 5 requests per client IP per

@@ -1,7 +1,8 @@
-// Shared, dependency-free trade-inquiry logic. The persistence/notification
-// orchestration lives here (with injected collaborators) so it is unit-testable
-// without Firebase Admin or Resend; `lib/trade-leads.ts` wires the real
-// server-only dependencies.
+// Shared, dependency-free trade-inquiry logic. The request-validation and
+// persistence/notification orchestration lives here (with injected
+// collaborators) so it is unit-testable without Firebase Admin or Resend;
+// `lib/trade-leads.ts` wires the real server-only dependencies.
+import { isValidEmail } from "@/lib/email";
 import type { LogContext } from "@/lib/log";
 
 export const TRADE_LEADS_COLLECTION = "tradeLeads";
@@ -120,6 +121,113 @@ export interface TradeInquiryDeps {
 export type TradeInquiryOutcome =
   | { ok: true; leadId: string }
   | { ok: false };
+
+// --- POST /api/trade-inquiry request pipeline ---
+
+// Untrusted JSON body shape; every field is optional at this boundary.
+export interface TradeInquiryBody {
+  businessName?: string;
+  contactName?: string;
+  email?: string;
+  phoneOrWhatsapp?: string;
+  venueType?: string;
+  message?: string;
+  website?: string;
+}
+
+export interface TradeInquiryRouteResult {
+  status: number;
+  body: { ok: boolean; error?: string };
+}
+
+export interface TradeInquiryRouteDeps {
+  isRateLimited: (clientIp: string) => boolean;
+  submit: (
+    input: TradeLeadInput,
+    requestId: string
+  ) => Promise<TradeInquiryOutcome>;
+}
+
+// Everything between "JSON parsed" and "respond": trim → required fields →
+// field-length bounds → email format → honeypot → rate limit → submit.
+// All validation runs before the honeypot reply and before `submit`, so a
+// malformed email can never reach Firestore or Resend.
+export async function handleTradeInquiry(
+  body: TradeInquiryBody,
+  context: { clientIp: string; requestId: string },
+  deps: TradeInquiryRouteDeps
+): Promise<TradeInquiryRouteResult> {
+  const businessName = body.businessName?.trim() ?? "";
+  const contactName = body.contactName?.trim() ?? "";
+  const email = body.email?.trim() ?? "";
+  const phoneOrWhatsapp = body.phoneOrWhatsapp?.trim() ?? "";
+  const venueType = body.venueType?.trim() ?? "";
+  const message = body.message?.trim() ?? "";
+  const website = body.website?.trim() ?? "";
+
+  if (!businessName || !contactName || !email || !venueType) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error:
+          "Missing required fields: businessName, contactName, email, venueType.",
+      },
+    };
+  }
+
+  const oversized = tradeLeadFieldTooLong({
+    businessName,
+    contactName,
+    email,
+    phoneOrWhatsapp,
+    venueType,
+    message,
+  });
+  if (oversized) {
+    return {
+      status: 400,
+      body: { ok: false, error: `Field exceeds maximum length: ${oversized}.` },
+    };
+  }
+
+  if (!isValidEmail(email)) {
+    return {
+      status: 400,
+      body: { ok: false, error: "Please enter a valid email address." },
+    };
+  }
+
+  // Honeypot: pretend success for bots, but persist nothing and send no email.
+  if (website) {
+    return { status: 200, body: { ok: true } };
+  }
+
+  if (deps.isRateLimited(context.clientIp)) {
+    return {
+      status: 429,
+      body: { ok: false, error: "Too many requests. Please try again later." },
+    };
+  }
+
+  // Firestore is the system of record: the inquiry must be persisted before
+  // we claim success. The Resend notification is best-effort inside submit —
+  // its failure is logged, not surfaced to the customer.
+  const outcome = await deps.submit(
+    { businessName, contactName, email, phoneOrWhatsapp, venueType, message },
+    context.requestId
+  );
+  if (!outcome.ok) {
+    // Persistence failure was already logged as
+    // trade_inquiry.persistence_failed — respond generically.
+    return {
+      status: 500,
+      body: { ok: false, error: "Failed to submit inquiry." },
+    };
+  }
+
+  return { status: 200, body: { ok: true } };
+}
 
 // Persists the inquiry, then attempts the notification email. Persistence is
 // the durability boundary: a notification failure is logged but does not fail
