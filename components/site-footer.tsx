@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ConsentSettingsLink } from "@/components/consent-settings-link";
+import { SOCIAL_URLS } from "@/lib/site";
 
 export function SiteFooter() {
   return (
@@ -13,7 +14,7 @@ export function SiteFooter() {
             </p>
             <div className="mt-4 flex gap-4">
               <a
-                href="https://www.facebook.com/deepdivebrewing"
+                href={SOCIAL_URLS.facebook}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
@@ -33,7 +34,7 @@ export function SiteFooter() {
                 </svg>
               </a>
               <a
-                href="https://www.instagram.com/deepdivebrewing"
+                href={SOCIAL_URLS.instagram}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"
@@ -54,7 +55,7 @@ export function SiteFooter() {
               </a>
 
               <a
-                href="https://untappd.com/DeepDiveBrewingCo"
+                href={SOCIAL_URLS.untappd}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ink/50"

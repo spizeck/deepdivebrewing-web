@@ -182,3 +182,48 @@ test("structured data blocks parse and use accurate types", async ({
     expect(await jsonLdTypes(beerUrl)).toEqual(["BreadcrumbList"]);
   }
 });
+
+test("every Brewery-schema page emits the identical canonical entity", async ({
+  page,
+}) => {
+  // Issue #107: one Brewery entity (`@id: <site>/#brewery`) is shared by all
+  // four pages via buildBreweryJsonLd — field sets must never diverge again.
+  const breweryFor = async (route: string) => {
+    await page.goto(route);
+    const blocks = await page
+      .locator('script[type="application/ld+json"]')
+      .allTextContents();
+    const brewery = blocks
+      .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+      .find((node) => node["@type"] === "Brewery");
+    expect(brewery, `${route} Brewery entity`).toBeTruthy();
+    return brewery!;
+  };
+
+  const routes = ["/", "/contact", "/trade", "/where-to-buy"];
+  const entities: Record<string, unknown>[] = [];
+  for (const route of routes) {
+    entities.push(await breweryFor(route));
+  }
+  for (const [i, entity] of entities.entries()) {
+    expect(entity, `${routes[i]} Brewery entity`).toEqual(entities[0]);
+  }
+
+  const brewery = entities[0];
+  expect(brewery["@id"]).toBe(`${CANONICAL_ORIGIN}/#brewery`);
+  for (const field of [
+    "name",
+    "legalName",
+    "url",
+    "image",
+    "email",
+    "telephone",
+    "address",
+    "areaServed",
+    "openingHoursSpecification",
+    "description",
+    "sameAs",
+  ]) {
+    expect(brewery[field], `Brewery.${field}`).toBeTruthy();
+  }
+});

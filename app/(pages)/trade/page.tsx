@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { TradeInquiryForm } from "@/components/trade-inquiry-form";
 import { serializeJsonLd } from "@/lib/json-ld";
-import { siteUrl } from "@/lib/site";
+import { buildBreweryJsonLd } from "@/lib/brewery-json-ld";
+import { BUSINESS_EMAIL } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Trade & Wholesale",
@@ -42,28 +43,15 @@ export const metadata: Metadata = {
 };
 
 export default function TradePage() {
-  const organizationJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Brewery",
-    "@id": `${siteUrl}/#brewery`,
-    name: "Deep Dive Brewing Co",
-    url: siteUrl,
-    telephone: "+599-416-3544",
-    email: "info@deepdivebrewing.com",
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: "66 Fort Bay Road",
-      addressLocality: "The Bottom",
-      addressCountry: "BQ",
-    },
-    areaServed: ["Saba", "Sint Maarten", "Saint Martin", "SXM", "Sint Eustatius", "Statia"],
-  };
+  // Canonical Brewery entity — shared builder (lib/brewery-json-ld.ts,
+  // Issue #107) so all pages emit the identical complete field set.
+  const breweryJsonLd = buildBreweryJsonLd();
 
   return (
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breweryJsonLd) }}
       />
       <div className="mb-12">
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
@@ -95,14 +83,14 @@ export default function TradePage() {
         <p className="text-sm text-muted-foreground">
           Prefer email? Reach us directly at{" "}
           <Link
-            href="mailto:info@deepdivebrewing.com"
+            href={`mailto:${BUSINESS_EMAIL}`}
             className="font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
             data-analytics-event="email_click"
             data-analytics-event-category="contact"
             data-analytics-cta-location="trade_page"
             data-analytics-event-label="Email"
           >
-            info@deepdivebrewing.com
+            {BUSINESS_EMAIL}
           </Link>
           .
         </p>

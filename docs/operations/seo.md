@@ -69,10 +69,10 @@ deploy), so a build-time stamp would misreport freshness to crawlers.
 
 | Route | Types | Notes |
 | --- | --- | --- |
-| `/` | `Brewery` (`@id: <site>/#brewery`) | Canonical entity block — legalName, address, hours, contacts, `sameAs` socials |
-| `/contact` | `Brewery` (`#brewery`) | Same entity, linked by `@id` |
-| `/trade` | `Brewery` (`#brewery`) | Same entity |
-| `/where-to-buy` | `Brewery` (`#brewery`) + `FAQPage` | FAQ mirrors the visible on-page questions |
+| `/` | `Brewery` (`@id: <site>/#brewery`) | Canonical entity — built once by `buildBreweryJsonLd()` in `lib/brewery-json-ld.ts` |
+| `/contact` | `Brewery` (`#brewery`) | Same builder — identical entity on every page |
+| `/trade` | `Brewery` (`#brewery`) | Same builder — identical entity |
+| `/where-to-buy` | `Brewery` (`#brewery`) + `FAQPage` | Same builder; FAQ mirrors the visible on-page questions |
 | `/beers/[slug]` | `BreadcrumbList` | Mirrors the visible breadcrumb nav; no `Product` markup — see below |
 
 Beer detail pages deliberately emit **no `Product` schema**. Google's
@@ -87,8 +87,12 @@ descriptive `Product`, but Google requires commerce/review data to make it
 a valid result — and it must never be invented.
 
 Rules: no fabricated `Offer`, price, rating, or review data — ever. Schema
-must reflect real page content. Entity blocks share `@id: <site>/#brewery`
-so crawlers see one consistent business entity.
+must reflect real page content. All `Brewery` blocks come from a single
+builder — `buildBreweryJsonLd()` in `lib/brewery-json-ld.ts` — fed by the
+canonical business facts in `lib/site.ts` (name, legal name, email, address,
+social URLs) and the `TELEPHONE_DISPLAY` derived in `lib/whatsapp.ts`, so
+crawlers see one consistent entity (`@id: <site>/#brewery`) on every page.
+Never hand-write a `Brewery` object in a page.
 
 Every JSON-LD block is emitted through `serializeJsonLd` in `lib/json-ld.ts`,
 which escapes HTML-unsafe characters (`<`, `>`, `&`, U+2028, U+2029) so a
