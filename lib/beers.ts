@@ -1,7 +1,6 @@
 import { cache } from "react";
 import {
   collection,
-  getDocs,
   getDocsFromServer,
   query,
   where,
@@ -18,22 +17,44 @@ function publicBeersQuery() {
   );
 }
 
+/**
+ * Public beer catalog for build-time renders (homepage, /beers,
+ * /where-to-buy, sitemap). Same read contract as `getBeerStaticParams`:
+ * an unconfigured build returns `[]` without initializing Firebase, while
+ * a configured build reads via `getDocsFromServer` — never `getDocs`,
+ * which silently resolves from the offline cache on backend failure,
+ * indistinguishable from a legitimately empty catalog. A server read
+ * either returns the true result (a valid empty catalog included) or
+ * throws, failing the build rather than deploying an empty one.
+ */
 export async function getBeers(): Promise<Beer[]> {
-  const snapshot = await getDocs(publicBeersQuery());
+  if (!hasFirebaseConfig()) {
+    return [];
+  }
+  const snapshot = await getDocsFromServer(publicBeersQuery());
   return snapshot.docs.map((doc) => doc.data() as Beer);
 }
 
 // React cache() dedupes the generateMetadata + page render reads for the
 // same slug within a single render, so each beer page costs one Firestore
 // read instead of two.
+//
+// Same read contract as `getBeers`: unconfigured builds return `null`
+// without initializing Firebase; configured builds read from the server,
+// so a backend failure throws (failing the build) instead of surfacing as
+// a missing beer. A genuinely absent public slug still resolves `null`,
+// which `notFound()` turns into a legitimate 404.
 export const getBeerBySlug = cache(
   async (slug: string): Promise<Beer | null> => {
+    if (!hasFirebaseConfig()) {
+      return null;
+    }
     const q = query(
       collection(getFirebaseDb(), "beers"),
       where("slug", "==", slug),
       where("isPublic", "==", true)
     );
-    const snapshot = await getDocs(q);
+    const snapshot = await getDocsFromServer(q);
     if (snapshot.empty) return null;
     return snapshot.docs[0].data() as Beer;
   }
