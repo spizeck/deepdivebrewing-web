@@ -55,14 +55,18 @@ async function withEnv<T>(
 // would register in getApps(), and a Firestore read cannot happen without
 // one. Returning early also avoids the SDK's noisy offline-fallback
 // errors during `next build`.
+//
+// The zero-app baseline is strict: these tests must precede the
+// configured-failure tests, which initialize a real Firestore client for
+// the rest of the process. node:test runs tests sequentially in
+// declaration order.
 async function assertUnconfiguredFallback<T>(
   fn: () => Promise<T>,
   expected: T
 ): Promise<void> {
-  const appsBefore = getApps().length;
   const result = await withEnv({}, fn);
   assert.deepEqual(result, expected);
-  assert.equal(getApps().length, appsBefore);
+  assert.equal(getApps().length, 0);
 }
 
 // A configured but unreachable Firestore makes `getDocsFromServer` reject
@@ -93,49 +97,45 @@ describe("hasFirebaseConfig", () => {
   });
 });
 
-describe("getBeers", () => {
-  it("returns [] without initializing Firebase when unconfigured", async () => {
+describe("unconfigured builds (no Firebase config)", () => {
+  it("getBeers returns [] without initializing Firebase", async () => {
     const { getBeers } = await import("@/lib/beers");
     await assertUnconfiguredFallback(() => getBeers(), []);
   });
 
-  it("rejects when configured but Firestore cannot be read", async () => {
-    const { getBeers } = await import("@/lib/beers");
-    await assertServerFailureRejects(() => getBeers());
-  });
-});
-
-describe("getVenues", () => {
-  it("returns [] without initializing Firebase when unconfigured", async () => {
+  it("getVenues returns [] without initializing Firebase", async () => {
     const { getVenues } = await import("@/lib/venues");
     await assertUnconfiguredFallback(() => getVenues(), []);
   });
 
-  it("rejects when configured but Firestore cannot be read", async () => {
-    const { getVenues } = await import("@/lib/venues");
-    await assertServerFailureRejects(() => getVenues());
-  });
-});
-
-describe("getBeerBySlug", () => {
-  it("returns null without initializing Firebase when unconfigured", async () => {
+  it("getBeerBySlug returns null without initializing Firebase", async () => {
     const { getBeerBySlug } = await import("@/lib/beers");
     await assertUnconfiguredFallback(() => getBeerBySlug("any-slug"), null);
   });
 
-  it("rejects when configured but Firestore cannot be read", async () => {
-    const { getBeerBySlug } = await import("@/lib/beers");
-    await assertServerFailureRejects(() => getBeerBySlug("any-slug"));
-  });
-});
-
-describe("getBeerStaticParams", () => {
-  it("returns [] without initializing Firebase when unconfigured", async () => {
+  it("getBeerStaticParams returns [] without initializing Firebase", async () => {
     const { getBeerStaticParams } = await import("@/lib/beers");
     await assertUnconfiguredFallback(() => getBeerStaticParams(), []);
   });
+});
 
-  it("rejects when configured but Firestore cannot be enumerated", async () => {
+describe("configured builds with an unreachable Firestore", () => {
+  it("getBeers rejects instead of resolving an empty catalog", async () => {
+    const { getBeers } = await import("@/lib/beers");
+    await assertServerFailureRejects(() => getBeers());
+  });
+
+  it("getVenues rejects instead of resolving an empty list", async () => {
+    const { getVenues } = await import("@/lib/venues");
+    await assertServerFailureRejects(() => getVenues());
+  });
+
+  it("getBeerBySlug rejects instead of becoming a false 404", async () => {
+    const { getBeerBySlug } = await import("@/lib/beers");
+    await assertServerFailureRejects(() => getBeerBySlug("any-slug"));
+  });
+
+  it("getBeerStaticParams rejects instead of enumerating zero slugs", async () => {
     const { getBeerStaticParams } = await import("@/lib/beers");
     await assertServerFailureRejects(() => getBeerStaticParams());
   });
