@@ -182,22 +182,22 @@ test("trade form exposes labels, autocomplete, and required state", async ({
 }) => {
   await page.goto("/trade");
 
-  await expect(page.getByLabel("Business Name")).toHaveAttribute(
+  await expect(page.getByLabel("Business name")).toHaveAttribute(
     "autocomplete",
     "organization"
   );
-  await expect(page.getByLabel("Contact Name")).toHaveAttribute(
+  await expect(page.getByLabel("Your name")).toHaveAttribute(
     "autocomplete",
     "name"
   );
   const email = page.getByLabel("Email");
   await expect(email).toHaveAttribute("autocomplete", "email");
   await expect(email).toHaveAttribute("required", "");
-  await expect(page.getByLabel("Phone / WhatsApp")).toHaveAttribute(
+  await expect(page.getByLabel("Phone / WhatsApp (optional)")).toHaveAttribute(
     "autocomplete",
     "tel"
   );
-  await expect(page.getByLabel("Venue Type")).toHaveAttribute("required", "");
+  await expect(page.getByLabel("Business type")).toHaveAttribute("required", "");
 
   // The honeypot field exists but is unreachable by keyboard and hidden
   // from assistive technology (sr-only keeps a clipped 1px box, so assert
@@ -222,11 +222,11 @@ test("trade form announces submission errors in a status region", async ({
   );
   await page.goto("/trade");
 
-  await page.getByLabel("Business Name").fill("Smoke Test Tavern");
-  await page.getByLabel("Contact Name").fill("Tester");
+  await page.getByLabel("Business name").fill("Smoke Test Tavern");
+  await page.getByLabel("Your name").fill("Tester");
   await page.getByLabel("Email").fill("tester@example.com");
-  await page.getByLabel("Venue Type").selectOption("bar");
-  await page.getByRole("button", { name: "Submit Inquiry" }).click();
+  await page.getByLabel("Business type").selectOption("bar");
+  await page.getByRole("button", { name: "Send inquiry" }).click();
 
   const statusRegion = page.getByRole("status");
   await expect(statusRegion).toContainText("Failed to submit inquiry.");

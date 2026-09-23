@@ -262,7 +262,7 @@ describe("handleTradeInquiry", () => {
       deps
     );
     assert.strictEqual(result.status, 400);
-    assert.match(result.body.error ?? "", /Missing required fields/);
+    assert.match(result.body.error ?? "", /required fields/);
     assert.deepStrictEqual(calls, []);
   });
 
@@ -274,7 +274,7 @@ describe("handleTradeInquiry", () => {
       deps
     );
     assert.strictEqual(result.status, 400);
-    assert.match(result.body.error ?? "", /Missing required fields/);
+    assert.match(result.body.error ?? "", /required fields/);
     assert.deepStrictEqual(calls, []);
   });
 
@@ -286,7 +286,12 @@ describe("handleTradeInquiry", () => {
       deps
     );
     assert.strictEqual(result.status, 400);
-    assert.match(result.body.error ?? "", /Field exceeds maximum length: email/);
+    // The customer-facing message names the field by its form label, never
+    // the camelCase API key.
+    assert.strictEqual(
+      result.body.error,
+      "Please shorten the email field."
+    );
     assert.deepStrictEqual(calls, []);
   });
 
@@ -336,7 +341,10 @@ describe("handleTradeInquiry", () => {
     const result = await handleTradeInquiry(body, context, deps);
     assert.deepStrictEqual(result, {
       status: 500,
-      body: { ok: false, error: "Failed to submit inquiry." },
+      body: {
+        ok: false,
+        error: "Something went wrong on our end. Please try again.",
+      },
     });
   });
 

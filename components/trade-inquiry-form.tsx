@@ -59,7 +59,7 @@ export function TradeInquiryForm() {
       const data = (await res.json()) as { ok?: boolean; error?: string };
 
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Submit failed");
+        throw new Error(data.error || "Something went wrong. Please try again.");
       }
 
       setStatus("success");
@@ -99,9 +99,9 @@ export function TradeInquiryForm() {
         aria-live="polite"
         className="rounded-lg border border-moss/30 bg-moss/5 p-8 text-center outline-none focus-visible:ring-2 focus-visible:ring-moss/50"
       >
-        <p className="font-semibold text-ink">Thank you for your inquiry.</p>
+        <p className="font-semibold text-ink">Thanks for reaching out.</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          We&apos;ll be in touch soon.
+          Your inquiry is in our inbox. The Deep Dive team will follow up.
         </p>
       </div>
     );
@@ -125,7 +125,7 @@ export function TradeInquiryForm() {
 
       <div className="grid gap-6 sm:grid-cols-2">
         <FormField
-          label="Business Name"
+          label="Business name"
           name="businessName"
           autoComplete="organization"
           value={formData.businessName}
@@ -133,7 +133,7 @@ export function TradeInquiryForm() {
           required
         />
         <FormField
-          label="Contact Name"
+          label="Your name"
           name="contactName"
           autoComplete="name"
           value={formData.contactName}
@@ -150,7 +150,7 @@ export function TradeInquiryForm() {
           required
         />
         <FormField
-          label="Phone / WhatsApp"
+          label="Phone / WhatsApp (optional)"
           name="phoneOrWhatsapp"
           type="tel"
           autoComplete="tel"
@@ -161,7 +161,7 @@ export function TradeInquiryForm() {
 
       <div>
         <label htmlFor="venueType" className="mb-2 block text-sm font-medium text-ink">
-          Venue Type
+          Business type
           <span aria-hidden="true" className="text-ember"> *</span>
         </label>
         <select
@@ -172,7 +172,7 @@ export function TradeInquiryForm() {
           required
           className="min-h-[44px] w-full rounded-md border border-stone bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-ocean/50"
         >
-          <option value="">Select type...</option>
+          <option value="">Choose one...</option>
           {venueTypes.map((type) => (
             <option key={type} value={type.toLowerCase()}>
               {type}
@@ -183,7 +183,7 @@ export function TradeInquiryForm() {
 
       <div>
         <label htmlFor="message" className="mb-2 block text-sm font-medium text-ink">
-          Message
+          Message (optional)
         </label>
         <textarea
           id="message"
@@ -211,7 +211,7 @@ export function TradeInquiryForm() {
       </div>
 
       <Button type="submit" disabled={status === "submitting"} className="h-11 min-h-[44px] px-6">
-        {status === "submitting" ? "Sending..." : "Submit Inquiry"}
+        {status === "submitting" ? "Sending..." : "Send inquiry"}
       </Button>
     </form>
   );

@@ -64,15 +64,15 @@ test("trade page renders the inquiry form", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "What to expect" })
   ).toBeVisible();
-  await expect(page.getByLabel("Business Name")).toBeVisible();
-  await expect(page.getByLabel("Contact Name")).toBeVisible();
+  await expect(page.getByLabel("Business name")).toBeVisible();
+  await expect(page.getByLabel("Your name")).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
-  await expect(page.getByLabel("Message")).toBeVisible();
+  await expect(page.getByLabel("Message (optional)")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Submit Inquiry" })
+    page.getByRole("button", { name: "Send inquiry" })
   ).toBeEnabled();
   // Client-side interactivity works without touching the real API.
-  const businessName = page.getByLabel("Business Name");
+  const businessName = page.getByLabel("Business name");
   await businessName.fill("Smoke Test Tavern");
   await expect(businessName).toHaveValue("Smoke Test Tavern");
 });

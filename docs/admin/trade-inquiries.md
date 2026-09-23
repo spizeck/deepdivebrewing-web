@@ -16,11 +16,11 @@ The form asks for the following information:
 
 | Field | Required | Notes |
 |---|---|---|
-| **Business Name** | Yes | The bar, restaurant, hotel, retail store, or distributor. |
-| **Contact Name** | Yes | The person requesting the trade partnership. |
+| **Business name** | Yes | The bar, restaurant, hotel, retail store, or distributor. |
+| **Your name** | Yes | The person requesting the trade partnership. |
 | **Email** | Yes | Used as the reply-to address. |
 | **Phone / WhatsApp** | No | Optional contact number. |
-| **Venue Type** | Yes | One of: Bar, Restaurant, Hotel, Retail, Distributor, Other. |
+| **Business type** | Yes | One of: Bar, Restaurant, Hotel, Retail, Distributor, Other. |
 | **Message** | No | Any extra details the submitter wants to share. |
 
 There is also a hidden honeypot field named `website`. Humans never see it. If it is filled, the submission is treated as spam and silently discarded.
