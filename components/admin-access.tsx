@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
+import { isValidEmail } from "@/lib/email";
 import type { AdminRole, AdminUserView, AdminInvitationView } from "@/lib/types";
 
 // The panel only needs a token source — the real Firebase `User` satisfies
@@ -23,8 +24,6 @@ interface AdminListResponse {
   invitations?: AdminInvitationView[];
   error?: string;
 }
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProps) {
   const [admins, setAdmins] = useState<AdminUserView[]>([]);
@@ -63,7 +62,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
   async function invite(e: React.FormEvent) {
     e.preventDefault();
     const email = inviteEmail.trim().toLowerCase();
-    if (!EMAIL_REGEX.test(email)) {
+    if (!isValidEmail(email)) {
       onStatusMessage("Please enter a valid email address.");
       return;
     }
