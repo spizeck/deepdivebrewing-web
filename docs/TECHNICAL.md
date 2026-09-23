@@ -64,19 +64,22 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   with `dynamicParams = false`: only slugs known at build time exist, and
   unknown slugs 404 without a render. A newly published beer becomes
   reachable after the normal deploy-hook rebuild.
-- **Static generation reads live Firestore.** `getBeers()` / `getVenues()` use
-  the Firebase *client* SDK, so `next build` performs real Firestore reads
-  against the configured project during prerendering. If reads fail (denied,
-  or no project configured at all — as in CI, which provides no env), the SDK
-  logs errors, falls back to offline mode, and the pages still build with
-  empty states — see `lib/beers.ts` and `lib/venues.ts` and the Firestore
-  `INVALID_ARGUMENT`/`permission-denied` warnings observed in build logs.
-  Beer detail pages add one safeguard (`getBeerStaticParams`): slug
-  enumeration uses `getDocsFromServer`, which never resolves from the
-  offline cache — a real backend failure (unavailable, permission-denied)
-  throws and fails the build rather than deploying zero beer pages, while a
-  genuinely empty public catalog is a valid successful result. Builds
-  without Firebase config skip the read entirely and generate no params.
+- **Static generation reads live Firestore.** `getBeers()` / `getVenues()` /
+  `getBeerBySlug()` / `getBeerStaticParams()` (in `lib/beers.ts` and
+  `lib/venues.ts`) use the Firebase *client* SDK, so `next build` performs
+  real Firestore reads during prerendering. All of them share one read
+  contract, gated by `hasFirebaseConfig()` (`lib/firebase.ts`):
+  - **Unconfigured build** (CI, local without `.env.local`): the helper
+    returns its empty fallback (`[]` or `null`) without initializing
+    Firebase — credential-free builds are intentional.
+  - **Configured build:** the read uses `getDocsFromServer`, which never
+    resolves from the offline cache — plain `getDocs` can silently return
+    an empty cached result on backend failure, indistinguishable from a
+    legitimately empty collection. A genuinely empty public catalog is a
+    valid successful result, while a real backend failure (unavailable,
+    permission-denied) throws and fails the build rather than deploying an
+    empty catalog, an empty venue list, altered FAQ copy, or beer pages
+    that 404 until the next rebuild.
 - **Node runtime.** The repository is normalized on **Node 24** (active LTS):
   `.nvmrc` declares `24` and is the single source of truth — CI reads it via
   `actions/setup-node`'s `node-version-file`, `package.json` declares
@@ -662,11 +665,12 @@ variables at all** — verified experimentally after the lazy-initialization
 refactor (issue #18). Resend is only constructed at send time via
 `getResendClient()` and Firebase client services only via `getFirebase*()`
 first-use getters, so page-data collection evaluates no service clients.
-Static generation still invokes the Firestore reads in `getBeers()` /
-`getVenues()`, which fail fast against an unconfigured project
-(`INVALID_ARGUMENT` warnings), fall back to offline mode, and resolve empty —
-pages build with fallback/empty states. Typecheck/lint/tests need no env
-either. No secrets or placeholder values exist anywhere in CI.
+Static generation's Firestore reads (`getBeers()` / `getVenues()` /
+`getBeerBySlug()` / `getBeerStaticParams()`) see no config via
+`hasFirebaseConfig()` and return their empty fallbacks without
+initializing Firebase, so pages build with empty states and no SDK
+warnings. Typecheck/lint/tests need no env either. No secrets or
+placeholder values exist anywhere in CI.
 
 ## 14. Testing and verification strategy
 

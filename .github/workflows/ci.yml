@@ -51,9 +51,10 @@ jobs:
 
       - name: Build
         # Service clients initialize lazily, so `next build` needs no
-        # credentials or config placeholders. Firestore reads made during
-        # prerendering resolve empty (offline) when no project config is
-        # present, which is the intended CI behavior.
+        # credentials or config placeholders. Firestore reads during
+        # prerendering see no project config via hasFirebaseConfig() and
+        # return their empty fallbacks without touching Firebase — the
+        # intended CI behavior.
         run: npm run build
 
       - name: Install Playwright Chromium
