@@ -66,8 +66,10 @@ export function venueOffersFormat(
 
 /**
  * Canonical island key for a `locationName`. "sxm"/maarten/martin collapse
- * to "sxm", statia/eustatius to "statia"; anything else lowercases as-is.
- * An empty/missing location follows the same Saba default the public page
+ * to "sxm", statia/eustatius to "statia", and "saba" plus Saba localities
+ * written "<locality>, Saba" ("Fort Bay, Saba", "Windwardside / The
+ * Bottom, Saba") collapse to "saba"; anything else lowercases as-is. An
+ * empty/missing location follows the same Saba default the public page
  * has always used.
  */
 export function islandKey(locationName: string | undefined): string {
@@ -82,14 +84,35 @@ export function islandKey(locationName: string | undefined): string {
   if (normalized.includes("statia") || normalized.includes("eustatius")) {
     return "statia";
   }
+  // Saba venues may prefix the island with a locality; the island is the
+  // final comma-separated segment. Matching the whole segment — not a
+  // bare "saba" substring — keeps unrelated names from being
+  // misclassified.
+  if (normalized.split(",").pop()?.trim() === "saba") {
+    return "saba";
+  }
   return normalized === "" ? "saba" : normalized;
 }
 
-/** Display heading for a canonical island key (same names as before). */
+// Intentional public labels for the known canonical islands — never
+// derived from casing rules. A Map (not a Record) so keys colliding with
+// Object.prototype members still take the unknown-island path.
+const ISLAND_DISPLAY_NAMES: ReadonlyMap<string, string> = new Map([
+  ["saba", "Saba"],
+  ["sxm", "Sint Maarten / Saint Martin / SXM"],
+  ["statia", "Sint Eustatius / Statia"],
+]);
+
+/**
+ * Display heading for a canonical island key. Known islands return their
+ * canonical label; an unknown future island key title-cases each word
+ * rather than only the first letter of the whole string.
+ */
 export function islandDisplayName(key: string): string {
-  if (key === "sxm") return "Sint Maarten / Saint Martin / SXM";
-  if (key === "statia") return "Sint Eustatius / Statia";
-  return key.charAt(0).toUpperCase() + key.slice(1);
+  return (
+    ISLAND_DISPLAY_NAMES.get(key) ??
+    key.replace(/\b[a-z]/g, (ch) => ch.toUpperCase())
+  );
 }
 
 /** Distinct canonical island keys across venues, ordered by display name. */

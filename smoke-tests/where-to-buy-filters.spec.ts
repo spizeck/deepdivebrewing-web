@@ -6,11 +6,14 @@ import { test, expect } from "./fixtures";
 // also proves filtering works with analytics consent declined.
 //
 // Fixture data (lib/where-to-buy-fixture.ts):
-//   Fixture Tavern      Saba   tap: pilsner        can: ipa
-//   Fixture Bottle Shop Saba   can: ipa
-//   Fixture Harbor Bar  SXM    tap: pilsner + ipa
-//   Fixture Quiet Cafe  Saba   carries nothing
+//   Fixture Tavern      Fort Bay, Saba                  tap: pilsner        can: ipa
+//   Fixture Bottle Shop Windwardside, Saba              can: ipa
+//   Fixture Harbor Bar  SXM                             tap: pilsner + ipa
+//   Fixture Quiet Cafe  Windwardside / The Bottom, Saba carries nothing
 //   Flat Point Amber is a public beer carried by no venue — never an option.
+// The three Saba venues deliberately use distinct "<locality>, Saba"
+// locationNames so this suite covers the island-grouping regression from
+// issue #116 (localities fragmenting into per-locality island groups).
 
 const ROUTE = "/where-to-buy-fixture";
 
@@ -49,6 +52,13 @@ test("renders filters and all venues unfiltered", async ({ page }) => {
   await expect(formatButton(page, "On Tap")).toBeVisible();
   await expect(formatButton(page, "In Can")).toBeVisible();
   await expect(islandSelect(page)).toBeVisible();
+  // One option per real island — the three Saba localities collapse to a
+  // single "Saba" choice (#116).
+  await expect(islandSelect(page).locator("option")).toHaveText([
+    "All islands",
+    "Saba",
+    "Sint Maarten / Saint Martin / SXM",
+  ]);
   await expect(statusText(page)).toHaveText("4 venues shown");
   expect(await venueNames(page)).toEqual([
     "Fixture Tavern",
@@ -108,6 +118,55 @@ test("island filter matches the canonical island", async ({ page }) => {
   await expect(statusText(page)).toHaveText("1 venue shown");
   expect(await venueNames(page)).toEqual(["Fixture Harbor Bar"]);
   await expect(page).toHaveURL(/island=sxm/);
+});
+
+test("Saba localities render under one Saba group and one filter option", async ({
+  page,
+}) => {
+  // Issue #116 regression: "<locality>, Saba" locationNames must not
+  // fragment into per-locality island groups or headings like
+  // "Fort bay, saba".
+  await expect(page.locator("main h2")).toHaveText([
+    "Saba",
+    "Sint Maarten / Saint Martin / SXM",
+  ]);
+  await expect(
+    page.getByRole("heading", { name: "Fort bay, saba" })
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Windwardside, saba" })
+  ).toHaveCount(0);
+
+  // All three Saba venues sit inside the single Saba section, and each
+  // card still shows its raw locality text.
+  const sabaSection = page.locator("main section").filter({
+    has: page.getByRole("heading", { name: "Saba", level: 2, exact: true }),
+  });
+  await expect(sabaSection.locator("h3")).toHaveText([
+    "Fixture Tavern",
+    "Fixture Bottle Shop",
+    "Fixture Quiet Cafe",
+  ]);
+  await expect(
+    sabaSection.getByText("Fort Bay, Saba", { exact: true })
+  ).toBeVisible();
+  await expect(
+    sabaSection.getByText("Windwardside, Saba", { exact: true })
+  ).toBeVisible();
+  await expect(
+    sabaSection.getByText("Windwardside / The Bottom, Saba", {
+      exact: true,
+    })
+  ).toBeVisible();
+
+  // The Saba option returns every Saba venue and excludes other islands.
+  await islandSelect(page).selectOption("saba");
+  await expect(statusText(page)).toHaveText("3 venues shown");
+  expect(await venueNames(page)).toEqual([
+    "Fixture Tavern",
+    "Fixture Bottle Shop",
+    "Fixture Quiet Cafe",
+  ]);
 });
 
 test("impossible combination shows the empty state, clear restores all", async ({

@@ -50,7 +50,8 @@ The `/where-to-buy` page groups venues by the **Location Name** field. The publi
 
 - If the location name contains `sxm`, `maarten`, or `martin`, the heading displays as **Sint Maarten / Saint Martin / SXM**.
 - If the location name contains `statia` or `eustatius`, the heading displays as **Sint Eustatius / Statia**.
-- Any other value has its first letter capitalized and is used as-is.
+- `Saba` — or any value whose last comma-separated part is `Saba`, such as `Windwardside, Saba` or `Fort Bay, Saba` — groups under **Saba**. The locality prefix still appears on the venue card but does not create its own group.
+- Any other value becomes its own group heading, capitalized word by word.
 
 ### Recommended exact values
 
@@ -62,7 +63,7 @@ Use simple, consistent values so grouping works predictably:
 
 Examples:
 
-- A venue on Saba should have **Location Name** set to `Saba`.
+- A venue on Saba should have **Location Name** set to `Saba`. If the locality matters to visitors, `<locality>, Saba` also works — for example `Windwardside, Saba` still groups under **Saba** while the card shows the locality.
 - A venue on Sint Maarten should use `SXM` or `Sint Maarten`.
 - A venue on Saint Martin (French side) should use `Saint Martin` or `SXM`.
 
