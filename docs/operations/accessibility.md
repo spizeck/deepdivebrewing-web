@@ -9,6 +9,7 @@ is WCAG 2.2 AA — this is a practical baseline, not a certification.
 | Surface | Coverage |
 | --- | --- |
 | `/`, `/beers`, `/about`, `/trade`, `/contact`, `/where-to-buy`, `/admin`, `/beers/[slug]` (404 path) | axe scan (serious/critical block) + keyboard checks |
+| Homepage beer carousel (`/carousel-fixture`) | pointer-vs-keyboard focus, drag, and arrow assertions (`smoke-tests/carousel.spec.ts`) |
 | Authenticated admin dashboard (beers/venues tabs, forms, rebuild controls, access/invitation management) | axe scan + keyboard/status/focus assertions via `/admin-fixture` |
 | `/admin` sign-in shell and unauthorized states | axe scan + live-region assertions (public-route spec) |
 
@@ -97,8 +98,12 @@ fail — stop your server first or start it with `ADMIN_A11Y_FIXTURE=1`.
 - **Decorative media is hidden from AT** (`alt=""`, `aria-hidden` on the hero
   video). Content images get concise, non-duplicative alt.
 - **Nothing auto-plays.** The carousel advances only via its arrow buttons
-  (also per `THEME_AND_BRANDING.md`). The hero video is muted, decorative,
-  and swaps to a static poster under `prefers-reduced-motion`.
+  and pointer drag (also per `THEME_AND_BRANDING.md`). It additionally
+  scrolls a slide into view when that slide's card link receives
+  **keyboard** focus — the slide `onFocus` handler is gated on
+  `:focus-visible` so pointer clicks/taps never re-align the carousel.
+  The hero video is muted, decorative, and swaps to a static poster under
+  `prefers-reduced-motion`.
 - **`prefers-reduced-motion`** is honored in `globals.css` for the site's
   fade/reveal animations and in JS (`hero-video`, `IntroSection`) for the
   video swap.

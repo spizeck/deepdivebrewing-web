@@ -30,6 +30,7 @@ policy, metadata conventions, sitemap/robots behavior, and how to verify.
 | `/beers/[slug]` unknown slug | No | `generateMetadata` returns `robots: { index: false }` + 404 |
 | `/admin` | No | `robots` meta `noindex,nofollow` + `Disallow` in robots.txt; real protection is auth, not robots |
 | `/admin-fixture` | No | `noindex,nofollow` meta + `Disallow`; also returns 404 unless the server-only test flag is set |
+| `/carousel-fixture`, `/where-to-buy-fixture` | No | Same env-gated test-fixture pattern: `noindex,nofollow` meta + `Disallow`, 404 without the flag |
 | `/trade/login`, `/trade/order`, `/trade/orders` | No | Reserved placeholders — `noindex,nofollow` meta + `Disallow` |
 | `/api/*` | No | `Disallow: /api/` (API routes produce no indexable content) |
 | `/_not-found` (404) | No | `noindex` meta + 404 status |

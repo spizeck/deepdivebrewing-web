@@ -39,7 +39,16 @@ export function BeerCarousel({ beers, imageUrls }: BeerCarouselProps) {
               role="group"
               aria-roledescription="slide"
               aria-label={`${index + 1} of ${beers.length}`}
-              onFocus={() => emblaApi?.scrollTo(index)}
+              // Keyboard accessibility: a tabbed-to slide that is partly or
+              // fully off-screen is scrolled into view. The :focus-visible
+              // gate limits that to keyboard focus — a pointer click/tap on
+              // the card link must not re-align the carousel ahead of
+              // navigation.
+              onFocus={(event) => {
+                if ((event.target as HTMLElement).matches(":focus-visible")) {
+                  emblaApi?.scrollTo(index);
+                }
+              }}
             >
               <BeerCard beer={beer} imageUrl={imageUrls[beer.slug]} />
             </div>
