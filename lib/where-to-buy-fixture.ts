@@ -3,7 +3,10 @@ import type { Beer, Venue } from "@/lib/types";
 // Deterministic fixture records for the test-only /where-to-buy-fixture
 // route used by the Playwright filtering suite. Shapes match the real
 // Firestore models so VenueDirectory exercises the same code path as the
-// production page. Not real business data — names/links are placeholders.
+// production page. The three Saba venues deliberately use different
+// locality strings ("<locality>, Saba") so the suite covers the island
+// grouping regression from issue #116. Not real business data —
+// names/links are placeholders.
 export const WHERE_TO_BUY_FIXTURE_BEERS: Beer[] = [
   {
     name: "Saba Suds Pilsner",
@@ -56,7 +59,7 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Tavern",
     slug: "fixture-tavern",
     type: "bar_restaurant",
-    locationName: "Saba",
+    locationName: "Fort Bay, Saba",
     carriesBeerSlugs: ["saba-suds-pilsner", "fort-bay-ipa"],
     tapBeerSlugs: ["saba-suds-pilsner"],
     canBeerSlugs: ["fort-bay-ipa"],
@@ -71,7 +74,7 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Bottle Shop",
     slug: "fixture-bottle-shop",
     type: "retail",
-    locationName: "Saba",
+    locationName: "Windwardside, Saba",
     carriesBeerSlugs: ["fort-bay-ipa"],
     tapBeerSlugs: [],
     canBeerSlugs: ["fort-bay-ipa"],
@@ -95,7 +98,7 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Quiet Cafe",
     slug: "fixture-quiet-cafe",
     type: "bar_restaurant",
-    locationName: "Saba",
+    locationName: "Windwardside / The Bottom, Saba",
     carriesBeerSlugs: [],
     tapBeerSlugs: [],
     canBeerSlugs: [],

@@ -66,6 +66,26 @@ describe("islandKey / islandDisplayName", () => {
     assert.equal(islandKey("Sint Eustatius"), "statia");
   });
 
+  it("normalizes every Saba locality variant to the one saba key", () => {
+    // Issue #116: Fort Bay / Windwardside / The Bottom are localities on
+    // Saba, not separate islands. The canonical form is "<locality>,
+    // Saba" — the island is the final comma-separated segment.
+    for (const locationName of [
+      "Saba",
+      "Fort Bay, Saba",
+      "Windwardside, Saba",
+      "The Bottom, Saba",
+      "Windwardside / The Bottom, Saba",
+      "  the bottom ,  saba ",
+    ]) {
+      assert.equal(islandKey(locationName), "saba", locationName);
+    }
+  });
+
+  it("does not misclassify values that merely contain the saba substring", () => {
+    assert.notEqual(islandKey("Sabana Grande"), "saba");
+  });
+
   it("defaults empty location to saba, matching the public page", () => {
     assert.equal(islandKey(""), "saba");
     assert.equal(islandKey(undefined), "saba");
@@ -76,14 +96,24 @@ describe("islandKey / islandDisplayName", () => {
     assert.equal(islandKey("Bonaire"), "bonaire");
   });
 
-  it("renders the same display names the page used before", () => {
+  it("renders intentional display names for known islands", () => {
     assert.equal(
       islandDisplayName("sxm"),
       "Sint Maarten / Saint Martin / SXM"
     );
     assert.equal(islandDisplayName("statia"), "Sint Eustatius / Statia");
     assert.equal(islandDisplayName("saba"), "Saba");
+    // A Saba locality can never surface as a heading again.
+    assert.equal(islandDisplayName(islandKey("Fort Bay, Saba")), "Saba");
+    assert.equal(
+      islandDisplayName(islandKey("Windwardside / The Bottom, Saba")),
+      "Saba"
+    );
+  });
+
+  it("title-cases unknown future islands word by word", () => {
     assert.equal(islandDisplayName("bonaire"), "Bonaire");
+    assert.equal(islandDisplayName("st. barths"), "St. Barths");
   });
 });
 
@@ -123,10 +153,10 @@ describe("venueCarriesBeer / venueOffersFormat", () => {
 });
 
 describe("filterVenues", () => {
-  // Tavern: Saba, pilsner on tap + ipa in can
-  // Bottle Shop: Saba, ipa in can
-  // Harbor Bar: SXM, pilsner + ipa on tap
-  // Quiet Cafe: Saba, carries nothing
+  // Tavern:      Fort Bay, Saba — pilsner on tap + ipa in can
+  // Bottle Shop: Windwardside, Saba — ipa in can
+  // Harbor Bar:  SXM — pilsner + ipa on tap
+  // Quiet Cafe:  Windwardside / The Bottom, Saba — carries nothing
   const venues = WHERE_TO_BUY_FIXTURE_VENUES;
   const names = (list: Venue[]) => list.map((v) => v.slug);
 
@@ -192,6 +222,15 @@ describe("filterVenues", () => {
     );
   });
 
+  it("island saba returns every Saba venue regardless of locality", () => {
+    // The three fixture Saba venues use different "<locality>, Saba"
+    // locationNames — one canonical key must catch them all (#116).
+    assert.deepEqual(
+      names(filterVenues(venues, { ...EMPTY_VENUE_FILTERS, island: "saba" })),
+      ["fixture-tavern", "fixture-bottle-shop", "fixture-quiet-cafe"]
+    );
+  });
+
   it("categories combine with AND", () => {
     assert.deepEqual(
       names(
@@ -243,6 +282,22 @@ describe("distinctIslands / groupVenuesByIsland", () => {
     assert.deepEqual(
       groups[1].venues.map((v) => v.slug),
       ["a", "b"]
+    );
+  });
+
+  it("offers one saba option and one saba group for all Saba localities", () => {
+    // Issue #116 regression: distinct "<locality>, Saba" locationNames
+    // must not fragment into per-locality island options or headings.
+    const venues = WHERE_TO_BUY_FIXTURE_VENUES;
+    assert.deepEqual(distinctIslands(venues), ["saba", "sxm"]);
+    const groups = groupVenuesByIsland(venues);
+    assert.deepEqual(
+      groups.map((g) => g.key),
+      ["saba", "sxm"]
+    );
+    assert.deepEqual(
+      groups[0].venues.map((v) => v.slug),
+      ["fixture-tavern", "fixture-bottle-shop", "fixture-quiet-cafe"]
     );
   });
 });
