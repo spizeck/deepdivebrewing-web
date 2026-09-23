@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BUSINESS_ADDRESS } from "@/lib/site";
 
 // Contextual consent boundary (Issue #77): the Google Maps embed is never
 // rendered into the page until the visitor explicitly asks for it. That keeps
@@ -48,7 +49,7 @@ export function ContactMap({ className }: ContactMapProps) {
           <MapPin className="h-5 w-5 text-ink" aria-hidden="true" />
           <p className="font-semibold tracking-tight">Find us at Fort Bay</p>
           <p className="text-sm text-muted-foreground">
-            66 Fort Bay Road, The Bottom, Saba
+            {BUSINESS_ADDRESS.streetAddress}, {BUSINESS_ADDRESS.addressLocality}, Saba
           </p>
           <p className="text-sm text-muted-foreground">
             Want the interactive map? Load it when you need it.

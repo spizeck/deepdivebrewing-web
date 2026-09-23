@@ -10,7 +10,7 @@ import { TourInquiryCta } from "@/components/tour-inquiry-cta";
 import { getBeers } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
 import { serializeJsonLd } from "@/lib/json-ld";
-import { siteUrl } from "@/lib/site";
+import { buildBreweryJsonLd } from "@/lib/brewery-json-ld";
 import type { CSSProperties } from "react";
 
 export const metadata: Metadata = {
@@ -49,51 +49,15 @@ export default async function Home() {
   const imageUrls = Object.fromEntries(
     featuredBeers.map((b) => [b.slug, beerImageUrl(b.images.cardPath)])
   );
-  const organizationJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Brewery",
-    "@id": `${siteUrl}/#brewery`,
-    name: "Deep Dive Brewing Co",
-    legalName: "Deep Dive Brews, BV",
-    url: siteUrl,
-    image: `${siteUrl}/photos/og-default.jpg`,
-    email: "info@deepdivebrewing.com",
-    telephone: "+599-416-3544",
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: "66 Fort Bay Road",
-      addressLocality: "The Bottom",
-      addressCountry: "BQ",
-    },
-    areaServed: ["Saba", "Sint Maarten", "Saint Martin", "SXM"],
-    openingHoursSpecification: [
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: [
-          "Monday",
-          "Tuesday",
-          "Wednesday",
-          "Thursday",
-          "Friday",
-        ],
-        opens: "08:00",
-        closes: "15:00",
-      },
-    ],
-    description:
-      "Craft brewery based on Saba producing locally brewed beer with island-wide and regional partner distribution.",
-    sameAs: [
-      "https://www.instagram.com/deepdivebrewing",
-      "https://www.facebook.com/deepdivebrewing",
-      "https://untappd.com/DeepDiveBrewingCo",
-    ],
-  };
+  // Canonical Brewery entity — shared builder (lib/brewery-json-ld.ts,
+  // Issue #107) so all pages emit the identical complete field set.
+  const breweryJsonLd = buildBreweryJsonLd();
 
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breweryJsonLd) }}
       />
       <SiteHeader />
       <main id="main-content" tabIndex={-1}>

@@ -3,7 +3,7 @@ import { getVenues } from "@/lib/venues";
 import { getBeers } from "@/lib/beers";
 import { VenueDirectory } from "@/components/venue-directory";
 import { serializeJsonLd } from "@/lib/json-ld";
-import { siteUrl } from "@/lib/site";
+import { buildBreweryJsonLd } from "@/lib/brewery-json-ld";
 import { carriedBeerOptions, distinctIslands } from "@/lib/venue-filters";
 
 export const metadata: Metadata = {
@@ -85,28 +85,16 @@ export default async function WhereToBuyPage() {
     ],
   };
 
-  const localBusinessJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Brewery",
-    "@id": `${siteUrl}/#brewery`,
-    name: "Deep Dive Brewing Co",
-    url: siteUrl,
-    telephone: "+599-416-3544",
-    email: "info@deepdivebrewing.com",
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: "66 Fort Bay Road",
-      addressLocality: "The Bottom",
-      addressCountry: "BQ",
-    },
-    areaServed: ["Saba", "Sint Maarten", "Saint Martin", "SXM", "Sint Eustatius", "Statia"],
-  };
+  // Canonical Brewery entity — shared builder (lib/brewery-json-ld.ts,
+  // Issue #107) so all pages emit the identical complete field set. The
+  // FAQPage block above stays local: it mirrors this page's visible FAQ.
+  const breweryJsonLd = buildBreweryJsonLd();
 
   return (
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: serializeJsonLd(localBusinessJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breweryJsonLd) }}
       />
       <script
         type="application/ld+json"

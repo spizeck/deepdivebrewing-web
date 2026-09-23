@@ -1,5 +1,7 @@
 import { MdxLayout } from "@/components/mdx-layout";
 import type { Metadata } from "next";
+import { BUSINESS_ADDRESS, BUSINESS_EMAIL } from "@/lib/site";
+import { whatsappUrl } from "@/lib/whatsapp";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -186,16 +188,16 @@ export default function PrivacyPage() {
         Trading as Deep Dive Brewing Co.
       </p>
       <p>
-        66 Fort Bay Road
+        {BUSINESS_ADDRESS.streetAddress}
         <br />
-        The Bottom, Saba
+        {BUSINESS_ADDRESS.addressLocality}, Saba
         <br />
         Caribbean Netherlands
       </p>
       <p>
-        Email: <a href="mailto:info@deepdivebrewing.com">info@deepdivebrewing.com</a>
+        Email: <a href={`mailto:${BUSINESS_EMAIL}`}>{BUSINESS_EMAIL}</a>
         <br />
-        WhatsApp: <a href="https://wa.me/5994163544">+599 416 3544</a>
+        WhatsApp: <a href={whatsappUrl()}>+599 416 3544</a>
       </p>
 
       <p className="text-sm text-muted-foreground">Last Updated: September 2026</p>

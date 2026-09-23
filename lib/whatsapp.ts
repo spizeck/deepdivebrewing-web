@@ -4,6 +4,12 @@
 // readable copy and never hand-encode.
 const WHATSAPP_NUMBER = "5994163544";
 
+// Display form of the same number — "+599" is the Caribbean Netherlands
+// country code, then the local digits grouped 3-4. Derived from
+// WHATSAPP_NUMBER so the digits exist in exactly one place; used for the
+// schema `telephone` field and visible contact links.
+export const TELEPHONE_DISPLAY = `+${WHATSAPP_NUMBER.slice(0, 3)}-${WHATSAPP_NUMBER.slice(3, 6)}-${WHATSAPP_NUMBER.slice(6)}`;
+
 export function whatsappUrl(message?: string): string {
   const base = `https://wa.me/${WHATSAPP_NUMBER}`;
   return message ? `${base}?text=${encodeURIComponent(message)}` : base;

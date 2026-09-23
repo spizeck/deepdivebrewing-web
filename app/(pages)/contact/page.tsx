@@ -4,7 +4,9 @@ import { Phone, Mail, Clock, MapPin } from "lucide-react";
 import { ContactMap } from "@/components/contact-map";
 import { TrackedAnchor } from "@/components/tracked-link";
 import { serializeJsonLd } from "@/lib/json-ld";
-import { siteUrl } from "@/lib/site";
+import { buildBreweryJsonLd } from "@/lib/brewery-json-ld";
+import { BUSINESS_ADDRESS, BUSINESS_EMAIL, BUSINESS_NAME } from "@/lib/site";
+import { TELEPHONE_DISPLAY, whatsappUrl } from "@/lib/whatsapp";
 import { TourInquiryCta } from "@/components/tour-inquiry-cta";
 
 // User-initiated external navigation — opens Google Maps directions in a new
@@ -13,23 +15,23 @@ import { TourInquiryCta } from "@/components/tour-inquiry-cta";
 const DIRECTIONS_URL =
   "https://www.google.com/maps/dir/?api=1&destination=66+Fort+Bay+Road,+The+Bottom,+Saba";
 
+const DESCRIPTION = `Contact ${BUSINESS_NAME} at ${BUSINESS_ADDRESS.streetAddress}, ${BUSINESS_ADDRESS.addressLocality}, Saba, Caribbean Netherlands. Reach us fastest on WhatsApp.`;
+
 export const metadata: Metadata = {
   title: "Contact",
-  description:
-    "Contact Deep Dive Brewing Co at 66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands. Reach us fastest on WhatsApp.",
+  description: DESCRIPTION,
   keywords: [
     "Deep Dive Brewing contact",
     "brewery Saba contact",
-    "66 Fort Bay Road The Bottom Saba",
+    `${BUSINESS_ADDRESS.streetAddress} ${BUSINESS_ADDRESS.addressLocality} Saba`,
     "Deep Dive Brewing WhatsApp",
   ],
   alternates: {
     canonical: "/contact",
   },
   openGraph: {
-    title: "Contact | Deep Dive Brewing Co",
-    description:
-      "Contact Deep Dive Brewing Co at 66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands. Reach us fastest on WhatsApp.",
+    title: `Contact | ${BUSINESS_NAME}`,
+    description: DESCRIPTION,
     url: "/contact",
     images: [
       {
@@ -42,50 +44,22 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Contact | Deep Dive Brewing Co",
-    description:
-      "Contact Deep Dive Brewing Co at 66 Fort Bay Road, The Bottom, Saba, Caribbean Netherlands. Reach us fastest on WhatsApp.",
+    title: `Contact | ${BUSINESS_NAME}`,
+    description: DESCRIPTION,
     images: ["/photos/og-default.jpg"],
   },
 };
 
 export default function ContactPage() {
-  const localBusinessJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Brewery",
-    "@id": `${siteUrl}/#brewery`,
-    name: "Deep Dive Brewing Co",
-    legalName: "Deep Dive Brews, BV",
-    url: siteUrl,
-    telephone: "+599-416-3544",
-    email: "info@deepdivebrewing.com",
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: "66 Fort Bay Road",
-      addressLocality: "The Bottom",
-      addressCountry: "BQ",
-    },
-    openingHoursSpecification: [
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-        opens: "08:00",
-        closes: "15:00",
-      },
-    ],
-    areaServed: ["Saba", "Sint Maarten", "Saint Martin", "SXM", "Sint Eustatius", "Statia"],
-    sameAs: [
-      "https://www.instagram.com/deepdivebrewing",
-      "https://www.facebook.com/deepdivebrewing",
-      "https://untappd.com/DeepDiveBrewingCo",
-    ],
-  };
+  // Canonical Brewery entity — shared builder (lib/brewery-json-ld.ts,
+  // Issue #107) so all pages emit the identical complete field set.
+  const breweryJsonLd = buildBreweryJsonLd();
 
   return (
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: serializeJsonLd(localBusinessJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breweryJsonLd) }}
       />
       <div className="mb-12">
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
@@ -113,14 +87,14 @@ export default function ContactPage() {
               <h2 className="font-semibold">WhatsApp</h2>
             </div>
             <TrackedAnchor
-              href="https://wa.me/5994163544"
+              href={whatsappUrl()}
               eventName="whatsapp_click"
               eventParams={{ event_category: "contact", cta_location: "contact_page", event_label: "WhatsApp" }}
               className="mt-1 inline-flex min-h-[44px] items-center text-ocean transition-opacity duration-200 hover:opacity-85"
               target="_blank"
               rel="noopener noreferrer"
             >
-              +599-416-3544
+              {TELEPHONE_DISPLAY}
             </TrackedAnchor>
           </li>
 
@@ -135,14 +109,14 @@ export default function ContactPage() {
               <h2 className="font-semibold">Email</h2>
             </div>
             <Link
-              href="mailto:info@deepdivebrewing.com"
+              href={`mailto:${BUSINESS_EMAIL}`}
               className="mt-1 inline-flex min-h-[44px] items-center break-words text-ocean transition-opacity duration-200 hover:opacity-85"
               data-analytics-event="email_click"
               data-analytics-event-category="contact"
               data-analytics-cta-location="contact_page"
               data-analytics-event-label="Email"
             >
-              info@deepdivebrewing.com
+              {BUSINESS_EMAIL}
             </Link>
           </li>
 
@@ -174,9 +148,9 @@ export default function ContactPage() {
               <h2 className="font-semibold">Location</h2>
             </div>
             <p className="mt-1 text-muted-foreground">
-              66 Fort Bay Road
+              {BUSINESS_ADDRESS.streetAddress}
               <br />
-              The Bottom, Saba, Caribbean Netherlands
+              {BUSINESS_ADDRESS.addressLocality}, Saba, Caribbean Netherlands
             </p>
             <a
               href={DIRECTIONS_URL}
@@ -287,7 +261,8 @@ export default function ContactPage() {
             <div>
               <h3 className="font-medium text-ink">What is the fastest way to reach you?</h3>
               <p className="mt-1">
-                WhatsApp at +599-416-3544 is the fastest channel for inquiries.
+                WhatsApp at {TELEPHONE_DISPLAY} is the fastest channel for
+                inquiries.
               </p>
             </div>
             <div>

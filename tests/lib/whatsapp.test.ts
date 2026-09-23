@@ -3,6 +3,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  TELEPHONE_DISPLAY,
   TOUR_PRODUCTS,
   buildTourInquiryMessage,
   formatInquiryDate,
@@ -66,6 +67,39 @@ describe("whatsappUrl", () => {
 
   it("returns the bare number link without a message", () => {
     assert.equal(whatsappUrl(), `https://wa.me/${NUMBER}`);
+  });
+});
+
+describe("TELEPHONE_DISPLAY", () => {
+  it("is the same WhatsApp number formatted for display and schema", () => {
+    assert.equal(TELEPHONE_DISPLAY, "+599-416-3544");
+    // Derived from WHATSAPP_NUMBER — the digits exist in exactly one place.
+    assert.equal(TELEPHONE_DISPLAY.replace(/\D/g, ""), NUMBER);
+  });
+});
+
+describe("direct WhatsApp links", () => {
+  const contactSource = fs.readFileSync(
+    path.join(process.cwd(), "app", "(pages)", "contact", "page.tsx"),
+    "utf8"
+  );
+  const privacySource = fs.readFileSync(
+    path.join(process.cwd(), "app", "(pages)", "privacy", "page.tsx"),
+    "utf8"
+  );
+
+  it("route through whatsappUrl() instead of wa.me literals", () => {
+    for (const [name, source] of [
+      ["contact", contactSource],
+      ["privacy", privacySource],
+    ] as const) {
+      assert.ok(source.includes("whatsappUrl()"), `${name} uses whatsappUrl()`);
+      assert.equal(
+        source.includes("wa.me/"),
+        false,
+        `${name} still hardcodes a wa.me URL`
+      );
+    }
   });
 });
 
