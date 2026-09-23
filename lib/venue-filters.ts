@@ -95,12 +95,13 @@ export function islandKey(locationName: string | undefined): string {
 }
 
 // Intentional public labels for the known canonical islands — never
-// derived from casing rules.
-const ISLAND_DISPLAY_NAMES: Record<string, string> = {
-  saba: "Saba",
-  sxm: "Sint Maarten / Saint Martin / SXM",
-  statia: "Sint Eustatius / Statia",
-};
+// derived from casing rules. A Map (not a Record) so keys colliding with
+// Object.prototype members still take the unknown-island path.
+const ISLAND_DISPLAY_NAMES: ReadonlyMap<string, string> = new Map([
+  ["saba", "Saba"],
+  ["sxm", "Sint Maarten / Saint Martin / SXM"],
+  ["statia", "Sint Eustatius / Statia"],
+]);
 
 /**
  * Display heading for a canonical island key. Known islands return their
@@ -109,7 +110,7 @@ const ISLAND_DISPLAY_NAMES: Record<string, string> = {
  */
 export function islandDisplayName(key: string): string {
   return (
-    ISLAND_DISPLAY_NAMES[key] ??
+    ISLAND_DISPLAY_NAMES.get(key) ??
     key.replace(/\b[a-z]/g, (ch) => ch.toUpperCase())
   );
 }

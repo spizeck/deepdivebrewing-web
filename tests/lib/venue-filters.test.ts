@@ -115,6 +115,15 @@ describe("islandKey / islandDisplayName", () => {
     assert.equal(islandDisplayName("bonaire"), "Bonaire");
     assert.equal(islandDisplayName("st. barths"), "St. Barths");
   });
+
+  it("treats Object.prototype-named keys as unknown islands", () => {
+    // A plain-object label lookup would return inherited members like
+    // `constructor` instead of a string.
+    for (const key of ["constructor", "toString", "__proto__"]) {
+      assert.equal(typeof islandDisplayName(key), "string", key);
+    }
+    assert.equal(islandDisplayName("constructor"), "Constructor");
+  });
 });
 
 describe("venueCarriesBeer / venueOffersFormat", () => {
