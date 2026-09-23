@@ -154,7 +154,7 @@ moving it into `lib/` or API routes without an explicit issue.
 | `/admin` | `app/(pages)/admin/page.tsx` | Server wrapper (`robots: noindex`) rendering the client `AdminDashboard` | Auth state, `beers`, `venues`, `meta/siteRebuild`, Storage | Admin dashboard. Auth checks happen client-side; real enforcement is in rules + APIs. |
 | `/api/admin/*` | `app/api/admin/**` | Server (dynamic) | Admin SDK: Auth, Firestore | Bootstrap, `me`, users list/create-invitation, user patch/delete, invitation accept/resend, rebuild trigger. |
 | `/api/trade-inquiry` | `app/api/trade-inquiry/route.ts` | Server (dynamic) | Resend | Validates the form payload and emails it; see §11. |
-| `/sitemap.xml`, `/robots.txt` | `app/sitemap.ts`, `app/robots.ts` | Server (static — generated at build) | `beers` | SEO metadata routes; sitemap enumerates beer slugs at build time (empty without credentials — deterministic). robots.txt disallows `/admin`, `/admin-fixture`, `/where-to-buy-fixture`, `/trade/*` placeholders, and `/api/`; see `docs/operations/seo.md`. Favicons are static files in `public/` referenced from `app/layout.tsx` metadata. |
+| `/sitemap.xml`, `/robots.txt` | `app/sitemap.ts`, `app/robots.ts` | Server (static — generated at build) | `beers` | SEO metadata routes; sitemap enumerates beer slugs at build time (empty without credentials — deterministic). robots.txt disallows `/admin`, `/admin-fixture`, `/carousel-fixture`, `/where-to-buy-fixture`, `/trade/*` placeholders, and `/api/`; see `docs/operations/seo.md`. Favicons are static files in `public/` referenced from `app/layout.tsx` metadata. |
 
 ### The `/trade` route: single canonical `page.tsx`
 
@@ -724,7 +724,11 @@ either. No secrets or placeholder values exist anywhere in CI.
   dialogs, and per-row accessible names. `smoke-tests/where-to-buy-filters.spec.ts`
   covers the venue filters via `/where-to-buy-fixture` — the same env-gated
   pattern (`WHERE_TO_BUY_FIXTURE`) rendering `VenueDirectory` against
-  deterministic records from `lib/where-to-buy-fixture.ts`. See
+  deterministic records from `lib/where-to-buy-fixture.ts`.
+  `smoke-tests/carousel.spec.ts` covers homepage carousel interaction via
+  `/carousel-fixture` (`CAROUSEL_FIXTURE`, `lib/carousel-fixture.ts`): pointer
+  clicks must not re-align slides (only `:focus-visible` keyboard focus may
+  scroll a slide into view), plus drag and arrow navigation. See
   [`docs/operations/accessibility.md`](./operations/accessibility.md).
 - **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
   (`screenshot-check`, `overflow-check`, `hero-video-*`),

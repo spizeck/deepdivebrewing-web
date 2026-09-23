@@ -31,12 +31,17 @@ export default defineConfig({
   webServer: {
     command: `npx next start -p ${port}`,
     url: `http://localhost:${port}`,
-    // Enables /admin-fixture and /where-to-buy-fixture — test-only routes
-    // that render real components with fixture data. Checked server-side
-    // per request; absent everywhere else the routes 404. Note: when running
-    // locally against an already-running server (reuseExistingServer), the
-    // fixtures only exist if that server was started with these env vars.
-    env: { ADMIN_A11Y_FIXTURE: "1", WHERE_TO_BUY_FIXTURE: "1" },
+    // Enables /admin-fixture, /carousel-fixture, and /where-to-buy-fixture —
+    // test-only routes that render real components with fixture data. Checked
+    // server-side per request; absent everywhere else the routes 404. Note:
+    // when running locally against an already-running server
+    // (reuseExistingServer), the fixtures only exist if that server was
+    // started with these env vars.
+    env: {
+      ADMIN_A11Y_FIXTURE: "1",
+      CAROUSEL_FIXTURE: "1",
+      WHERE_TO_BUY_FIXTURE: "1",
+    },
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
