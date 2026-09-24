@@ -29,12 +29,26 @@ export const TRADE_LEAD_FIELD_LIMITS = {
   message: 4000,
 } as const;
 
-export function tradeLeadFieldTooLong(input: TradeLeadInput): string | null {
+export function tradeLeadFieldTooLong(
+  input: TradeLeadInput
+): keyof TradeLeadInput | null {
   for (const [field, max] of Object.entries(TRADE_LEAD_FIELD_LIMITS)) {
-    if (input[field as keyof TradeLeadInput].length > max) return field;
+    if (input[field as keyof TradeLeadInput].length > max)
+      return field as keyof TradeLeadInput;
   }
   return null;
 }
+
+// Customer-facing names for validation messages — the raw API field keys
+// (camelCase) must never reach the submitter.
+const TRADE_LEAD_FIELD_LABELS: Record<keyof TradeLeadInput, string> = {
+  businessName: "business name",
+  contactName: "contact name",
+  email: "email",
+  phoneOrWhatsapp: "phone/WhatsApp",
+  venueType: "business type",
+  message: "message",
+};
 
 // --- Retention (owner policy, #59) ---
 // Trade inquiries are retained for up to 24 months after the last meaningful
@@ -170,8 +184,7 @@ export async function handleTradeInquiry(
       status: 400,
       body: {
         ok: false,
-        error:
-          "Missing required fields: businessName, contactName, email, venueType.",
+        error: "Please fill in all required fields.",
       },
     };
   }
@@ -187,7 +200,10 @@ export async function handleTradeInquiry(
   if (oversized) {
     return {
       status: 400,
-      body: { ok: false, error: `Field exceeds maximum length: ${oversized}.` },
+      body: {
+        ok: false,
+        error: `Please shorten the ${TRADE_LEAD_FIELD_LABELS[oversized]} field.`,
+      },
     };
   }
 
@@ -222,7 +238,10 @@ export async function handleTradeInquiry(
     // trade_inquiry.persistence_failed — respond generically.
     return {
       status: 500,
-      body: { ok: false, error: "Failed to submit inquiry." },
+      body: {
+        ok: false,
+        error: "Something went wrong on our end. Please try again.",
+      },
     };
   }
 

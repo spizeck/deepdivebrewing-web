@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     logError("trade_inquiry.unexpected", error, { requestId });
     return NextResponse.json(
-      { ok: false, error: "Failed to submit inquiry." },
+      { ok: false, error: "Something went wrong on our end. Please try again." },
       { status: 500 }
     );
   }

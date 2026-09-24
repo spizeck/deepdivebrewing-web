@@ -307,13 +307,16 @@ test("trade inquiry success fires only after a successful server response", asyn
   );
   await page.goto("/trade");
 
-  await page.getByLabel(/Business Name/).fill("Audit Test Co");
-  await page.getByLabel(/Contact Name/).fill("Test Person");
+  await page.getByLabel(/Business name/).fill("Audit Test Co");
+  await page.getByLabel(/Your name/).fill("Test Person");
   await page.getByLabel(/Email/).fill("audit-pii-check@example.com");
-  await page.getByLabel(/Venue Type/).selectOption("bar");
-  await page.getByRole("button", { name: "Submit Inquiry" }).click();
+  await page.getByLabel(/Business type/).selectOption("bar");
+  await page.getByRole("button", { name: "Send inquiry" }).click();
 
-  await expect(page.getByText(/inquiry/i).first()).toBeVisible();
+  // The success state replaces the form and confirms follow-up.
+  await expect(
+    page.getByRole("status").filter({ hasText: /follow up/i })
+  ).toBeVisible();
   await waitForEvents(page, "trade_form_start", 1);
   await waitForEvents(page, "trade_form_success", 1);
   expect(events(await getDataLayer(page), "trade_form_error")).toHaveLength(0);
@@ -334,12 +337,12 @@ test("trade inquiry failure does not fire success and sends no form PII", async 
   );
   await page.goto("/trade");
 
-  await page.getByLabel(/Business Name/).fill("Audit Test Co");
-  await page.getByLabel(/Contact Name/).fill("Test Person");
+  await page.getByLabel(/Business name/).fill("Audit Test Co");
+  await page.getByLabel(/Your name/).fill("Test Person");
   await page.getByLabel(/Email/).fill("audit-pii-check@example.com");
-  await page.getByLabel(/Venue Type/).selectOption("bar");
+  await page.getByLabel(/Business type/).selectOption("bar");
   await page.getByLabel(/Message/).fill("secret business details here");
-  await page.getByRole("button", { name: "Submit Inquiry" }).click();
+  await page.getByRole("button", { name: "Send inquiry" }).click();
 
   await expect(page.getByRole("status").first()).toBeVisible();
   await waitForEvents(page, "trade_form_error", 1);

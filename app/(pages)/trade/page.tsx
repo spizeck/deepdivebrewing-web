@@ -8,7 +8,7 @@ import { BUSINESS_EMAIL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Trade & Wholesale",
   description:
-    "Stock Deep Dive Brewing Co beer at your bar, restaurant, hotel, or retail location. Submit a trade inquiry for Saba, Sint Maarten / Saint Martin, and nearby islands.",
+    "Carry island-brewed Deep Dive beer at your bar, restaurant, hotel, or shop. We supply trade accounts on Saba, Sint Maarten / Saint Martin, and nearby islands.",
   keywords: [
     "Deep Dive Brewing wholesale",
     "trade inquiry Saba",
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Trade & Wholesale | Deep Dive Brewing Co",
     description:
-      "Stock Deep Dive Brewing Co beer at your bar, restaurant, hotel, or retail location. Submit a trade inquiry.",
+      "Carry island-brewed Deep Dive beer at your bar, restaurant, hotel, or shop. We supply trade accounts on Saba, Sint Maarten / Saint Martin, and nearby islands.",
     url: "/trade",
     images: [
       {
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Trade & Wholesale | Deep Dive Brewing Co",
     description:
-      "Stock Deep Dive Brewing Co beer at your bar, restaurant, hotel, or retail location. Submit a trade inquiry.",
+      "Carry island-brewed Deep Dive beer at your bar, restaurant, hotel, or shop. We supply trade accounts on Saba, Sint Maarten / Saint Martin, and nearby islands.",
     images: ["/photos/og-default.jpg"],
   },
 };
@@ -58,24 +58,24 @@ export default function TradePage() {
           Trade &amp; Wholesale
         </h1>
         <p className="mt-3 max-w-180 text-muted-foreground">
-          Interested in carrying Deep Dive Brewing Co at your bar, restaurant,
-          hotel, or retail location? We partner with accounts across Saba,
-          Sint Maarten / Saint Martin, and the surrounding islands.
+          We brew on Saba and work with bars, restaurants, hotels, shops, and
+          distributors across Saba, Sint Maarten / Saint Martin, and nearby
+          islands. Tell us about your business and we&apos;ll take it from there.
         </p>
       </div>
 
       <section className="mb-12 rounded-lg border border-stone bg-stone/20 p-5">
         <h2 className="text-lg font-semibold text-ink">What to expect</h2>
         <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-muted-foreground">
-          <li>Core and seasonal beers in keg and can formats where available.</li>
-          <li>Reliable supply from our Saba brewery.</li>
-          <li>Local delivery on Saba and shipping coordination to SXM.</li>
-          <li>Marketing support, staff notes, and tap handle assets on request.</li>
+          <li>Core and seasonal beers in kegs and cans, where available.</li>
+          <li>Steady supply from our brewery on Saba.</li>
+          <li>Local delivery on Saba and coordinated shipping to SXM.</li>
+          <li>Marketing support, staff notes, and tap handles on request.</li>
         </ul>
       </section>
 
       <section className="rounded-lg border border-stone bg-paper p-6 md:p-8">
-        <h2 className="mb-6 text-2xl font-bold tracking-tight">Get in Touch</h2>
+        <h2 className="mb-6 text-2xl font-bold tracking-tight">Send an inquiry</h2>
         <TradeInquiryForm />
       </section>
 
