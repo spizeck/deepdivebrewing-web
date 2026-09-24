@@ -268,7 +268,8 @@ export default function ContactPage() {
             <div>
               <h3 className="font-medium text-ink">Where are you distributing?</h3>
               <p className="mt-1">
-                We currently focus on Saba and select partner accounts in SXM,
+                We currently focus on Saba and select partner accounts in
+                Sint Maarten / Saint Martin,
                 with expansion in progress.
               </p>
             </div>

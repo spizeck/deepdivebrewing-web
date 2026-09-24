@@ -99,7 +99,7 @@ export function islandKey(locationName: string | undefined): string {
 // Object.prototype members still take the unknown-island path.
 const ISLAND_DISPLAY_NAMES: ReadonlyMap<string, string> = new Map([
   ["saba", "Saba"],
-  ["sxm", "Sint Maarten / Saint Martin / SXM"],
+  ["sxm", "Sint Maarten / Saint Martin"],
   ["statia", "Sint Eustatius / Statia"],
 ]);
 

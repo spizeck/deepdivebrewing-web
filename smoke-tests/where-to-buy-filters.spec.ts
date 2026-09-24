@@ -57,8 +57,12 @@ test("renders filters and all venues unfiltered", async ({ page }) => {
   await expect(islandSelect(page).locator("option")).toHaveText([
     "All islands",
     "Saba",
-    "Sint Maarten / Saint Martin / SXM",
+    "Sint Maarten / Saint Martin",
   ]);
+  // "SXM" is the internal key only — never a customer-facing option (#124).
+  await expect(
+    islandSelect(page).locator("option", { hasText: "SXM" })
+  ).toHaveCount(0);
   await expect(statusText(page)).toHaveText("4 venues shown");
   expect(await venueNames(page)).toEqual([
     "Fixture Tavern",
@@ -128,7 +132,7 @@ test("Saba localities render under one Saba group and one filter option", async 
   // "Fort bay, saba".
   await expect(page.locator("main h2")).toHaveText([
     "Saba",
-    "Sint Maarten / Saint Martin / SXM",
+    "Sint Maarten / Saint Martin",
   ]);
   await expect(
     page.getByRole("heading", { name: "Fort bay, saba" })
