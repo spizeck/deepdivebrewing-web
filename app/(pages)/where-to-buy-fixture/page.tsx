@@ -5,7 +5,7 @@ import {
   WHERE_TO_BUY_FIXTURE_BEERS,
   WHERE_TO_BUY_FIXTURE_VENUES,
 } from "@/lib/where-to-buy-fixture";
-import { carriedBeerOptions } from "@/lib/venue-filters";
+import { carriedBeerOptions, venueIsStocked } from "@/lib/venue-filters";
 
 // Test-only rendering of the /where-to-buy filter experience for the
 // Playwright smoke suite. The env var is a server-only check evaluated per
@@ -27,7 +27,9 @@ export default function WhereToBuyFixturePage() {
     notFound();
   }
 
-  const venues = WHERE_TO_BUY_FIXTURE_VENUES;
+  // Mirror the production page's stocked-venue exclusion so the fixture
+  // exercises the same public-display rule (Issue #130).
+  const venues = WHERE_TO_BUY_FIXTURE_VENUES.filter(venueIsStocked);
   const beers = WHERE_TO_BUY_FIXTURE_BEERS;
   const beerNameBySlug = Object.fromEntries(
     beers.map((beer) => [beer.slug, beer.name])
