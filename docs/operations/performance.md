@@ -100,11 +100,13 @@ re-creates the contention it solves.
 
 ## Findings reviewed and intentionally left alone
 
-- **Hero video files** (`ddbwebvid.mp4` 13.3MB, `ddbwebvid.webm` 4.2MB):
-  large, but the video only loads when the section scrolls into view on
-  desktop without reduced-motion — it never competes with initial load.
-  A lower-bitrate re-encode is a content/quality decision for the owner,
-  not an engineering default.
+- **Hero video files** (`ddbwebvid.mp4` 2.1MB, `ddbwebvid.webm` 2.2MB):
+  re-encoded in #135 (H.264 High CRF 27, VP9 CRF 33, both ~0.8Mbps, no
+  audio, MP4 faststart) — down from 13.6MB/4.3MB at equal SSIM ≥0.98.
+  The video only loads when the section scrolls into view on desktop
+  without reduced-motion — it never competes with initial load. The
+  static poster is `photos/video-still.jpg` (approved brewery still,
+  distinct from the `herograin.jpg` hero image above it).
 - **`/beers/[slug]` is now static** (Issue #104): `generateStaticParams`
   enumerates build-time slugs with `dynamicParams = false`, reading via
   `getDocsFromServer` so a backend failure throws and fails the build
