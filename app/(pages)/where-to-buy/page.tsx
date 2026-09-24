@@ -9,7 +9,7 @@ import { carriedBeerOptions, distinctIslands } from "@/lib/venue-filters";
 export const metadata: Metadata = {
   title: "Where to Buy",
   description:
-    "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus SXM availability updates.",
+    "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus Sint Maarten / Saint Martin availability updates.",
   keywords: [
     "where to buy beer on Saba",
     "where to buy beer on Sint Maarten",
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Where to Buy | Deep Dive Brewing Co",
     description:
-      "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus SXM availability updates.",
+      "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus Sint Maarten / Saint Martin availability updates.",
     url: "/where-to-buy",
     images: [
       {
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Where to Buy | Deep Dive Brewing Co",
     description:
-      "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus SXM availability updates.",
+      "Find Deep Dive beer on Saba. Bars, restaurants, and retailers carrying our island-brewed beers, plus Sint Maarten / Saint Martin availability updates.",
     images: ["/photos/og-default.jpg"],
   },
 };
@@ -66,12 +66,12 @@ export default async function WhereToBuyPage() {
       },
       {
         "@type": "Question",
-        name: "Where can I buy Deep Dive beer on Sint Maarten, Saint Martin, or SXM?",
+        name: "Where can I buy Deep Dive beer on Sint Maarten or Saint Martin?",
         acceptedAnswer: {
           "@type": "Answer",
           text: hasSxm
-            ? "Partner locations in SXM are listed below. We are actively adding additional accounts across the island."
-            : "We are working to add partner locations in SXM. Contact us or check back for updates.",
+            ? "Partner locations in Sint Maarten / Saint Martin are listed below. We are actively adding additional accounts across the island."
+            : "We are working to add partner locations in Sint Maarten / Saint Martin. Contact us or check back for updates.",
         },
       },
       {
@@ -107,7 +107,7 @@ export default async function WhereToBuyPage() {
         </h1>
         <p className="mt-3 max-w-180 text-muted-foreground">
           Find Deep Dive beers through our partner locations on Saba. We are
-          expanding into Sint Maarten / SXM and nearby islands; those locations
+          expanding into Sint Maarten / Saint Martin and nearby islands; those locations
           will be added here as they come online.
         </p>
       </div>
@@ -120,7 +120,7 @@ export default async function WhereToBuyPage() {
             locations listed below.
           </li>
           <li>
-            <span className="font-medium text-ink">Sint Maarten / Saint Martin / SXM:</span>{" "}
+            <span className="font-medium text-ink">Sint Maarten / Saint Martin:</span>{" "}
             {hasSxm
               ? "partner locations listed below; more coming soon."
               : "not currently listed; expansion in progress."}
@@ -158,11 +158,11 @@ export default async function WhereToBuyPage() {
             </p>
           </div>
           <div>
-            <h3 className="font-semibold text-ink">Where can I buy Deep Dive beer on Sint Maarten, Saint Martin, or SXM?</h3>
+            <h3 className="font-semibold text-ink">Where can I buy Deep Dive beer on Sint Maarten or Saint Martin?</h3>
             <p className="mt-1">
               {hasSxm
-                ? "Partner locations in SXM are listed above. We are actively adding more partner accounts across the island."
-                : "We are working to add partner locations in SXM. Contact us or check back for updates."}
+                ? "Partner locations in Sint Maarten / Saint Martin are listed above. We are actively adding more partner accounts across the island."
+                : "We are working to add partner locations in Sint Maarten / Saint Martin. Contact us or check back for updates."}
             </p>
           </div>
           <div>

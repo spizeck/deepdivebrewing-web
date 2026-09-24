@@ -8,7 +8,7 @@ import { BUSINESS_EMAIL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Trade & Wholesale",
   description:
-    "Stock Deep Dive Brewing Co beer at your bar, restaurant, hotel, or retail location. Submit a trade inquiry for Saba, SXM, and nearby islands.",
+    "Stock Deep Dive Brewing Co beer at your bar, restaurant, hotel, or retail location. Submit a trade inquiry for Saba, Sint Maarten / Saint Martin, and nearby islands.",
   keywords: [
     "Deep Dive Brewing wholesale",
     "trade inquiry Saba",
@@ -59,8 +59,8 @@ export default function TradePage() {
         </h1>
         <p className="mt-3 max-w-180 text-muted-foreground">
           Interested in carrying Deep Dive Brewing Co at your bar, restaurant,
-          hotel, or retail location? We partner with accounts across Saba, SXM,
-          and the surrounding islands.
+          hotel, or retail location? We partner with accounts across Saba,
+          Sint Maarten / Saint Martin, and the surrounding islands.
         </p>
       </div>
 

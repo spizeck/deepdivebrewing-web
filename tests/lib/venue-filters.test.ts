@@ -97,10 +97,11 @@ describe("islandKey / islandDisplayName", () => {
   });
 
   it("renders intentional display names for known islands", () => {
-    assert.equal(
-      islandDisplayName("sxm"),
-      "Sint Maarten / Saint Martin / SXM"
-    );
+    const sxmLabel = islandDisplayName("sxm");
+    assert.equal(sxmLabel, "Sint Maarten / Saint Martin");
+    // The two jurisdictions are the whole label — "SXM" is the internal
+    // canonical key and must not be appended as a third island name.
+    assert.equal(sxmLabel.includes("SXM"), false);
     assert.equal(islandDisplayName("statia"), "Sint Eustatius / Statia");
     assert.equal(islandDisplayName("saba"), "Saba");
     // A Saba locality can never surface as a heading again.

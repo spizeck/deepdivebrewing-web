@@ -16,7 +16,7 @@ import type { CSSProperties } from "react";
 export const metadata: Metadata = {
   title: "Craft Beer on Saba",
   description:
-    "Deep Dive Brewing Co is Saba's craft brewery. Find where to buy our beer across Saba and SXM, and contact us for wholesale partnerships.",
+    "Deep Dive Brewing Co is Saba's craft brewery. Find where to buy our beer across Saba and Sint Maarten / Saint Martin, and contact us for wholesale partnerships.",
   alternates: {
     canonical: "/",
   },

@@ -48,7 +48,7 @@ This guide explains how to add, edit, and remove partner venues from the Deep Di
 
 The `/where-to-buy` page groups venues by the **Location Name** field. The public page uses these rules to decide the heading for each group:
 
-- If the location name contains `sxm`, `maarten`, or `martin`, the heading displays as **Sint Maarten / Saint Martin / SXM**.
+- If the location name contains `sxm`, `maarten`, or `martin`, the heading displays as **Sint Maarten / Saint Martin**.
 - If the location name contains `statia` or `eustatius`, the heading displays as **Sint Eustatius / Statia**.
 - `Saba` — or any value whose last comma-separated part is `Saba`, such as `Windwardside, Saba` or `Fort Bay, Saba` — groups under **Saba**. The locality prefix still appears on the venue card but does not create its own group.
 - Any other value becomes its own group heading, capitalized word by word.
