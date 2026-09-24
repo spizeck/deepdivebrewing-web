@@ -3,10 +3,13 @@ import type { Beer, Venue } from "@/lib/types";
 // Deterministic fixture records for the test-only /where-to-buy-fixture
 // route used by the Playwright filtering suite. Shapes match the real
 // Firestore models so VenueDirectory exercises the same code path as the
-// production page. The three Saba venues deliberately use different
-// locality strings ("<locality>, Saba") so the suite covers the island
-// grouping regression from issue #116. Not real business data —
-// names/links are placeholders.
+// production page. Issue #134: most venues carry the canonical `island`
+// field with a locality-only `locationName` — Harbor Bar proves a "Philipsburg"
+// locality stays inside the Sint Maarten group instead of becoming an island
+// option. Fixture Quiet Cafe deliberately keeps the pre-#134 shape (no
+// `island`, island embedded in `locationName`) so the suite also covers the
+// transitional legacy fallback. Not real business data — names/links are
+// placeholders.
 export const WHERE_TO_BUY_FIXTURE_BEERS: Beer[] = [
   {
     name: "Saba Suds Pilsner",
@@ -59,7 +62,8 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Tavern",
     slug: "fixture-tavern",
     type: "bar_restaurant",
-    locationName: "Fort Bay, Saba",
+    locationName: "Fort Bay",
+    island: "saba",
     carriesBeerSlugs: ["saba-suds-pilsner", "fort-bay-ipa"],
     tapBeerSlugs: ["saba-suds-pilsner"],
     canBeerSlugs: ["fort-bay-ipa"],
@@ -74,7 +78,8 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Bottle Shop",
     slug: "fixture-bottle-shop",
     type: "retail",
-    locationName: "Windwardside, Saba",
+    locationName: "Windwardside",
+    island: "saba",
     carriesBeerSlugs: ["fort-bay-ipa"],
     tapBeerSlugs: [],
     canBeerSlugs: ["fort-bay-ipa"],
@@ -88,7 +93,8 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Harbor Bar",
     slug: "fixture-harbor-bar",
     type: "bar_restaurant",
-    locationName: "SXM",
+    locationName: "Philipsburg",
+    island: "sxm",
     carriesBeerSlugs: ["saba-suds-pilsner", "fort-bay-ipa"],
     tapBeerSlugs: ["saba-suds-pilsner", "fort-bay-ipa"],
     canBeerSlugs: [],
@@ -100,6 +106,8 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Quiet Cafe",
     slug: "fixture-quiet-cafe",
     type: "bar_restaurant",
+    // Deliberately legacy: no `island` field — the record predates Issue
+    // #134, so grouping falls back to parsing `locationName`.
     locationName: "Windwardside / The Bottom, Saba",
     carriesBeerSlugs: ["saba-suds-pilsner"],
     tapBeerSlugs: ["saba-suds-pilsner"],
@@ -116,7 +124,8 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     name: "Fixture Empty Cantina",
     slug: "fixture-empty-cantina",
     type: "bar_restaurant",
-    locationName: "Oranjestad, Statia",
+    locationName: "Oranjestad",
+    island: "statia",
     carriesBeerSlugs: [],
     tapBeerSlugs: [],
     canBeerSlugs: [],

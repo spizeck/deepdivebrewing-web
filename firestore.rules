@@ -46,9 +46,18 @@ service cloud.firestore {
       allow create, update, delete: if hasActiveAdmin();
     }
 
+    // Issue #134: venue writes must carry a canonical `island` value so a
+    // free-text locality can never become a public island group. The merged
+    // post-write document is checked, so update/merge writes on already-
+    // migrated docs stay valid. Delete is exempt — request.resource is null.
+    function venueHasCanonicalIsland() {
+      return request.resource.data.island in ['saba', 'sxm', 'statia'];
+    }
+
     match /venues/{venueId} {
       allow read: if isPublicDoc() || hasActiveAdmin();
-      allow create, update, delete: if hasActiveAdmin();
+      allow create, update: if hasActiveAdmin() && venueHasCanonicalIsland();
+      allow delete: if hasActiveAdmin();
     }
 
     // Trade inquiries are PII and are written exclusively server-side by

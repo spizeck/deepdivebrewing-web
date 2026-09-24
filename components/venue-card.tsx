@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { venueCardLocation, venueIslandKey } from "@/lib/venue-filters";
 import type { Venue } from "@/lib/types";
 
 const typeLabels: Record<Venue["type"], string> = {
@@ -14,7 +15,9 @@ interface VenueCardProps {
 export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
   const tapBeers = (venue.tapBeerSlugs ?? []).map((slug) => beerNameBySlug[slug] ?? slug);
   const canBeers = (venue.canBeerSlugs ?? []).map((slug) => beerNameBySlug[slug] ?? slug);
-  const island = venue.locationName ?? "Saba";
+  // Analytics island param is the canonical key ("saba"/"sxm"/"statia") —
+  // a stable identifier, never free-form locality text.
+  const island = venueIslandKey(venue);
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-stone bg-paper p-6">
@@ -22,7 +25,7 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
         <div>
           <h3 className="font-semibold tracking-tight">{venue.name}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            {venue.locationName}
+            {venueCardLocation(venue)}
           </p>
         </div>
         <Badge variant="outline">{typeLabels[venue.type]}</Badge>

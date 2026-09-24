@@ -104,7 +104,38 @@ describe("beers and venues content writes", () => {
       setDoc(doc(db, "beers", "new-beer"), { slug: "new-beer", name: "New", isPublic: true })
     );
     await assertSucceeds(
-      setDoc(doc(db, "venues", "new-venue"), { slug: "new-venue", name: "Venue", isPublic: true })
+      setDoc(doc(db, "venues", "new-venue"), { slug: "new-venue", name: "Venue", island: "saba", isPublic: true })
+    );
+  });
+
+  it("requires a canonical island value on venue writes (Issue #134)", async () => {
+    await seedAdminRecord("admin1", "admin", "active");
+    const db = adminContext("admin1", "admin").firestore();
+
+    for (const island of ["saba", "sxm", "statia"]) {
+      await assertSucceeds(
+        setDoc(doc(db, "venues", `ok-${island}`), { slug: `ok-${island}`, island, isPublic: true })
+      );
+    }
+
+    // Missing, free-text, and locality-shaped islands are all rejected —
+    // "Philipsburg" must never be storable as an island again.
+    await assertFails(
+      setDoc(doc(db, "venues", "no-island"), { slug: "no-island", name: "V", isPublic: true })
+    );
+    await assertFails(
+      setDoc(doc(db, "venues", "bad-island"), { slug: "bad-island", island: "Philipsburg", isPublic: true })
+    );
+    await assertFails(
+      setDoc(doc(db, "venues", "bad-island-2"), { slug: "bad-island-2", island: "bonaire", isPublic: true })
+    );
+
+    // An update that keeps the merged doc's valid island is allowed.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "venues", "existing"), { slug: "existing", island: "sxm", isPublic: true });
+    });
+    await assertSucceeds(
+      updateDoc(doc(db, "venues", "existing"), { name: "Renamed" })
     );
   });
 

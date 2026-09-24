@@ -32,7 +32,8 @@ This guide explains how to add, edit, and remove partner venues from the Deep Di
 | **Name** | Yes | The venue's display name. |
 | **Slug** | Yes | The URL-friendly identifier. Used as the Firestore document ID. Should be lowercase and hyphenated, for example `tropics-cafe`. |
 | **Type** | Yes | Choose **Bar / Restaurant** or **Retail**. |
-| **Location Name** | Recommended | The island or region. This controls how venues are grouped on `/where-to-buy`. See the region section below for exact values. |
+| **Island** | Yes | The island the venue is on. A controlled dropdown — pick one of the listed islands. This controls grouping and the Island filter on `/where-to-buy`. |
+| **Location / locality** | Optional | A more specific place on the island, for example `Windwardside` or `Philipsburg`. Shown on the venue card next to the island. Leave blank if the island alone is enough. It never affects grouping. |
 | **Sort Order** | Yes | Controls the order venues appear within their group. Lower numbers appear first. |
 | **Carries Beers** | Optional | Check every beer the venue currently carries in any format. |
 | **On Tap** | Optional | Check beers the venue has on draft tap. |
@@ -44,37 +45,28 @@ This guide explains how to add, edit, and remove partner venues from the Deep Di
 | **Public Notes** | Optional | Extra text shown on the public venue card, for example "Ask about the rotating tap." |
 | **Public** | Yes | If checked, the venue is visible on `/where-to-buy`. Uncheck to hide it. |
 
-## Region names and grouping logic
+## Island and locality
 
-The `/where-to-buy` page groups venues by the **Location Name** field. The public page uses these rules to decide the heading for each group:
+The `/where-to-buy` page groups venues by the **Island** field — a controlled dropdown with exactly these options:
 
-- If the location name contains `sxm`, `maarten`, or `martin`, the heading displays as **Sint Maarten / Saint Martin**.
-- If the location name contains `statia` or `eustatius`, the heading displays as **Sint Eustatius / Statia**.
-- `Saba` — or any value whose last comma-separated part is `Saba`, such as `Windwardside, Saba` or `Fort Bay, Saba` — groups under **Saba**. The locality prefix still appears on the venue card but does not create its own group.
-- Any other value becomes its own group heading, capitalized word by word.
+- **Saba**
+- **Sint Maarten / Saint Martin**
+- **Sint Eustatius / Statia**
 
-### Recommended exact values
+Island is required; a venue cannot be saved without one, and free-text island names are impossible by design. (Internally the values are stored as `saba`, `sxm`, and `statia` — the internal codes never appear publicly.)
 
-Use simple, consistent values so grouping works predictably:
+**Location / locality** is a separate, optional free-text field for a more specific place — `Windwardside`, `The Bottom`, `Fort Bay`, `Philipsburg`. It is shown on the venue card together with the island (for example `Windwardside, Saba` or `Philipsburg, Sint Maarten`) but never affects grouping or the Island filter. Leave it blank when the island alone is enough — the card then shows just the island label.
 
-- `Saba`
-- `SXM` (or `Sint Maarten`)
-- `Statia` (or `Sint Eustatius`)
-
-Examples:
-
-- A venue on Saba should have **Location Name** set to `Saba`. If the locality matters to visitors, `<locality>, Saba` also works — for example `Windwardside, Saba` still groups under **Saba** while the card shows the locality.
-- A venue on Sint Maarten should use `SXM` or `Sint Maarten`.
-- A venue on Saint Martin (French side) should use `Saint Martin` or `SXM`.
+> **Why two fields?** Locality text used to double as the island, which let values like `Philipsburg` or `Windwardside` accidentally become their own public island group. Older records were migrated so `locationName` holds only the locality; reads still understand the old combined format until every record is migrated, so nothing breaks in between.
 
 ## How locations appear on `/where-to-buy`
 
 - Only venues with **Public** checked are shown.
-- Venues are grouped under headings based on **Location Name**.
+- Venues are grouped under headings based on **Island**.
 - Inside each group, venues are sorted by **Sort Order**.
-- Each venue card shows the name, type badge, public notes, and the beers listed under **On Tap** and **In Can**.
+- Each venue card shows the name, type badge, location, public notes, and the beers listed under **On Tap** and **In Can**.
 - Links for Website, Directions, Instagram, and Facebook appear when those fields are filled.
-- Visitors can filter the list by **Beer**, **Format** (On Tap / In Can), and — when venues span more than one island — **Island**. The beer filter only lists beers that at least one public venue carries; the format and island filters read the same **On Tap**, **In Can**, and **Location Name** fields described above, so keeping them accurate keeps the filters useful. These lists describe what a venue is known to carry — they are not live stock counts.
+- Visitors can filter the list by **Beer**, **Format** (On Tap / In Can), and — when venues span more than one island — **Island**. The beer filter only lists beers that at least one public venue carries; the format and island filters read the same **On Tap**, **In Can**, and **Island** fields described above, so keeping them accurate keeps the filters useful. These lists describe what a venue is known to carry — they are not live stock counts.
 
 ## Making Directions links work reliably
 
@@ -127,7 +119,8 @@ Before saving a new or updated venue, confirm:
 - [ ] Name and slug are correct and unique.
 - [ ] Slug is lowercase, hyphenated, and URL-safe.
 - [ ] Type is correct (Bar / Restaurant or Retail).
-- [ ] Location Name uses one of the recommended region values.
+- [ ] Island is selected from the dropdown (required).
+- [ ] Location / locality is filled in only if it adds useful context.
 - [ ] Sort order is set.
 - [ ] Website link is a full `https://` URL (if provided).
 - [ ] Maps Link is a working URL that opens directions (if provided).
