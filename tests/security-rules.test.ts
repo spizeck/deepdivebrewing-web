@@ -65,6 +65,15 @@ describe("firestore.rules", () => {
       "Expected public document check for beers/venues"
     );
   });
+
+  it("requires a canonical island on venue writes (Issue #134)", () => {
+    assert.ok(
+      rules.includes(
+        "request.resource.data.island in ['saba', 'sxm', 'statia']"
+      ),
+      "Expected the venue island allowlist on writes"
+    );
+  });
 });
 
 describe("storage.rules", () => {

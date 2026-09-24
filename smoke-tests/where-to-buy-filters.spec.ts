@@ -6,15 +6,16 @@ import { test, expect } from "./fixtures";
 // also proves filtering works with analytics consent declined.
 //
 // Fixture data (lib/where-to-buy-fixture.ts):
-//   Fixture Tavern       Fort Bay, Saba                  tap: pilsner        can: ipa
-//   Fixture Bottle Shop  Windwardside, Saba              can: ipa
-//   Fixture Harbor Bar   SXM                             tap: pilsner + ipa
-//   Fixture Quiet Cafe   Windwardside / The Bottom, Saba tap: pilsner
-//   Fixture Empty Cantina Oranjestad, Statia             carries nothing — hidden (#130)
+//   Fixture Tavern       island saba, locality "Fort Bay"        tap: pilsner        can: ipa
+//   Fixture Bottle Shop  island saba, locality "Windwardside"    can: ipa
+//   Fixture Harbor Bar   island sxm, locality "Philipsburg"      tap: pilsner + ipa
+//   Fixture Quiet Cafe   LEGACY: no island, "Windwardside / The Bottom, Saba"  tap: pilsner
+//   Fixture Empty Cantina island statia, locality "Oranjestad"   carries nothing — hidden (#130)
 //   Flat Point Amber is a public beer carried by no venue — never an option.
-// The three Saba venues deliberately use distinct "<locality>, Saba"
-// locationNames so this suite covers the island-grouping regression from
-// issue #116 (localities fragmenting into per-locality island groups).
+// Issue #134: island grouping/filtering reads the canonical `island` field;
+// Quiet Cafe deliberately lacks it so the suite also covers the transitional
+// legacy locationName fallback. Harbor Bar proves a "Philipsburg" locality
+// stays under Sint Maarten instead of becoming its own island option.
 
 const ROUTE = "/where-to-buy-fixture";
 
@@ -127,6 +128,31 @@ test("island filter matches the canonical island", async ({ page }) => {
   await expect(statusText(page)).toHaveText("1 venue shown");
   expect(await venueNames(page)).toEqual(["Fixture Harbor Bar"]);
   await expect(page).toHaveURL(/island=sxm/);
+});
+
+test("a locality never becomes an island option; cards compose locality + island", async ({
+  page,
+}) => {
+  // Issue #134: Harbor Bar's locality is "Philipsburg" with canonical island
+  // "sxm" — the locality must not appear as a filter option, and the card
+  // shows the jurisdiction-aware "Philipsburg, Sint Maarten" (not the
+  // dual-island whole label).
+  await expect(
+    islandSelect(page).locator("option", { hasText: "Philipsburg" })
+  ).toHaveCount(0);
+  const sxmSection = page.locator("main section").filter({
+    has: page.getByRole("heading", {
+      name: "Sint Maarten / Saint Martin",
+      level: 2,
+      exact: true,
+    }),
+  });
+  await expect(
+    sxmSection.getByText("Philipsburg, Sint Maarten", { exact: true })
+  ).toBeVisible();
+  await expect(
+    sxmSection.getByText("Philipsburg, Sint Maarten / Saint Martin")
+  ).toHaveCount(0);
 });
 
 test("Saba localities render under one Saba group and one filter option", async ({

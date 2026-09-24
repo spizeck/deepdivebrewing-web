@@ -11,6 +11,8 @@ import {
   AdminWorkspace,
   type RebuildMeta,
 } from "@/components/admin-workspace";
+import { resolveVenueIsland } from "@/lib/venue-filters";
+import { isVenueIsland } from "@/lib/venue-islands";
 import type { AdminRole, Beer, Venue } from "@/lib/types";
 
 const FIXTURE_BEERS: Beer[] = [
@@ -50,6 +52,7 @@ const FIXTURE_VENUES: Venue[] = [
     slug: "fixture-tavern",
     type: "bar_restaurant",
     locationName: "Windwardside",
+    island: "saba",
     carriesBeerSlugs: ["saba-suds-pilsner"],
     tapBeerSlugs: ["saba-suds-pilsner"],
     canBeerSlugs: [],
@@ -143,7 +146,8 @@ export function AdminFixture({ role }: { role: AdminRole }) {
     setSelectedVenueSlug(slug);
     const found = FIXTURE_VENUES.find((venue) => venue.slug === slug);
     if (found) {
-      setVenueForm(found);
+      // Mirror the real dashboard's legacy-island resolution (Issue #134).
+      setVenueForm({ ...found, island: resolveVenueIsland(found) });
       setVenueCarriesSelection(found.carriesBeerSlugs ?? []);
       setVenueTapSelection(found.tapBeerSlugs ?? []);
       setVenueCanSelection(found.canBeerSlugs ?? []);
@@ -167,6 +171,10 @@ export function AdminFixture({ role }: { role: AdminRole }) {
   function saveVenue() {
     if (!venueForm.slug || !venueForm.name) {
       setStatusMessage("Venue name and slug are required.");
+      return;
+    }
+    if (!isVenueIsland(venueForm.island)) {
+      setStatusMessage("Select an island for this venue.");
       return;
     }
     setIsSaving(true);

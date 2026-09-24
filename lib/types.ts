@@ -16,11 +16,19 @@ export interface Beer {
   sortOrder: number;
 }
 
+import type { VenueIsland } from "@/lib/venue-islands";
+
 export interface Venue {
   name: string;
   slug: string;
   type: "bar_restaurant" | "retail";
+  // Free-text locality (e.g. "Windwardside", "Philipsburg") shown on the
+  // venue card. Never used for island grouping — that is `island`'s job.
   locationName: string;
+  // Canonical island key ("saba" | "sxm" | "statia"). Optional only because
+  // legacy documents predate the field; reads fall back to parsing
+  // `locationName` until migration completes (see lib/venue-filters.ts).
+  island?: VenueIsland;
   carriesBeerSlugs: string[];
   tapBeerSlugs?: string[];
   canBeerSlugs?: string[];

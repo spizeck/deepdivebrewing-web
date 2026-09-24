@@ -10,9 +10,13 @@ import {
   islandDisplayName,
   islandKey,
   parseVenueFilters,
+  resolveVenueGeography,
+  resolveVenueIsland,
   sanitizeVenueFilters,
+  venueCardLocation,
   venueCarriesBeer,
   venueFiltersToSearch,
+  venueIslandKey,
   venueIsStocked,
   venueOffersFormat,
   EMPTY_VENUE_FILTERS,
@@ -128,6 +132,212 @@ describe("islandKey / islandDisplayName", () => {
   });
 });
 
+describe("venueIslandKey (canonical field, Issue #134)", () => {
+  it("prefers the stored island over parsing locationName", () => {
+    // The locality must never determine grouping: "Philipsburg" parses to
+    // a non-island key, but the canonical field says sxm.
+    assert.equal(
+      venueIslandKey(venue({ island: "sxm", locationName: "Philipsburg" })),
+      "sxm"
+    );
+    assert.equal(
+      venueIslandKey(venue({ island: "saba", locationName: "Windwardside" })),
+      "saba"
+    );
+    // Even a locationName that would parse to a different island loses.
+    assert.equal(
+      venueIslandKey(venue({ island: "statia", locationName: "Saba" })),
+      "statia"
+    );
+  });
+
+  it("falls back to legacy locationName inference when island is absent", () => {
+    assert.equal(
+      venueIslandKey(venue({ locationName: "Windwardside, Saba" })),
+      "saba"
+    );
+    assert.equal(venueIslandKey(venue({ locationName: "SXM" })), "sxm");
+  });
+
+  it("ignores invalid stored island values", () => {
+    // A non-canonical stored value behaves as if the field were absent.
+    const legacy = venue({ locationName: "Fort Bay, Saba" });
+    assert.equal(
+      venueIslandKey({ ...legacy, island: "philipsburg" as never }),
+      "saba"
+    );
+  });
+});
+
+describe("resolveVenueIsland (admin editor preselection)", () => {
+  it("returns the stored island when valid", () => {
+    assert.equal(
+      resolveVenueIsland(venue({ island: "sxm", locationName: "anything" })),
+      "sxm"
+    );
+  });
+
+  it("derives the island from legacy locationName when unambiguous", () => {
+    assert.equal(
+      resolveVenueIsland(venue({ locationName: "Windwardside, Saba" })),
+      "saba"
+    );
+    assert.equal(resolveVenueIsland(venue({ locationName: "SXM" })), "sxm");
+    assert.equal(
+      resolveVenueIsland(venue({ locationName: "Oranjestad, Statia" })),
+      "statia"
+    );
+  });
+
+  it("returns undefined for a bare locality rather than guessing", () => {
+    assert.equal(
+      resolveVenueIsland(venue({ locationName: "Philipsburg" })),
+      undefined
+    );
+    assert.equal(
+      resolveVenueIsland(venue({ locationName: "Bonaire" })),
+      undefined
+    );
+  });
+});
+
+describe("resolveVenueGeography (migration mapping)", () => {
+  it("splits '<locality>, Saba' forms into island + locality", () => {
+    assert.deepEqual(resolveVenueGeography("Saba"), {
+      island: "saba",
+      locality: "",
+    });
+    assert.deepEqual(resolveVenueGeography("Windwardside, Saba"), {
+      island: "saba",
+      locality: "Windwardside",
+    });
+    assert.deepEqual(resolveVenueGeography("Fort Bay, Saba"), {
+      island: "saba",
+      locality: "Fort Bay",
+    });
+    assert.deepEqual(resolveVenueGeography("Windwardside / The Bottom, Saba"), {
+      island: "saba",
+      locality: "Windwardside / The Bottom",
+    });
+  });
+
+  it("maps SXM legacy spellings to sxm with an empty locality", () => {
+    for (const value of ["SXM", "Sint Maarten", "Saint Martin"]) {
+      assert.deepEqual(resolveVenueGeography(value), {
+        island: "sxm",
+        locality: "",
+      });
+    }
+  });
+
+  it("maps a bare Philipsburg locality to sxm, preserving the locality", () => {
+    assert.deepEqual(resolveVenueGeography("Philipsburg"), {
+      island: "sxm",
+      locality: "Philipsburg",
+    });
+  });
+
+  it("maps known bare Saba localities to saba", () => {
+    for (const locality of ["Windwardside", "The Bottom", "Fort Bay"]) {
+      assert.deepEqual(resolveVenueGeography(locality), {
+        island: "saba",
+        locality,
+      });
+    }
+  });
+
+  it("splits '<locality>, Statia' forms", () => {
+    assert.deepEqual(resolveVenueGeography("Oranjestad, Statia"), {
+      island: "statia",
+      locality: "Oranjestad",
+    });
+  });
+
+  it("returns null for values that cannot be classified confidently", () => {
+    // Bare "Oranjestad" is genuinely ambiguous (also Aruba's capital);
+    // unknown islands stay unresolved — never guessed.
+    assert.equal(resolveVenueGeography("Oranjestad"), null);
+    assert.equal(resolveVenueGeography("Sabana Grande"), null);
+    assert.equal(resolveVenueGeography("Bonaire"), null);
+  });
+
+  it("keeps the legacy Saba default for an empty location", () => {
+    assert.deepEqual(resolveVenueGeography(""), {
+      island: "saba",
+      locality: "",
+    });
+    assert.deepEqual(resolveVenueGeography(undefined), {
+      island: "saba",
+      locality: "",
+    });
+  });
+});
+
+describe("venueCardLocation", () => {
+  it("composes locality + short island label for migrated venues", () => {
+    assert.equal(
+      venueCardLocation(venue({ island: "saba", locationName: "Windwardside" })),
+      "Windwardside, Saba"
+    );
+    assert.equal(
+      venueCardLocation(venue({ island: "saba", locationName: "Fort Bay" })),
+      "Fort Bay, Saba"
+    );
+    // Jurisdiction-aware: the dual-label is wrong as a locality address.
+    assert.equal(
+      venueCardLocation(venue({ island: "sxm", locationName: "Philipsburg" })),
+      "Philipsburg, Sint Maarten"
+    );
+    assert.equal(
+      venueCardLocation(venue({ island: "statia", locationName: "Oranjestad" })),
+      "Oranjestad, Statia"
+    );
+  });
+
+  it("shows only the whole-island label when locality is blank or redundant", () => {
+    assert.equal(
+      venueCardLocation(venue({ island: "saba", locationName: "" })),
+      "Saba"
+    );
+    assert.equal(
+      venueCardLocation(venue({ island: "saba", locationName: "Saba" })),
+      "Saba"
+    );
+    assert.equal(
+      venueCardLocation(venue({ island: "sxm", locationName: "" })),
+      "Sint Maarten / Saint Martin"
+    );
+  });
+
+  it("does not double the island when locality already ends with it", () => {
+    // Admin typed the old combined format into the locality field — the card
+    // shows it as-is instead of "Windwardside, Saba, Saba".
+    assert.equal(
+      venueCardLocation(
+        venue({ island: "saba", locationName: "Windwardside, Saba" })
+      ),
+      "Windwardside, Saba"
+    );
+    assert.equal(
+      venueCardLocation(
+        venue({ island: "sxm", locationName: "Philipsburg, Sint Maarten" })
+      ),
+      "Philipsburg, Sint Maarten"
+    );
+  });
+
+  it("shows the raw locationName for legacy records without island", () => {
+    assert.equal(
+      venueCardLocation(venue({ locationName: "Windwardside, Saba" })),
+      "Windwardside, Saba"
+    );
+    assert.equal(
+      venueCardLocation(venue({ locationName: "SXM" })),
+      "SXM"
+    );
+  });
+});
+
 describe("venueCarriesBeer / venueOffersFormat", () => {
   const v = venue({
     carriesBeerSlugs: ["pilsner"],
@@ -164,10 +374,11 @@ describe("venueCarriesBeer / venueOffersFormat", () => {
 });
 
 describe("filterVenues", () => {
-  // Tavern:      Fort Bay, Saba — pilsner on tap + ipa in can
-  // Bottle Shop: Windwardside, Saba — ipa in can
-  // Harbor Bar:  SXM — pilsner + ipa on tap
-  // Quiet Cafe:  Windwardside / The Bottom, Saba — pilsner on tap
+  // Tavern:      island saba, locality Fort Bay — pilsner on tap + ipa in can
+  // Bottle Shop: island saba, locality Windwardside — ipa in can
+  // Harbor Bar:  island sxm, locality Philipsburg — pilsner + ipa on tap
+  // Quiet Cafe:  LEGACY record — no island; locationName "Windwardside /
+  //              The Bottom, Saba" — pilsner on tap
   // (Empty Cantina — Statia, no beer — is excluded up front by
   // venueIsStocked, mirroring the page layer; see the describe below.)
   const venues = WHERE_TO_BUY_FIXTURE_VENUES.filter(venueIsStocked);
@@ -228,10 +439,18 @@ describe("filterVenues", () => {
     );
   });
 
-  it("island filter uses canonical keys (SXM matches locationName variants)", () => {
+  it("island filter uses the canonical island field, not the locality", () => {
+    // Harbor Bar's locality is "Philipsburg" — the island=sxm filter must
+    // match it via the canonical field, and "philipsburg" is not a filter.
     assert.deepEqual(
       names(filterVenues(venues, { ...EMPTY_VENUE_FILTERS, island: "sxm" })),
       ["fixture-harbor-bar"]
+    );
+    assert.deepEqual(
+      names(
+        filterVenues(venues, { ...EMPTY_VENUE_FILTERS, island: "philipsburg" })
+      ),
+      []
     );
   });
 
@@ -312,6 +531,21 @@ describe("distinctIslands / groupVenuesByIsland", () => {
     assert.deepEqual(
       groups[0].venues.map((v) => v.slug),
       ["fixture-tavern", "fixture-bottle-shop", "fixture-quiet-cafe"]
+    );
+  });
+
+  it("a locality can never become an island option or group (Issue #134)", () => {
+    // Harbor Bar's locationName is now a pure locality ("Philipsburg") with
+    // island "sxm" — neither the option list nor the headings may contain it.
+    const venues = WHERE_TO_BUY_FIXTURE_VENUES.filter(venueIsStocked);
+    const islands = distinctIslands(venues);
+    assert.equal(islands.includes("philipsburg"), false);
+    assert.equal(islands.includes("windwardside"), false);
+    assert.equal(islands.includes("fort bay"), false);
+    assert.deepEqual(islands, ["saba", "sxm"]);
+    assert.deepEqual(
+      groupVenuesByIsland(venues).map((g) => g.key),
+      ["saba", "sxm"]
     );
   });
 });

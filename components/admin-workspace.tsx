@@ -8,6 +8,7 @@ import {
   type AdminPanelUser,
 } from "@/components/admin-access";
 import type { Beer, Venue } from "@/lib/types";
+import { VENUE_ISLAND_OPTIONS, type VenueIsland } from "@/lib/venue-islands";
 
 export interface RebuildMeta {
   cooldownUntil?: number;
@@ -383,8 +384,24 @@ export function AdminWorkspace({
                   </select>
                 </label>
                 <label className="text-sm">
-                  <span className="mb-1 block font-medium">Location Name</span>
-                  <input className={fieldClass} value={venueForm.locationName} onChange={(e) => setVenueForm((prev) => ({ ...prev, locationName: e.target.value }))} />
+                  <span className="mb-1 block font-medium">
+                    Island
+                    <span aria-hidden="true" className="text-ember"> *</span>
+                  </span>
+                  <select required className={fieldClass} value={venueForm.island ?? ""} onChange={(e) => setVenueForm((prev) => ({ ...prev, island: (e.target.value || undefined) as VenueIsland | undefined }))}>
+                    <option value="" disabled>
+                      Select an island
+                    </option>
+                    {VENUE_ISLAND_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Location / locality</span>
+                  <input className={fieldClass} value={venueForm.locationName} onChange={(e) => setVenueForm((prev) => ({ ...prev, locationName: e.target.value }))} placeholder="e.g. Windwardside" />
                 </label>
                 <label className="text-sm">
                   <span className="mb-1 block font-medium">Sort Order</span>

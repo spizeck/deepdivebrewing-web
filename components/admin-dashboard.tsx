@@ -30,6 +30,8 @@ import {
   type RebuildMeta,
 } from "@/components/admin-workspace";
 import { refreshAdminAccess } from "@/lib/admin-session-refresh";
+import { resolveVenueIsland } from "@/lib/venue-filters";
+import { isVenueIsland } from "@/lib/venue-islands";
 import type { AdminRole, Beer, Venue } from "@/lib/types";
 
 const DEFAULT_BEER: Beer = {
@@ -195,7 +197,11 @@ export function AdminDashboard() {
   useEffect(() => {
     const found = venues.find((venue) => venue.slug === selectedVenueSlug);
     if (!found) return;
-    setVenueForm(found);
+    // Legacy records lack the canonical island field (Issue #134): preselect
+    // the island resolved from the old free-text location so saving writes
+    // the field without manual repair. Unresolvable records leave the
+    // required select unset instead of guessing.
+    setVenueForm({ ...found, island: resolveVenueIsland(found) });
     setVenueCarriesSelection(found.carriesBeerSlugs ?? []);
     setVenueTapSelection(found.tapBeerSlugs ?? []);
     setVenueCanSelection(found.canBeerSlugs ?? []);
@@ -535,6 +541,11 @@ export function AdminDashboard() {
   async function saveVenue() {
     if (!venueForm.slug || !venueForm.name) {
       setStatusMessage("Venue name and slug are required.");
+      return;
+    }
+
+    if (!isVenueIsland(venueForm.island)) {
+      setStatusMessage("Select an island for this venue.");
       return;
     }
 

@@ -126,7 +126,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `email.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
 | `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
-| `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `prune-trade-leads.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics and prune script do not (CI browser coverage lives in `smoke-tests/`). |
+| `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `prune-trade-leads.ts`, `migrate-venue-islands.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics and data scripts do not (CI browser coverage lives in `smoke-tests/`). |
 | `docs/` | Admin handbook (`docs/admin/`), operations guides (`docs/operations/`: deployment, troubleshooting, post-deploy checklist), and this file. |
 | `content/` | Legacy placeholder (`.gitkeep` only). MDX content is co-located under `app/(pages)/`; do not add files here expecting them to render. |
 | `firestore.rules`, `storage.rules` | Firebase security rules — see §6/§15. |
@@ -148,7 +148,7 @@ moving it into `lib/` or API routes without an explicit issue.
 | `/` | `app/page.tsx` | Server (static) | `beers` collection via `getBeers()` | Home page; hero, featured beer/carousel, intro, brewery/CTA sections. |
 | `/beers` | `app/(pages)/beers/page.tsx` | Server (static) | `beers` via `getBeers()` | Catalog grid; `BeersFilterGrid` (client) provides filtering. |
 | `/beers/[slug]` | `app/(pages)/beers/[slug]/page.tsx` | Server (**static**, `generateStaticParams` + `dynamicParams = false`) | `beers` via `getBeerBySlug(slug)` at build time | Beer detail; `generateMetadata` per slug, JSON-LD, `BeerViewTracker` (client) emits `beer_detail_view`; unknown slugs 404. |
-| `/where-to-buy` | `app/(pages)/where-to-buy/page.tsx` | Server (static) | `venues` + `beers` | Venue list grouped by island (Saba, SXM, Statia normalization in `lib/venue-filters.ts`), `VenueCard` entries, client-side beer/format/island filtering via `VenueDirectory` (URL-mirrored `?beer=&format=&island=` state). |
+| `/where-to-buy` | `app/(pages)/where-to-buy/page.tsx` | Server (static) | `venues` + `beers` | Venue list grouped by the canonical `island` field (`lib/venue-islands.ts`, legacy `locationName` fallback in `lib/venue-filters.ts`), `VenueCard` entries, client-side beer/format/island filtering via `VenueDirectory` (URL-mirrored `?beer=&format=&island=` state). |
 | `/about` | `app/(pages)/about/page.mdx` | Server (static) | none | MDX content styled by `mdx-components.tsx`. |
 | `/contact` | `app/(pages)/contact/page.tsx` | Server (static) | none | Contact details; `TrackedAnchor` for click analytics. |
 | `/trade` | `app/(pages)/trade/page.tsx` | Server (static) | none | Wholesale/trade page hosting `TradeInquiryForm` (client). See the `/trade` note below. |
@@ -202,10 +202,15 @@ in code are listed.
 
 - **Purpose:** where-to-buy partner listings.
 - **Key fields (`Venue` in `lib/types.ts`):** `name`, `slug`, `type`
-  (`"bar_restaurant" | "retail"`), `locationName` (island/area string,
-  normalized at render time), `carriesBeerSlugs[]`, optional
+  (`"bar_restaurant" | "retail"`), `island` (canonical island key —
+  `"saba" | "sxm" | "statia"`, enforced on writes by `firestore.rules`;
+  see `lib/venue-islands.ts`), `locationName` (free-text locality shown on
+  the venue card — never used for grouping), `carriesBeerSlugs[]`, optional
   `tapBeerSlugs[]`/`canBeerSlugs[]`, `isPublic`, `sortOrder`, `links`
   (`website`/`maps`/`instagram`/`facebook`/`untappd`), `notesPublic`.
+  Issue #134 split island identity out of `locationName`; reads fall back
+  to parsing `locationName` for legacy records until the
+  `migrate:venue-islands` backfill completes.
 - **Reads:** `/where-to-buy` via `getVenues()` (`isPublic` + `sortOrder`);
   rules allow public reads only of `isPublic` docs; admin dashboard reads all.
 - **Writes:** admin dashboard `setDoc` merge keyed by `slug` (client SDK).
@@ -446,8 +451,9 @@ server-side.
   visibility and ordering; `status` (`core`/`seasonal`/`limited`) is display
   metadata.
 - **Venue data:** `getVenues()` queries `venues` where `isPublic == true`,
-  ordered by `sortOrder`. `/where-to-buy` groups by `locationName` with island
-  normalization (Saba / SXM / Statia), maps `carriesBeerSlugs`/`tapBeerSlugs`/
+  ordered by `sortOrder`. `/where-to-buy` groups by the canonical `island`
+  field (`saba` / `sxm` / `statia`, with a transitional `locationName`
+  inference fallback for unmigrated records), maps `carriesBeerSlugs`/`tapBeerSlugs`/
   `canBeerSlugs` to beer names, and renders `VenueCard` entries with their
   `links` and `notesPublic`. `VenueDirectory` (`components/venue-directory.tsx`)
   is a client component that filters the server-rendered list — logic lives in
@@ -477,7 +483,7 @@ All of these live in `components/admin-dashboard.tsx` (client) plus
 | Operation | Mechanism | Enforcement |
 | --- | --- | --- |
 | Load beers/venues | Client SDK reads (all docs, `sortOrder` asc — including non-public) | Rules: public sees `isPublic` only; active admin (claim + matching record) reads all |
-| Save beer / venue | Client SDK `setDoc(doc(db, "beers"|"venues", slug), payload, { merge: true })` — doc id is the slug | `hasActiveAdmin` in `firestore.rules` (claim + active matching `adminUsers` record) |
+| Save beer / venue | Client SDK `setDoc(doc(db, "beers"|"venues", slug), payload, { merge: true })` — doc id is the slug | `hasActiveAdmin` in `firestore.rules` (claim + active matching `adminUsers` record); venue writes additionally require a canonical `island` (`saba`/`sxm`/`statia`) |
 | Upload images | Client SDK `uploadBytes` to Storage | `hasActiveAdmin` in `storage.rules` (claim + cross-service `firestore.get()` active-record check) |
 | Update rebuild metadata | Client SDK `setDoc` merge on `meta/siteRebuild` (`contentUpdatedAt/By`, `lastTriggeredAt/By`, `cooldownUntil`) | rules gate `meta` to active admins |
 | Trigger rebuild | `POST /api/admin/rebuild` with Bearer token | Server: `requireAdminActor` (claims + active matching `adminUsers` record) + in-memory cooldown → POST to Vercel deploy hook |
@@ -741,7 +747,8 @@ placeholder values exist anywhere in CI.
 - **Local-only scripts (`scripts/`):** Playwright-based manual diagnostics
   (`screenshot-check`, `overflow-check`, `hero-video-*`),
   `optimize-assets.mjs`, and Admin-SDK utilities (`bootstrap-superadmin.ts`,
-  `prune-trade-leads.ts`, `seed-beers.ts`, `seed-venues.ts`). These remain
+  `prune-trade-leads.ts`, `migrate-venue-islands.ts`, `seed-beers.ts`,
+  `seed-venues.ts`). These remain
   manual/local; the CI smoke suite lives in `smoke-tests/`.
 - **Verification parity:** local pre-PR checks are the same commands CI
   runs, per `AGENTS.md`.
