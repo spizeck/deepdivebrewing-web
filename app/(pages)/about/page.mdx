@@ -1,4 +1,7 @@
 import { MdxLayout } from "@/components/mdx-layout";
+import { TourInquiryCta } from "@/components/tour-inquiry-cta";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export const metadata = {
   title: "About",
@@ -34,54 +37,86 @@ export const metadata = {
 
 # About Deep Dive Brewing Co
 
-Deep Dive Brewing Co is a small, family-run craft brewery located on the island of Saba. We brew approachable, well-balanced beers designed for our climate, our community, and the people who call this island home — whether they’ve lived here for generations or just arrived by sea or air.
+Deep Dive Brewing Co is a small, family-run craft brewery on the island of Saba. We brew approachable, well-balanced beer for our climate, our community, and everyone who finds their way to this little island.
+
+We believe good beer should be easy to enjoy, whether it is your first one after a dive, something cold with dinner, or another round with friends.
+
+<div className="mt-6 flex flex-wrap gap-3">
+  <TourInquiryCta ctaLocation="about_page" className="h-11 min-h-[44px] px-6">Book a Brewery Tour</TourInquiryCta>
+  <Button asChild variant="outline" className="h-11 min-h-[44px] px-6">
+    <Link href="/where-to-buy" data-analytics-event="where_to_buy_click" data-analytics-event-category="conversion" data-analytics-event-label="Find Deep Dive Near You" data-analytics-cta-location="about_page">Find Deep Dive Near You</Link>
+  </Button>
+</div>
 
 ---
 
 ## The Brewery
 
-Our brewing philosophy is simple: make beer that people want to drink more than one of.
+Our brewing philosophy is simple: make beer people want to drink more than one of.
 
-We focus on balance, consistency, and approachability rather than extremes. That means beers that suit warm days, long evenings, and shared tables — not novelty for novelty’s sake. Every recipe is built with drinkability in mind and refined through careful water filtration, mineral adjustment, and cold filtration to ensure both quality and shelf stability in a challenging island environment.
+We focus on balance, consistency, and drinkability rather than extremes. Our beers are made for warm days, long evenings, and shared tables, not novelty for novelty’s sake.
 
-We are small but professional, and we grow carefully. Under-promising and over-delivering matters to us, and we believe sustainable growth is the only way to protect quality over the long term.
+Brewing on a small Caribbean island also leaves very little room for shortcuts. We carefully manage our water, minerals, fermentation, and cold filtration to produce consistent beer with the quality and shelf stability our environment demands.
+
+We are small, and we are growing carefully. We would rather make promises we know we can keep, take care of the businesses that carry our beer, and protect quality as we grow.
 
 ---
 
 ## Our Story
 
-Chad and Katy moved to Saba in 2021 to purchase Sea Saba, a local dive center. Like many people who fall in love with the island, they quickly realized that while Saba offers extraordinary natural beauty and community, one thing was missing: good, locally brewed beer.
+Deep Dive started with a move to Saba.
 
-What began as casual conversations — with former Sea Saba staff member Svenja, who brewed beer with her father, and with friends and family back in Arizona — slowly turned into something more serious. In 2023, Chad decided to sit down and write a business plan. To everyone’s surprise, the numbers worked.
+Chad and Katy came to the island in 2021 to purchase Sea Saba, a local dive center. It did not take long to fall in love with Saba, but there was one thing they thought the island was missing: good beer brewed right here.
 
-Over the following months, the plan grew more refined, and the idea gained momentum. Jill, preparing to retire and move to Saba to be closer to her grandchildren, joined the project along with her partner Tim, who had apprenticed at a brewery in Peoria, Arizona. Confident that great beer could be brewed on Saba, the group purchased a small homebrew system that became the pilot brewhouse and began developing recipes locally.
+The idea started in conversations with former Sea Saba staff member Svenja, who brewed beer with her father, and with friends and family back in Arizona. Eventually, curiosity turned into a serious question: Could a brewery actually work on Saba?
 
-The final piece came together when Wim of Juliana’s Hotel and Tropics Café — a long-time Saba business owner — joined as an initial investor. Together, the group raised the capital needed to purchase a professional brewing system from Alpha Brewing Operations in Nebraska.
+In 2023, Chad sat down and wrote a business plan. Somewhat surprisingly, the answer was yes.
 
-The equipment arrived in October 2024. The first batch was brewed in December and sold in January 2025.
+The idea kept growing. Jill was preparing to retire and move to Saba to be closer to her grandchildren, and she joined the project with her partner Tim, who had apprenticed at a brewery in Peoria, Arizona. The group bought a small homebrew system, set it up on Saba, and started developing recipes on what became our pilot brewhouse.
+
+Then Wim of Juliana’s Hotel and Tropics Café, a longtime Saba business owner, came aboard as an initial investor. With the team in place and the capital raised, we ordered a professional brewing system from Alpha Brewing Operations in Nebraska.
+
+The equipment arrived on Saba in October 2024. We brewed our first batch that December.
+
+In January 2025, Deep Dive beer went on sale for the first time.
 
 ---
 
-## The Island
+## Brewing on Saba
 
-Saba is remote, unspoiled, and deeply focused on sustainability. Brewing here comes with real logistical challenges. We receive a shared container approximately every two weeks, and coordinating ingredients to arrive at the right place in Florida — and then make it onto that container — takes careful planning. Even after arrival, it can take days or longer for materials to reach us.
+Making beer on Saba is a little different.
 
-Our brewery is compact — a 26' × 26' space with 9-foot ceilings — located at Fort Bay Harbor. Gas is prohibitively expensive on the island, so we brew entirely using electricity. These constraints shape how we work, pushing us to be efficient, thoughtful, and intentional in every decision.
+Nearly everything we use has to cross an ocean to get here. We receive a shared container approximately every two weeks, which means ingredients first have to reach the right place in Florida, make the correct sailing, arrive on Saba, clear the logistics at Fort Bay, and finally make their way to us.
 
-The diving culture on Saba naturally fosters environmental awareness, and that mindset carries directly into how we brew. Sustainability isn’t a slogan here — it’s a daily consideration.
+Our brewery itself is just 26 by 26 feet, with 9-foot ceilings, tucked into Fort Bay Harbor. Gas is prohibitively expensive here, so the brewery runs entirely on electricity.
+
+Those constraints influence almost everything we do. We plan carefully, use our space efficiently, and think hard about what we bring to the island and what we do with it afterward.
+
+Saba’s diving culture has always encouraged people to think about the environment around them. That mindset carries naturally into the brewery. Sustainability is not something we added to a marketing plan. On a five-square-mile island, waste, water, energy, and shipping are things you notice every day.
 
 ---
 
 ## Community & Beyond
 
-Deep Dive Brewing Co is deeply rooted in the local community. Our spent brewing grains are reused by locals for animal feed, compost, dog treats, and other creative applications. We also provide filtered water to the Marine Laboratory, helping reduce their need to purchase distilled water for experiments.
+Deep Dive was built to be part of Saba, not simply located here.
 
-Today, most bars and restaurants on Saba carry our beer, and more are coming on board as demand grows. Beyond the island, we’ve begun introducing our beer to Sint Maarten, starting with locations like the IGY Marina Bar and Amsterdam Cheese & Liquor Store in Philipsburg.
+Our spent grain finds new life around the island as animal feed, compost, dog treats, and whatever else creative Sabans come up with. We also provide filtered water to the Marine Laboratory, reducing the amount of distilled water they need to bring to the island for experiments.
 
-We’re flexible, collaborative, and genuinely enjoy working with businesses to make our beer successful for everyone involved.
+Today, you can find Deep Dive at most bars and restaurants on Saba, as well as local shops carrying our cans. We have also started sending beer to the Dutch side of Sint Maarten, including accounts in Philipsburg.
+
+We are still a small brewery. That is part of what makes this fun. The people pouring, stocking, and drinking our beer are not abstract markets to us. They are restaurants we eat at, shops we visit, businesses we work with, neighbors we know, and visitors discovering Saba for the first time.
 
 ---
 
-Deep Dive Brewing Co exists because we love this island, the people on it, and the idea that great beer doesn’t have to come from far away to be worth drinking.
+Deep Dive Brewing Co exists because we love this island, the people who make it what it is, and the idea that great beer does not have to travel thousands of miles to be worth drinking.
+
+Come see how we make it, or find a cold one around the island.
+
+<div className="mt-6 flex flex-wrap gap-3">
+  <TourInquiryCta ctaLocation="about_page" className="h-11 min-h-[44px] px-6">Book a Brewery Tour</TourInquiryCta>
+  <Button asChild variant="outline" className="h-11 min-h-[44px] px-6">
+    <Link href="/where-to-buy" data-analytics-event="where_to_buy_click" data-analytics-event-category="conversion" data-analytics-event-label="Find Where to Buy" data-analytics-cta-location="about_page">Find Where to Buy</Link>
+  </Button>
+</div>
 
 </MdxLayout>

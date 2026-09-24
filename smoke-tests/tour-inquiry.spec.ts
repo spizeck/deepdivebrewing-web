@@ -630,3 +630,62 @@ for (const width of [320, 375]) {
     expect(overflows).toBe(false);
   });
 }
+
+// ── About page CTAs (Issue #131) ───────────────────────────────────────
+// /about has two "Book a Brewery Tour" CTAs (intro + closing). Both are
+// product-agnostic like the homepage hero — same dialog, same product
+// choice, cta_location="about_page".
+
+test("both about-page CTAs open the product-agnostic inquiry dialog", async ({
+  page,
+}) => {
+  await page.goto("/about");
+
+  for (const cta of await page
+    .getByRole("button", { name: "Book a Brewery Tour" })
+    .all()) {
+    await cta.click();
+    const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+    await expect(dialog).toBeVisible();
+    // Product-agnostic: the in-dialog tour choice is rendered.
+    await expect(dialog.getByRole("radio")).toHaveCount(2);
+    // Opening is not the conversion.
+    expect(inquiryEvents(await getDataLayer(page))).toHaveLength(0);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(cta).toBeFocused();
+  }
+});
+
+test("about-page handoff attributes the inquiry to about_page", async ({
+  page,
+}) => {
+  await page.goto("/about");
+  await page
+    .getByRole("button", { name: "Book a Brewery Tour" })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Book a Brewery Tour" });
+  const iso = await pickDate(page, 30);
+  await dialog.getByLabel("Party size").fill("2");
+
+  const [request] = await Promise.all([
+    page
+      .context()
+      .waitForEvent("request", (r) => r.url().startsWith("https://wa.me/")),
+    dialog.getByRole("button", { name: "Continue to WhatsApp" }).click(),
+  ]);
+  const url = new URL(request.url());
+  expect(`${url.origin}${url.pathname}`).toBe("https://wa.me/5994163544");
+  expect(url.searchParams.get("text")).toBe(
+    `Hi Deep Dive! I'm interested in the $20 Brewery Tour for 2 people on ${expectedDateLabel(iso)}. Is that available?`
+  );
+
+  const inquiries = inquiryEvents(await getDataLayer(page));
+  expect(inquiries).toHaveLength(1);
+  expect(inquiries[0]).toMatchObject({
+    event_category: "conversion",
+    cta_location: "about_page",
+    event_label: "Brewery Tour",
+  });
+});
