@@ -62,7 +62,7 @@ test("desktop mounts a muted looping video with webm-first sources", async ({
   await expect(sources.nth(1)).toHaveAttribute("type", "video/mp4");
 });
 
-test("the still stays underneath as the video becomes ready", async ({
+test("the still stays underneath as the video starts playing", async ({
   page,
 }) => {
   await page.goto("/");
@@ -73,9 +73,9 @@ test("the still stays underneath as the video becomes ready", async ({
   const video = section.locator("video");
   await expect(still).toBeVisible();
 
-  // Headless Chromium decodes these sources for real, so canplay must
-  // arrive and flip the video to opacity-100. The still never leaves the
-  // DOM underneath — before or after the transition.
+  // Headless Chromium decodes and plays these sources for real, so the
+  // `playing` event must arrive and flip the video to opacity-100. The
+  // still never leaves the DOM underneath — before or after the fade.
   await expect(video).toHaveClass(/opacity-100/, { timeout: 15000 });
   await expect(still).toBeVisible();
 });
@@ -83,11 +83,16 @@ test("the still stays underneath as the video becomes ready", async ({
 test("a refused play() leaves the still intact without an error surface", async ({
   page,
 }) => {
-  // Simulate an autoplay refusal (e.g. low-power mode) before any page code.
+  // Simulate an autoplay refusal (e.g. low-power mode) before any page
+  // code, and answer media requests with an empty body — deterministic
+  // and leaves no in-flight fetch to abort at teardown.
   await page.addInitScript(() => {
     HTMLMediaElement.prototype.play = () =>
       Promise.reject(new DOMException("Blocked", "NotAllowedError"));
   });
+  await page.route("**/videos/*", (route) =>
+    route.fulfill({ status: 200, body: "" })
+  );
   await page.goto("/");
   const section = brewerySection(page);
   await section.scrollIntoViewIfNeeded();

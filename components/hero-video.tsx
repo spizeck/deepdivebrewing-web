@@ -27,7 +27,7 @@ function useMediaQuery(query: string): boolean {
 export function HeroVideo() {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const isSmallScreen = useMediaQuery("(max-width: 768px)");
-  const [canPlay, setCanPlay] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [inView, setInView] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -99,14 +99,18 @@ export function HeroVideo() {
         <video
           ref={videoRef}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
-            canPlay ? "opacity-100" : "opacity-0"
+            playing ? "opacity-100" : "opacity-0"
           }`}
           muted
           loop
           playsInline
           preload="none"
           aria-hidden="true"
-          onCanPlay={() => setCanPlay(true)}
+          // `playing` — not `canplay`: a refused play() still reaches
+          // canplay (the fetch proceeds), which would fade in a frozen
+          // first frame. Fading in on actual playback keeps the approved
+          // still up whenever the video is not genuinely playing.
+          onPlaying={() => setPlaying(true)}
         >
           <source src={WEBM_SRC} type="video/webm" />
           {/* The error event on the last <source> means every candidate
