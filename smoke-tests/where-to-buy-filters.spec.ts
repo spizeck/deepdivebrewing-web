@@ -6,10 +6,11 @@ import { test, expect } from "./fixtures";
 // also proves filtering works with analytics consent declined.
 //
 // Fixture data (lib/where-to-buy-fixture.ts):
-//   Fixture Tavern      Fort Bay, Saba                  tap: pilsner        can: ipa
-//   Fixture Bottle Shop Windwardside, Saba              can: ipa
-//   Fixture Harbor Bar  SXM                             tap: pilsner + ipa
-//   Fixture Quiet Cafe  Windwardside / The Bottom, Saba carries nothing
+//   Fixture Tavern       Fort Bay, Saba                  tap: pilsner        can: ipa
+//   Fixture Bottle Shop  Windwardside, Saba              can: ipa
+//   Fixture Harbor Bar   SXM                             tap: pilsner + ipa
+//   Fixture Quiet Cafe   Windwardside / The Bottom, Saba tap: pilsner
+//   Fixture Empty Cantina Oranjestad, Statia             carries nothing — hidden (#130)
 //   Flat Point Amber is a public beer carried by no venue — never an option.
 // The three Saba venues deliberately use distinct "<locality>, Saba"
 // locationNames so this suite covers the island-grouping regression from
@@ -70,6 +71,8 @@ test("renders filters and all venues unfiltered", async ({ page }) => {
     "Fixture Quiet Cafe",
     "Fixture Harbor Bar",
   ]);
+  // The empty Statia venue never renders (#130).
+  await expect(page.getByText("Fixture Empty Cantina")).toHaveCount(0);
   // Availability caveat is always present.
   await expect(
     page.getByText("Availability can change", { exact: false })
@@ -78,9 +81,10 @@ test("renders filters and all venues unfiltered", async ({ page }) => {
 
 test("beer filter narrows to venues carrying that beer", async ({ page }) => {
   await beerSelect(page).selectOption("saba-suds-pilsner");
-  await expect(statusText(page)).toHaveText("2 venues shown");
+  await expect(statusText(page)).toHaveText("3 venues shown");
   expect(await venueNames(page)).toEqual([
     "Fixture Tavern",
+    "Fixture Quiet Cafe",
     "Fixture Harbor Bar",
   ]);
   await expect(page).toHaveURL(/beer=saba-suds-pilsner/);
@@ -100,9 +104,10 @@ test("format chips filter by On Tap / In Can", async ({ page }) => {
   await expect(page).toHaveURL(/format=can/);
 
   await formatButton(page, "On Tap").click();
-  await expect(statusText(page)).toHaveText("2 venues shown");
+  await expect(statusText(page)).toHaveText("3 venues shown");
   expect(await venueNames(page)).toEqual([
     "Fixture Tavern",
+    "Fixture Quiet Cafe",
     "Fixture Harbor Bar",
   ]);
 
@@ -223,14 +228,14 @@ test("stale or invalid URL params fall back to unfiltered", async ({
 
 test("back/forward navigates between filter states", async ({ page }) => {
   await beerSelect(page).selectOption("saba-suds-pilsner");
-  await expect(statusText(page)).toHaveText("2 venues shown");
+  await expect(statusText(page)).toHaveText("3 venues shown");
 
   await page.goBack();
   await expect(statusText(page)).toHaveText("4 venues shown");
   await expect(beerSelect(page)).toHaveValue("");
 
   await page.goForward();
-  await expect(statusText(page)).toHaveText("2 venues shown");
+  await expect(statusText(page)).toHaveText("3 venues shown");
 });
 
 test("filter changes emit beer_filter events with facet labels", async ({
@@ -261,6 +266,55 @@ test("filter changes emit beer_filter events with facet labels", async ({
     filter: "can",
     cta_location: "where_to_buy_page",
   });
+});
+
+test("venues with no beer inventory are hidden entirely", async ({ page }) => {
+  // Issue #130: Fixture Empty Cantina has a valid name/location/type and
+  // directions + social links but zero On Tap / In Can beer — it must not
+  // render, and as the only Statia venue it must create no island group or
+  // filter option.
+  await expect(page.getByText("Fixture Empty Cantina")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: /Statia/ })
+  ).toHaveCount(0);
+  await expect(
+    islandSelect(page).locator("option")
+  ).toHaveText(["All islands", "Saba", "Sint Maarten / Saint Martin"]);
+  await expect(statusText(page)).toHaveText("4 venues shown");
+
+  // Query strings cannot resurrect it — "statia" is not an allowed island,
+  // so the filter sanitizes to unfiltered rather than showing the venue.
+  await page.goto(`${ROUTE}?island=statia`);
+  await expect(statusText(page)).toHaveText("4 venues shown");
+  await expect(islandSelect(page)).toHaveValue("");
+  await expect(page.getByText("Fixture Empty Cantina")).toHaveCount(0);
+});
+
+test("action rows align across cards with different beer-list heights", async ({
+  page,
+}) => {
+  // Issue #130: cards in one grid row bottom-align their action rows
+  // regardless of inventory-copy length. Tavern lists two format lines,
+  // Bottle Shop one — at 1280px all three Saba cards share a row.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+
+  const card = (name: string) =>
+    page
+      .locator("main section .grid > div")
+      .filter({ has: page.getByRole("heading", { name, level: 3 }) });
+  const actionRowTop = (name: string) =>
+    card(name)
+      .locator("a")
+      .first()
+      .evaluate(
+        (link) =>
+          (link.parentElement as HTMLElement).getBoundingClientRect().top
+      );
+
+  const tavernTop = await actionRowTop("Fixture Tavern");
+  const bottleTop = await actionRowTop("Fixture Bottle Shop");
+  expect(Math.abs(tavernTop - bottleTop)).toBeLessThanOrEqual(1);
 });
 
 test("directions link survives filtering and keeps its tracking attrs", async ({

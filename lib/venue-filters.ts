@@ -207,10 +207,21 @@ export function carriedBeerOptions(
 /** True when any venue lists a beer under a format — otherwise the format
  *  control would only ever produce an empty result. */
 export function hasAnyFormatData(venues: Venue[]): boolean {
-  return venues.some(
-    (venue) =>
-      (venue.tapBeerSlugs?.length ?? 0) > 0 ||
-      (venue.canBeerSlugs?.length ?? 0) > 0
+  return venues.some(venueIsStocked);
+}
+
+/**
+ * True when the venue lists at least one beer under a serving format — the
+ * same "has beer" definition the card uses to render its On Tap / In Can
+ * lists. `carriesBeerSlugs` alone does not count: a beer recorded there
+ * without a format membership produces no visible inventory line, so the
+ * card would still show no beer. Public /where-to-buy pages exclude
+ * unstocked venues before grouping, filter options, and counts are derived.
+ */
+export function venueIsStocked(venue: Venue): boolean {
+  return (
+    (venue.tapBeerSlugs?.length ?? 0) > 0 ||
+    (venue.canBeerSlugs?.length ?? 0) > 0
   );
 }
 
