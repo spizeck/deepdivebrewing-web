@@ -9,6 +9,22 @@ export const TRADE_LEADS_COLLECTION = "tradeLeads";
 export const TRADE_LEAD_SOURCE = "trade_form";
 export const TRADE_LEAD_INITIAL_STATUS = "new";
 
+// Canonical business-type options — the form renders `label` and submits
+// `value`, and the API accepts only these values (Issue #126). One list so
+// the <select> and the server check can never drift apart.
+export const TRADE_VENUE_TYPES = [
+  { value: "bar", label: "Bar" },
+  { value: "restaurant", label: "Restaurant" },
+  { value: "hotel", label: "Hotel" },
+  { value: "retail", label: "Retail" },
+  { value: "distributor", label: "Distributor" },
+  { value: "other", label: "Other" },
+] as const;
+
+const TRADE_VENUE_TYPE_VALUES: ReadonlySet<string> = new Set(
+  TRADE_VENUE_TYPES.map((t) => t.value)
+);
+
 export interface TradeLeadInput {
   businessName: string;
   contactName: string;
@@ -211,6 +227,16 @@ export async function handleTradeInquiry(
     return {
       status: 400,
       body: { ok: false, error: "Please enter a valid email address." },
+    };
+  }
+
+  // venueType is constrained by the form's <select>; a direct request can
+  // still send anything, so the server enforces the same known set before a
+  // free-text value can reach Firestore or the notification email (#126).
+  if (!TRADE_VENUE_TYPE_VALUES.has(venueType)) {
+    return {
+      status: 400,
+      body: { ok: false, error: "Please choose a business type." },
     };
   }
 
