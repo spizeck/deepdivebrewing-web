@@ -221,6 +221,32 @@ test("tracked CTA enters dataLayer exactly once with expected params", async ({
   await waitForEvents(page, "page_view", 2);
 });
 
+test("about-page Where to Buy CTA fires where_to_buy_click once", async ({
+  page,
+}) => {
+  await page.goto("/about");
+
+  // Both CTA groups link internally to /where-to-buy with the same
+  // attribution; exercise the intro pair.
+  await expect(
+    page.locator(
+      'a[data-analytics-event="where_to_buy_click"][data-analytics-cta-location="about_page"]'
+    )
+  ).toHaveCount(2);
+
+  await page
+    .getByRole("link", { name: "Find Deep Dive Near You" })
+    .click();
+  await page.waitForURL("**/where-to-buy");
+
+  const clicks = await waitForEvents(page, "where_to_buy_click", 1);
+  expect(clicks[0]).toMatchObject({
+    event_category: "conversion",
+    event_label: "Find Deep Dive Near You",
+    cta_location: "about_page",
+  });
+});
+
 test("beer filter fires beer_filter once with the selected value", async ({
   page,
 }) => {

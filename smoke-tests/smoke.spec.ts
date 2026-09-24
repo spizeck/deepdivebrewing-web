@@ -54,6 +54,47 @@ test("about page renders long-form MDX content", async ({ page }) => {
   await expect(page.getByText(/saba/i).first()).toBeVisible();
 });
 
+test("about page carries the refreshed copy and both CTA groups", async ({
+  page,
+}) => {
+  await page.goto("/about");
+
+  // New customer-facing copy and the renamed section (Issue #131).
+  await expect(
+    page.getByRole("heading", { name: "Brewing on Saba" })
+  ).toBeVisible();
+  await expect(
+    page.getByText(/finds their way to this little island/i)
+  ).toBeVisible();
+  await expect(
+    page.getByText(/find a cold one around the island/i)
+  ).toBeVisible();
+
+  // Replaced copy is gone — the old heading and retired phrasing.
+  await expect(
+    page.getByRole("heading", { name: "The Island" })
+  ).toHaveCount(0);
+  await expect(page.getByText(/IGY Marina/i)).toHaveCount(0);
+  // No em dashes anywhere in the customer-facing copy.
+  await expect(page.locator("article")).not.toContainText("—");
+
+  // Two CTA pairs: intro + closing.
+  const tourCtas = page.getByRole("button", { name: "Book a Brewery Tour" });
+  await expect(tourCtas).toHaveCount(2);
+  // MDX must not paragraph-wrap the button label — a <p> inside inherits the
+  // dark prose color and renders invisible text on the dark button.
+  await expect(tourCtas.locator("p")).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "Find Deep Dive Near You" })
+  ).toHaveAttribute("href", "/where-to-buy");
+  await expect(
+    page.getByRole("link", { name: "Find Where to Buy" })
+  ).toHaveAttribute("href", "/where-to-buy");
+
+  // No raw WhatsApp handoff bypasses the inquiry dialog.
+  await expect(page.locator('a[href^="https://wa.me/"]')).toHaveCount(0);
+});
+
 test("trade page renders the inquiry form", async ({ page }) => {
   await page.goto("/trade");
   // Canonical page assertions — the h1 and "What to expect" section exist only

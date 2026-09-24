@@ -242,12 +242,14 @@
   color: var(--foreground);
   margin-bottom: 1.25rem;
 }
-.prose-dd a {
+/* Classless anchors only: these rules are unlayered, so they would beat the
+   utility classes on component links (e.g. Button asChild) inside MDX prose. */
+.prose-dd a:not([class]) {
   color: #334E68;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.prose-dd a:hover {
+.prose-dd a:not([class]):hover {
   opacity: 0.85;
 }
 .prose-dd ul,
