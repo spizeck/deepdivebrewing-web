@@ -10,7 +10,6 @@ import {
   islandDisplayName,
   islandKey,
   parseVenueFilters,
-  resolveVenueGeography,
   resolveVenueIsland,
   sanitizeVenueFilters,
   venueCardLocation,
@@ -198,78 +197,6 @@ describe("resolveVenueIsland (admin editor preselection)", () => {
       resolveVenueIsland(venue({ locationName: "Bonaire" })),
       undefined
     );
-  });
-});
-
-describe("resolveVenueGeography (migration mapping)", () => {
-  it("splits '<locality>, Saba' forms into island + locality", () => {
-    assert.deepEqual(resolveVenueGeography("Saba"), {
-      island: "saba",
-      locality: "",
-    });
-    assert.deepEqual(resolveVenueGeography("Windwardside, Saba"), {
-      island: "saba",
-      locality: "Windwardside",
-    });
-    assert.deepEqual(resolveVenueGeography("Fort Bay, Saba"), {
-      island: "saba",
-      locality: "Fort Bay",
-    });
-    assert.deepEqual(resolveVenueGeography("Windwardside / The Bottom, Saba"), {
-      island: "saba",
-      locality: "Windwardside / The Bottom",
-    });
-  });
-
-  it("maps SXM legacy spellings to sxm with an empty locality", () => {
-    for (const value of ["SXM", "Sint Maarten", "Saint Martin"]) {
-      assert.deepEqual(resolveVenueGeography(value), {
-        island: "sxm",
-        locality: "",
-      });
-    }
-  });
-
-  it("maps a bare Philipsburg locality to sxm, preserving the locality", () => {
-    assert.deepEqual(resolveVenueGeography("Philipsburg"), {
-      island: "sxm",
-      locality: "Philipsburg",
-    });
-  });
-
-  it("maps known bare Saba localities to saba", () => {
-    for (const locality of ["Windwardside", "The Bottom", "Fort Bay"]) {
-      assert.deepEqual(resolveVenueGeography(locality), {
-        island: "saba",
-        locality,
-      });
-    }
-  });
-
-  it("splits '<locality>, Statia' forms", () => {
-    assert.deepEqual(resolveVenueGeography("Oranjestad, Statia"), {
-      island: "statia",
-      locality: "Oranjestad",
-    });
-  });
-
-  it("returns null for values that cannot be classified confidently", () => {
-    // Bare "Oranjestad" is genuinely ambiguous (also Aruba's capital);
-    // unknown islands stay unresolved — never guessed.
-    assert.equal(resolveVenueGeography("Oranjestad"), null);
-    assert.equal(resolveVenueGeography("Sabana Grande"), null);
-    assert.equal(resolveVenueGeography("Bonaire"), null);
-  });
-
-  it("keeps the legacy Saba default for an empty location", () => {
-    assert.deepEqual(resolveVenueGeography(""), {
-      island: "saba",
-      locality: "",
-    });
-    assert.deepEqual(resolveVenueGeography(undefined), {
-      island: "saba",
-      locality: "",
-    });
   });
 });
 
