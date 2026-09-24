@@ -186,7 +186,9 @@ export default function ContactPage() {
 
         <div className="mt-10 grid divide-y divide-stone overflow-hidden rounded-xl border border-stone bg-paper md:grid-cols-2 md:divide-x md:divide-y-0">
           {/* Tour only */}
-          <div className="p-6 sm:p-8">
+          {/* mt-auto pins each CTA to the card bottom so both buttons align
+              side-by-side; when stacked the auto margin collapses to pt-5. */}
+          <div className="flex flex-col p-6 sm:p-8">
             <h3 className="text-lg font-semibold tracking-tight">
               Brewery Tour
             </h3>
@@ -202,18 +204,20 @@ export default function ContactPage() {
             <p className="mt-2 text-sm font-medium text-ink">
               No beer or tasting included.
             </p>
-            <TourInquiryCta
-              tour="breweryTour"
-              ctaLocation="contact_page_tours"
-              variant="outline"
-              className="mt-5 h-11 min-h-[44px] px-6"
-            >
-              Arrange a brewery tour
-            </TourInquiryCta>
+            <div className="mt-auto pt-5">
+              <TourInquiryCta
+                tour="breweryTour"
+                ctaLocation="contact_page_tours"
+                variant="outline"
+                className="h-11 min-h-[44px] px-6"
+              >
+                Arrange a brewery tour
+              </TourInquiryCta>
+            </div>
           </div>
 
           {/* Tour + tasting */}
-          <div className="p-6 sm:p-8">
+          <div className="flex flex-col p-6 sm:p-8">
             <p className="text-xs font-semibold uppercase tracking-wider text-moss">
               Stay for a taste
             </p>
@@ -233,13 +237,15 @@ export default function ContactPage() {
             <p className="mt-2 text-sm font-medium text-ink">
               Generous beer tastings included.
             </p>
-            <TourInquiryCta
-              tour="breweryTourTasting"
-              ctaLocation="contact_page_tours"
-              className="mt-5 h-11 min-h-[44px] px-6"
-            >
-              Arrange tour + tasting
-            </TourInquiryCta>
+            <div className="mt-auto pt-5">
+              <TourInquiryCta
+                tour="breweryTourTasting"
+                ctaLocation="contact_page_tours"
+                className="h-11 min-h-[44px] px-6"
+              >
+                Arrange tour + tasting
+              </TourInquiryCta>
+            </div>
           </div>
         </div>
       </section>
