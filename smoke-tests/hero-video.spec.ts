@@ -62,7 +62,7 @@ test("desktop mounts a muted looping video with webm-first sources", async ({
   await expect(sources.nth(1)).toHaveAttribute("type", "video/mp4");
 });
 
-test("the still stays underneath whether or not the video becomes ready", async ({
+test("the still stays underneath as the video becomes ready", async ({
   page,
 }) => {
   await page.goto("/");
@@ -72,25 +72,12 @@ test("the still stays underneath whether or not the video becomes ready", async 
   const still = section.locator('img[src*="video-still"]');
   const video = section.locator("video");
   await expect(still).toBeVisible();
-  // Before readiness the video is transparent over the still.
-  if (!(await video.evaluate((v) => (v as HTMLVideoElement).readyState >= 4))) {
-    await expect(video).toHaveClass(/opacity-0/);
-  }
-  // Once the browser reports it can play, the video fades in — the still
-  // remains mounted underneath regardless.
-  await video
-    .evaluate(
-      (v) =>
-        new Promise<void>((resolve) => {
-          const el = v as HTMLVideoElement;
-          if (el.readyState >= 4) resolve();
-          else el.addEventListener("canplay", () => resolve(), { once: true });
-          setTimeout(resolve, 15000);
-        })
-    )
-    .catch(() => {});
+
+  // Headless Chromium decodes these sources for real, so canplay must
+  // arrive and flip the video to opacity-100. The still never leaves the
+  // DOM underneath — before or after the transition.
+  await expect(video).toHaveClass(/opacity-100/, { timeout: 15000 });
   await expect(still).toBeVisible();
-  await expect(still).toBeAttached();
 });
 
 test("a refused play() leaves the still intact without an error surface", async ({
