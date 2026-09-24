@@ -54,7 +54,7 @@ async function sendTradeInquiryNotification(
         <tr><td style="padding: 8px; font-weight: 700;">Contact Name</td><td style="padding: 8px;">${escapeHtml(input.contactName)}</td></tr>
         <tr><td style="padding: 8px; font-weight: 700;">Email</td><td style="padding: 8px;"><a href="mailto:${escapeHtml(input.email)}">${escapeHtml(input.email)}</a></td></tr>
         <tr><td style="padding: 8px; font-weight: 700;">Phone / WhatsApp</td><td style="padding: 8px;">${escapeHtml(input.phoneOrWhatsapp) || "—"}</td></tr>
-        <tr><td style="padding: 8px; font-weight: 700;">Venue Type</td><td style="padding: 8px;">${escapeHtml(input.venueType)}</td></tr>
+        <tr><td style="padding: 8px; font-weight: 700;">Business Type</td><td style="padding: 8px;">${escapeHtml(input.venueType)}</td></tr>
         <tr><td style="padding: 8px; font-weight: 700;">Message</td><td style="padding: 8px;">${escapeHtml(input.message) || "—"}</td></tr>
       </table>
     `;

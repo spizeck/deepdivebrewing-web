@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/lib/analytics";
+import { TRADE_VENUE_TYPES } from "@/lib/trade-leads-common";
 
 interface FormData {
   businessName: string;
@@ -24,7 +25,7 @@ const initialFormData: FormData = {
   website: "",
 };
 
-const venueTypes = ["Bar", "Restaurant", "Hotel", "Retail", "Distributor", "Other"];
+
 
 export function TradeInquiryForm() {
   const [formData, setFormData] = useState<FormData>(initialFormData);
@@ -173,9 +174,9 @@ export function TradeInquiryForm() {
           className="min-h-[44px] w-full rounded-md border border-stone bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-ocean/50"
         >
           <option value="">Choose one...</option>
-          {venueTypes.map((type) => (
-            <option key={type} value={type.toLowerCase()}>
-              {type}
+          {TRADE_VENUE_TYPES.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
             </option>
           ))}
         </select>

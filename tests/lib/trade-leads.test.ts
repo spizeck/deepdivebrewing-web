@@ -9,6 +9,7 @@ import {
   tradeLeadFieldTooLong,
   TRADE_LEAD_FIELD_LIMITS,
   TRADE_LEADS_COLLECTION,
+  TRADE_VENUE_TYPES,
   type TradeInquiryDeps,
   type TradeInquiryRouteDeps,
   type TradeInquiryBody,
@@ -293,6 +294,51 @@ describe("handleTradeInquiry", () => {
       "Please shorten the email field."
     );
     assert.deepStrictEqual(calls, []);
+  });
+
+  it("rejects venueType values outside the known set before submission (#126)", async () => {
+    for (const venueType of [
+      "garbage",
+      "Bar", // canonical values are lowercase — the select only ever submits those
+      "bar; DROP TABLE",
+      "bars",
+    ]) {
+      const { deps, calls } = routeDeps();
+      const result = await handleTradeInquiry(
+        { ...body, venueType },
+        context,
+        deps
+      );
+      assert.strictEqual(result.status, 400, `expected 400 for ${venueType}`);
+      assert.deepStrictEqual(result.body, {
+        ok: false,
+        error: "Please choose a business type.",
+      });
+      assert.deepStrictEqual(calls, [], `submit/rate-limit ran for ${venueType}`);
+    }
+  });
+
+  it("accepts every canonical venueType value", async () => {
+    for (const { value } of TRADE_VENUE_TYPES) {
+      const { deps, submitted } = routeDeps();
+      const result = await handleTradeInquiry(
+        { ...body, venueType: value },
+        context,
+        deps
+      );
+      assert.strictEqual(result.status, 200, `expected 200 for ${value}`);
+      assert.strictEqual(submitted[0]?.venueType, value);
+    }
+    // Surrounding whitespace is trimmed before the membership check, same
+    // normalization as the other fields.
+    const { deps, submitted } = routeDeps();
+    const result = await handleTradeInquiry(
+      { ...body, venueType: "  bar  " },
+      context,
+      deps
+    );
+    assert.strictEqual(result.status, 200);
+    assert.strictEqual(submitted[0]?.venueType, "bar");
   });
 
   it("accepts ordinary, plus-tag, and subdomain addresses", async () => {
