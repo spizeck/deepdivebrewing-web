@@ -112,8 +112,7 @@ export function islandKey(locationName: string | undefined): string {
  * Canonical island key for a venue: the stored `island` field when present,
  * falling back to legacy `locationName` inference for records written before
  * Issue #134. New writes always set `island`, so grouping no longer depends
- * on parsing locality text — the fallback exists only until migration
- * completes.
+ * on parsing locality text — the fallback remains for legacy records.
  */
 export function venueIslandKey(venue: Venue): string {
   return isVenueIsland(venue.island)
@@ -132,57 +131,6 @@ export function resolveVenueIsland(venue: Venue): VenueIsland | undefined {
   if (isVenueIsland(venue.island)) return venue.island;
   const legacy = islandKey(venue.locationName);
   return isVenueIsland(legacy) ? legacy : undefined;
-}
-
-/**
- * Known-locality → island map for the venue migration (Issue #134). Only
- * entries that are unambiguous within the brewery's operating region belong
- * here — a bare locality string can never reach this map through inference.
- * "Oranjestad" is deliberately absent: it is also the capital of Aruba, so a
- * bare "Oranjestad" record stays unresolved and is reported for owner review
- * rather than guessed.
- */
-const KNOWN_LOCALITY_ISLANDS: ReadonlyMap<string, VenueIsland> = new Map([
-  ["windwardside", "saba"],
-  ["the bottom", "saba"],
-  ["fort bay", "saba"],
-  ["philipsburg", "sxm"],
-]);
-
-export interface VenueGeography {
-  island: VenueIsland;
-  locality: string;
-}
-
-/**
- * Split a legacy `locationName` into canonical `{ island, locality }` for
- * the Issue #134 backfill. "<locality>, <island>" forms keep their locality
- * prefix; a bare island name ("Saba", "SXM", "Sint Maarten") yields an empty
- * locality; a bare locality is mapped only via KNOWN_LOCALITY_ISLANDS.
- * Returns null when the value cannot be classified confidently — callers
- * must report it for owner review instead of writing a guess.
- */
-export function resolveVenueGeography(
-  locationName: string | undefined
-): VenueGeography | null {
-  const parts = (locationName ?? "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part !== "");
-
-  // The legacy Saba default for an empty location, preserved verbatim.
-  if (parts.length === 0) return { island: "saba", locality: "" };
-
-  const lastKey = islandKey(parts[parts.length - 1]);
-  if (isVenueIsland(lastKey)) {
-    return { island: lastKey, locality: parts.slice(0, -1).join(", ") };
-  }
-
-  const whole = parts.join(", ");
-  const known = KNOWN_LOCALITY_ISLANDS.get(whole.toLowerCase());
-  if (known) return { island: known, locality: whole };
-
-  return null;
 }
 
 /**
@@ -240,7 +188,7 @@ export function distinctIslands(venues: Venue[]): string[] {
  * the canonical `island` field means a locality like "Philipsburg" or
  * "Windwardside" can never become its own section (Issue #134); the legacy
  * `locationName` fallback inside `venueIslandKey` still merges spelling
- * variants like "SXM" and "Sint Maarten" for unmigrated records.
+ * variants like "SXM" and "Sint Maarten" for records predating the field.
  */
 export function groupVenuesByIsland(
   venues: Venue[]

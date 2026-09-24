@@ -57,7 +57,7 @@ Island is required; a venue cannot be saved without one, and free-text island na
 
 **Location / locality** is a separate, optional free-text field for a more specific place — `Windwardside`, `The Bottom`, `Fort Bay`, `Philipsburg`. It is shown on the venue card together with the island (for example `Windwardside, Saba` or `Philipsburg, Sint Maarten`) but never affects grouping or the Island filter. Leave it blank when the island alone is enough — the card then shows just the island label.
 
-> **Why two fields?** Locality text used to double as the island, which let values like `Philipsburg` or `Windwardside` accidentally become their own public island group. Older records were migrated so `locationName` holds only the locality; reads still understand the old combined format until every record is migrated, so nothing breaks in between.
+> **Why two fields?** Locality text used to double as the island, which let values like `Philipsburg` or `Windwardside` accidentally become their own public island group. Existing records now carry a separate canonical island and `locationName` holds only the locality; reads still understand the old combined format, so a stale record would not break the site.
 
 ## How locations appear on `/where-to-buy`
 

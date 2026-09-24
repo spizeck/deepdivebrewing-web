@@ -27,7 +27,7 @@ export interface Venue {
   locationName: string;
   // Canonical island key ("saba" | "sxm" | "statia"). Optional only because
   // legacy documents predate the field; reads fall back to parsing
-  // `locationName` until migration completes (see lib/venue-filters.ts).
+  // `locationName` for those records (see lib/venue-filters.ts).
   island?: VenueIsland;
   carriesBeerSlugs: string[];
   tapBeerSlugs?: string[];
