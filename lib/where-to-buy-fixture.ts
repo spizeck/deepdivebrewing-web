@@ -80,7 +80,9 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     canBeerSlugs: ["fort-bay-ipa"],
     isPublic: true,
     sortOrder: 2,
-    links: {},
+    links: {
+      website: "https://example.com/bottle-shop",
+    },
   },
   {
     name: "Fixture Harbor Bar",
@@ -99,11 +101,31 @@ export const WHERE_TO_BUY_FIXTURE_VENUES: Venue[] = [
     slug: "fixture-quiet-cafe",
     type: "bar_restaurant",
     locationName: "Windwardside / The Bottom, Saba",
-    carriesBeerSlugs: [],
-    tapBeerSlugs: [],
+    carriesBeerSlugs: ["saba-suds-pilsner"],
+    tapBeerSlugs: ["saba-suds-pilsner"],
     canBeerSlugs: [],
     isPublic: true,
     sortOrder: 4,
     links: {},
+  },
+  {
+    // Island Flavor-style regression venue (Issue #130): valid
+    // name/location/type and directions + social links, but no beer under
+    // either format. Must never render publicly — and as the only venue on
+    // Statia it must not create an island group or filter option either.
+    name: "Fixture Empty Cantina",
+    slug: "fixture-empty-cantina",
+    type: "bar_restaurant",
+    locationName: "Oranjestad, Statia",
+    carriesBeerSlugs: [],
+    tapBeerSlugs: [],
+    canBeerSlugs: [],
+    isPublic: true,
+    sortOrder: 5,
+    links: {
+      website: "https://example.com/empty-cantina",
+      maps: "https://maps.example.com/empty-cantina",
+      instagram: "https://instagram.com/emptycantina",
+    },
   },
 ];

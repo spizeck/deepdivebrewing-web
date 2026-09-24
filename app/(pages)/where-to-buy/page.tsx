@@ -4,7 +4,11 @@ import { getBeers } from "@/lib/beers";
 import { VenueDirectory } from "@/components/venue-directory";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { buildBreweryJsonLd } from "@/lib/brewery-json-ld";
-import { carriedBeerOptions, distinctIslands } from "@/lib/venue-filters";
+import {
+  carriedBeerOptions,
+  distinctIslands,
+  venueIsStocked,
+} from "@/lib/venue-filters";
 
 export const metadata: Metadata = {
   title: "Where to Buy",
@@ -46,7 +50,11 @@ export const metadata: Metadata = {
 };
 
 export default async function WhereToBuyPage() {
-  const [venues, beers] = await Promise.all([getVenues(), getBeers()]);
+  const [fetchedVenues, beers] = await Promise.all([getVenues(), getBeers()]);
+  // Exclude venues with no current On Tap / In Can beer before any grouping,
+  // option generation, or counting — a venue showing no inventory never
+  // renders publicly (Issue #130).
+  const venues = fetchedVenues.filter(venueIsStocked);
   const beerNameBySlug = Object.fromEntries(beers.map((beer) => [beer.slug, beer.name]));
   const beerOptions = carriedBeerOptions(venues, beers);
   const islands = distinctIslands(venues);

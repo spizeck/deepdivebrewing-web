@@ -13,6 +13,7 @@ import {
   sanitizeVenueFilters,
   venueCarriesBeer,
   venueFiltersToSearch,
+  venueIsStocked,
   venueOffersFormat,
   EMPTY_VENUE_FILTERS,
 } from "../../lib/venue-filters";
@@ -166,8 +167,10 @@ describe("filterVenues", () => {
   // Tavern:      Fort Bay, Saba — pilsner on tap + ipa in can
   // Bottle Shop: Windwardside, Saba — ipa in can
   // Harbor Bar:  SXM — pilsner + ipa on tap
-  // Quiet Cafe:  Windwardside / The Bottom, Saba — carries nothing
-  const venues = WHERE_TO_BUY_FIXTURE_VENUES;
+  // Quiet Cafe:  Windwardside / The Bottom, Saba — pilsner on tap
+  // (Empty Cantina — Statia, no beer — is excluded up front by
+  // venueIsStocked, mirroring the page layer; see the describe below.)
+  const venues = WHERE_TO_BUY_FIXTURE_VENUES.filter(venueIsStocked);
   const names = (list: Venue[]) => list.map((v) => v.slug);
 
   it("no filters returns all public venues in order", () => {
@@ -184,7 +187,7 @@ describe("filterVenues", () => {
       names(
         filterVenues(venues, { ...EMPTY_VENUE_FILTERS, beer: "saba-suds-pilsner" })
       ),
-      ["fixture-tavern", "fixture-harbor-bar"]
+      ["fixture-tavern", "fixture-harbor-bar", "fixture-quiet-cafe"]
     );
   });
 
@@ -217,7 +220,7 @@ describe("filterVenues", () => {
   it("format-only filtering checks any beer in that format", () => {
     assert.deepEqual(
       names(filterVenues(venues, { ...EMPTY_VENUE_FILTERS, format: "tap" })),
-      ["fixture-tavern", "fixture-harbor-bar"]
+      ["fixture-tavern", "fixture-harbor-bar", "fixture-quiet-cafe"]
     );
     assert.deepEqual(
       names(filterVenues(venues, { ...EMPTY_VENUE_FILTERS, format: "can" })),
@@ -250,7 +253,7 @@ describe("filterVenues", () => {
           island: "saba",
         })
       ),
-      ["fixture-tavern"]
+      ["fixture-tavern", "fixture-quiet-cafe"]
     );
     assert.deepEqual(
       names(
@@ -298,7 +301,8 @@ describe("distinctIslands / groupVenuesByIsland", () => {
   it("offers one saba option and one saba group for all Saba localities", () => {
     // Issue #116 regression: distinct "<locality>, Saba" locationNames
     // must not fragment into per-locality island options or headings.
-    const venues = WHERE_TO_BUY_FIXTURE_VENUES;
+    // Stocked filter mirrors the public page (Empty Cantina drops out).
+    const venues = WHERE_TO_BUY_FIXTURE_VENUES.filter(venueIsStocked);
     assert.deepEqual(distinctIslands(venues), ["saba", "sxm"]);
     const groups = groupVenuesByIsland(venues);
     assert.deepEqual(
@@ -345,6 +349,49 @@ describe("carriedBeerOptions", () => {
     assert.deepEqual(
       carriedBeerOptions(venues, beers).map((o) => o.slug),
       ["ipa"]
+    );
+  });
+});
+
+describe("venueIsStocked", () => {
+  it("is true for On Tap only, In Can only, and both", () => {
+    assert.equal(venueIsStocked(venue({ tapBeerSlugs: ["ipa"] })), true);
+    assert.equal(venueIsStocked(venue({ canBeerSlugs: ["ipa"] })), true);
+    assert.equal(
+      venueIsStocked(venue({ tapBeerSlugs: ["ipa"], canBeerSlugs: ["x"] })),
+      true
+    );
+  });
+
+  it("is false when neither format lists a beer", () => {
+    assert.equal(venueIsStocked(venue({})), false);
+    assert.equal(
+      venueIsStocked(venue({ tapBeerSlugs: [], canBeerSlugs: [] })),
+      false
+    );
+    // A beer recorded only under carriesBeerSlugs produces no visible
+    // On Tap / In Can line, so it does not count as stocked.
+    assert.equal(
+      venueIsStocked(venue({ carriesBeerSlugs: ["ipa"] })),
+      false
+    );
+  });
+
+  it("removes unstocked venues from islands, beer options, and counts", () => {
+    // Mirrors the page wiring: the stocked list feeds every downstream
+    // derivation, so the sole unstocked Statia venue contributes nothing.
+    const stocked = WHERE_TO_BUY_FIXTURE_VENUES.filter(venueIsStocked);
+    assert.equal(stocked.length, 4);
+    assert.deepEqual(distinctIslands(stocked), ["saba", "sxm"]);
+    assert.deepEqual(
+      groupVenuesByIsland(stocked).map((g) => g.key),
+      ["saba", "sxm"]
+    );
+    assert.deepEqual(
+      carriedBeerOptions(stocked, WHERE_TO_BUY_FIXTURE_BEERS).map(
+        (o) => o.slug
+      ),
+      ["saba-suds-pilsner", "fort-bay-ipa"]
     );
   });
 });

@@ -17,7 +17,7 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
   const island = venue.locationName ?? "Saba";
 
   return (
-    <div className="rounded-lg border border-stone bg-paper p-6">
+    <div className="flex h-full flex-col rounded-lg border border-stone bg-paper p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="font-semibold tracking-tight">{venue.name}</h3>
@@ -50,7 +50,7 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
       )}
 
       {(venue.links.website || venue.links.maps || venue.links.instagram || venue.links.facebook || venue.links.untappd) && (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-auto flex flex-wrap items-center gap-3 pt-4">
           {venue.links.maps && (
             <a
               href={venue.links.maps}
