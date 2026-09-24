@@ -4,7 +4,9 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
-const POSTER_SRC = "/photos/herograin.jpg";
+// Issue #135: the brewery still replaces the grain hero photo so the static
+// experience looks intentional instead of duplicating the hero above it.
+const POSTER_SRC = "/photos/video-still.jpg";
 const WEBM_SRC = "/videos/ddbwebvid.webm";
 const MP4_SRC = "/videos/ddbwebvid.mp4";
 
@@ -25,7 +27,7 @@ function useMediaQuery(query: string): boolean {
 export function HeroVideo() {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const isSmallScreen = useMediaQuery("(max-width: 768px)");
-  const [canPlay, setCanPlay] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [inView, setInView] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -53,12 +55,26 @@ export function HeroVideo() {
     if (!video || !inView || reducedMotion || isSmallScreen) return;
 
     // Load metadata first so the browser can decide codec, then play.
+    // play() itself initiates the fetch — no explicit load() needed.
     video.preload = "metadata";
-    void video.play().catch(() => {
-      // Autoplay may be blocked by browser policy; the poster remains visible.
+    void video.play().catch((err: unknown) => {
+      // Autoplay may be refused by browser policy (e.g. low-power mode);
+      // the still stays visible either way. Dev-only diagnostic keeps
+      // expected rejections (NotAllowedError) distinguishable from real
+      // decode/network failures without sending noise to monitoring.
+      if (process.env.NODE_ENV !== "production") {
+        console.info(
+          "[HeroVideo] play() rejected — static still remains.",
+          err instanceof DOMException ? err.name : err,
+          video.error?.code
+        );
+      }
     });
   }, [inView, reducedMotion, isSmallScreen]);
 
+  // Deliberate: small screens get only the still — a multi-megabyte
+  // decorative autoplay video is not worth the data/battery cost on
+  // phones, and the approved still is a complete design, not a fallback.
   const showStaticPoster = reducedMotion || isSmallScreen;
 
   return (
@@ -83,17 +99,33 @@ export function HeroVideo() {
         <video
           ref={videoRef}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
-            canPlay ? "opacity-100" : "opacity-0"
+            playing ? "opacity-100" : "opacity-0"
           }`}
           muted
           loop
           playsInline
           preload="none"
           aria-hidden="true"
-          onCanPlay={() => setCanPlay(true)}
+          // `playing` — not `canplay`: a refused play() still reaches
+          // canplay (the fetch proceeds), which would fade in a frozen
+          // first frame. Fading in on actual playback keeps the approved
+          // still up whenever the video is not genuinely playing.
+          onPlaying={() => setPlaying(true)}
         >
           <source src={WEBM_SRC} type="video/webm" />
-          <source src={MP4_SRC} type="video/mp4" />
+          {/* The error event on the last <source> means every candidate
+              failed — the still remains; log only in development. */}
+          <source
+            src={MP4_SRC}
+            type="video/mp4"
+            onError={() => {
+              if (process.env.NODE_ENV !== "production") {
+                console.info(
+                  "[HeroVideo] no playable source — static still remains."
+                );
+              }
+            }}
+          />
           Your browser does not support the video tag.
         </video>
       )}
