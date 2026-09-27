@@ -63,6 +63,9 @@
     "typescript": "^5"
   },
   "overrides": {
+    "jwks-rsa": {
+      "jose": "5.10.0"
+    },
     "@sentry/node-core": {
       "@opentelemetry/core": "^2.11.0"
     },

@@ -31,6 +31,29 @@ test("firebase-admin/auth loads through require() without ERR_REQUIRE_ESM", () =
   });
 });
 
+test("jwks-rsa resolves a require()-able jose build", () => {
+  // jwks-rsa is CommonJS and calls require("jose"); jose@6 ships no CJS
+  // build, which crashed this repo's Vercel Preview with ERR_REQUIRE_ESM
+  // (verified on PR #142 before the pin was added). The package.json
+  // override pins jwks-rsa's jose to 5.x — this guards that resolution.
+  const jwksRsaDir = require("path").dirname(
+    require.resolve("jwks-rsa/package.json"),
+  );
+  const joseEntry = require.resolve("jose", { paths: [jwksRsaDir] });
+  const josePkg = require(require.resolve("jose/package.json", {
+    paths: [jwksRsaDir],
+  })) as { version: string };
+
+  assert.ok(
+    Number(josePkg.version.split(".")[0]) < 6,
+    `jose@${josePkg.version} must be < 6 (6.x is ESM-only); resolved entry: ${joseEntry}`,
+  );
+  assert.doesNotThrow(
+    () => require(joseEntry),
+    `jwks-rsa's jose must be require()-able; resolved: ${joseEntry}`,
+  );
+});
+
 test("firebase-admin entrypoints import in plain Node", async () => {
   const app = await import("firebase-admin/app");
   assert.equal(typeof app.initializeApp, "function");
