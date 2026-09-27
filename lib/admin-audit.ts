@@ -1,5 +1,5 @@
 import "server-only";
-import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { dropUndefinedValues } from "@/lib/admin-audit-common";
 import type { AdminAuditRecord } from "@/lib/admin-types";
 import { Timestamp } from "firebase-admin/firestore";

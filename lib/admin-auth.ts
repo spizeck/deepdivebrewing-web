@@ -1,5 +1,5 @@
 import "server-only";
-import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
+import { getFirebaseAdminAuth } from "@/lib/firebase-admin-auth";
 import {
   getAdminClaims,
   getProtectedAdminEmail,

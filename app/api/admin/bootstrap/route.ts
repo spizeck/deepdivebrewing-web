@@ -4,7 +4,7 @@ import {
   getAdminClaims,
   normalizeEmail,
 } from "@/lib/admin-auth";
-import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
+import { getFirebaseAdminAuth } from "@/lib/firebase-admin-auth";
 import { logAdminAudit } from "@/lib/admin-audit";
 import { ensureAdminUser, updateAdminUser } from "@/lib/admin-users";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
