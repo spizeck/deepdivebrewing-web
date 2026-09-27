@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "check:admin-import": "node scripts/check-admin-import.mjs",
+    "test": "npm run check:admin-import && node --import tsx --test \"tests/**/*.test.ts\"",
     "test:rules": "firebase emulators:exec --only firestore,storage --project demo-deepdivebrewing-web \"node --import tsx --test rules-tests/*.test.ts\"",
     "test:smoke": "npm run build && playwright test",
     "check:md-links": "node scripts/check-md-links.mjs",
@@ -50,7 +51,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "^16.3.5",
-    "firebase-admin": "^13.10.0",
+    "firebase-admin": "^14.5.0",
     "firebase-tools": "15.30.2",
     "klaro": "0.7.21",
     "playwright": "^1.63.0",
@@ -62,6 +63,9 @@
     "typescript": "^5"
   },
   "overrides": {
+    "jwks-rsa": {
+      "jose": "5.10.0"
+    },
     "@sentry/node-core": {
       "@opentelemetry/core": "^2.11.0"
     },

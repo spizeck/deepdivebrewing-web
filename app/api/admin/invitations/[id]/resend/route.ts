@@ -14,7 +14,7 @@ import {
   recordInvitationEmailAttempt,
 } from "@/lib/admin-invitations";
 import { canResendInvitation } from "@/lib/admin-invitation-resend-policy";
-import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { serializeAdminInvitation } from "@/lib/admin-serializers";
 import {
   badRequestResponse,

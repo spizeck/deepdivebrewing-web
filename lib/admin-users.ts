@@ -1,5 +1,5 @@
 import "server-only";
-import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import {
   buildExistingAdminLoginUpdate,
   buildNewAdminUserRecord,

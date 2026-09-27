@@ -3,7 +3,7 @@ import {
   normalizeEmail,
   requireSuperAdminActor,
 } from "@/lib/admin-auth";
-import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
+import { getFirebaseAdminAuth } from "@/lib/firebase-admin-auth";
 import { logAdminAudit } from "@/lib/admin-audit";
 import {
   countActiveSuperAdmins,

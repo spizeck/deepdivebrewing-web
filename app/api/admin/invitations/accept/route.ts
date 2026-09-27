@@ -4,7 +4,8 @@ import {
   normalizeEmail,
   verifyAdminIdToken,
 } from "@/lib/admin-auth";
-import { getFirebaseAdminAuth, getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminAuth } from "@/lib/firebase-admin-auth";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { logAdminAudit } from "@/lib/admin-audit";
 import { getPendingInvitationByEmail } from "@/lib/admin-invitations";
 import { getAdminUser } from "@/lib/admin-users";

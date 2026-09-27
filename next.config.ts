@@ -41,6 +41,11 @@ const mediaCacheHeaders = [
 const nextConfig: NextConfig = {
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   poweredByHeader: false,
+  // Keep firebase-admin outside the server bundle: its auth graph pulls
+  // jwks-rsa -> jose, and bundling the Node-specific chain into a
+  // serverless chunk caused a Vercel runtime outage class (ERR_REQUIRE_ESM)
+  // in other projects. Load the real node_modules at runtime instead.
+  serverExternalPackages: ["firebase-admin"],
   images: {
     formats: ["image/avif", "image/webp"],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],

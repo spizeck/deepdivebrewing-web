@@ -1,5 +1,5 @@
 import "server-only";
-import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { normalizeEmail } from "@/lib/admin-common";
 import type { AdminInvitation, AdminRole } from "@/lib/admin-types";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";

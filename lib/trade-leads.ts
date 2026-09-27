@@ -1,6 +1,6 @@
 import "server-only";
 import { FieldValue } from "firebase-admin/firestore";
-import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { getResendClient } from "@/lib/resend";
 import { getDefaultFromEmail } from "@/lib/resend-config";
 import { logError, logInfo } from "@/lib/log";
