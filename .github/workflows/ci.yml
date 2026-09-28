@@ -9,6 +9,14 @@ on:
 permissions:
   contents: read
 
+# Change-aware CI. `Verify` is a single required check, so instead of
+# gating jobs this workflow classifies the PR diff up front and gates the
+# expensive STEP groups inside the job: emulator-based rules tests need
+# the JDK, browser smoke needs a Chromium install, and md-links only
+# matters when Markdown changes. Pushes to main always run everything.
+#
+# The classifier fails safe: an uncomputable diff or an unrecognized path
+# runs all step groups.
 jobs:
   verify:
     name: Verify
@@ -16,37 +24,158 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: scope
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -u
+          app=false
+          rules=false
+          e2e=false
+          md=false
+          files=""
+
+          run_all() {
+            app=true; rules=true; e2e=true
+          }
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            # Full run on main.
+            run_all
+            md=true
+          else
+            files="$(git diff --name-only "origin/${BASE_REF}...HEAD" 2>/dev/null)" || files=""
+            if [ -z "$files" ]; then
+              # A real PR always has a diff; empty means the diff failed.
+              # Fail safe toward full coverage, never toward skipping it.
+              echo "::warning::Could not compute PR diff — running all domains"
+              run_all
+            fi
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+
+              # Cheap validation for config-only changes that no longer
+              # get exercised indirectly by a heavy suite.
+              case "$f" in
+                *.json)
+                  node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$f" || exit 1
+                  ;;
+                .github/workflows/*.yml|.github/workflows/*.yaml)
+                  if python3 -c "import yaml" 2>/dev/null; then
+                    python3 -c "import sys, yaml; yaml.safe_load(open(sys.argv[1]))" "$f" || exit 1
+                  else
+                    echo "::warning::PyYAML unavailable; skipping workflow YAML validation for $f"
+                  fi
+                  ;;
+              esac
+
+              case "$f" in
+                # Markdown: worth its dedicated link check, nothing more.
+                *.md)
+                  md=true ;;
+
+                # CI config / metadata / editor config: no runtime impact.
+                .github/*|.vscode/*|docs/*|LICENSE|.env*|.gitignore|vercel.json)
+                  ;;
+
+                # Firebase security rules + emulator config: the emulator
+                # rules suite. The browser smoke suite does not start
+                # emulators, so rules changes are not E2E-relevant here.
+                firestore.rules|storage.rules|firestore.indexes.json|firebase.json|.firebaserc|rules-tests/*)
+                  rules=true ;;
+
+                # Browser smoke suite/config itself.
+                smoke-tests/*|playwright.config.ts)
+                  app=true; e2e=true ;;
+
+                # Unit-test-only changes exercise the node --test suite.
+                tests/*|*.test.ts)
+                  app=true ;;
+
+                # Application runtime — user-visible, build-relevant, and
+                # exercised by the smoke suite (which runs `next start` on
+                # the build output, so app implies a build too).
+                app/*|components/*|lib/*|public/*|content/*|types/*|next.config.ts|tsconfig.json|postcss.config.mjs|components.json|mdx-components.tsx|instrumentation.ts|instrumentation-client.ts|sentry.server.config.ts)
+                  app=true; e2e=true ;;
+
+                # Root dependencies / runtime pin: blast radius crosses
+                # every domain (app deps, firebase-tools, Playwright).
+                package.json|package-lock.json|.nvmrc)
+                  run_all ;;
+
+                # Lint config and ops scripts: app gate only.
+                eslint.config.mjs|scripts/*)
+                  app=true ;;
+
+                # Unknown change: run everything.
+                *)
+                  run_all ;;
+              esac
+            done <<< "$files"
+          fi
+
+          # `any` gates dependency install; `md` alone still needs the
+          # toolchain for the link checker.
+          any=$app
+          [ "$rules" = true ] && any=true
+          [ "$e2e" = true ] && any=true
+          [ "$md" = true ] && any=true
+
+          echo "Changed files:"
+          echo "$files"
+          echo "Domains: app=$app rules=$rules e2e=$e2e md=$md"
+          {
+            echo "app=$app"
+            echo "rules=$rules"
+            echo "e2e=$e2e"
+            echo "md=$md"
+            echo "any=$any"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
+        if: steps.scope.outputs.any == 'true'
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
+        if: steps.scope.outputs.any == 'true'
         run: npm ci
 
       - name: Check React versions
         # react/react-dom must declare the same version; Dependabot grouping
         # does not enforce this, so CI does.
+        if: steps.scope.outputs.app == 'true'
         run: npm run check:react-versions
 
       - name: TypeScript type check
+        if: steps.scope.outputs.app == 'true'
         run: npx tsc --noEmit
 
       - name: Lint
+        if: steps.scope.outputs.app == 'true'
         run: npm run lint
 
       - name: Test
+        if: steps.scope.outputs.app == 'true'
         run: npm test
 
       - name: Set up Java (Firebase emulators require JDK 21+)
+        if: steps.scope.outputs.rules == 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Security rules tests (Firestore/Storage emulators)
+        if: steps.scope.outputs.rules == 'true'
         run: npm run test:rules
 
       - name: Build
@@ -55,18 +184,21 @@ jobs:
         # prerendering see no project config via hasFirebaseConfig() and
         # return their empty fallbacks without touching Firebase — the
         # intended CI behavior.
+        if: steps.scope.outputs.app == 'true'
         run: npm run build
 
       - name: Install Playwright Chromium
+        if: steps.scope.outputs.e2e == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Browser smoke tests
         # Runs against the production build from the previous step — the
         # Playwright webServer starts `next start`, never rebuilds.
+        if: steps.scope.outputs.e2e == 'true'
         run: npx playwright test
 
       - name: Upload smoke-test artifacts
-        if: failure()
+        if: failure() && steps.scope.outputs.e2e == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: playwright-smoke-results
@@ -75,4 +207,5 @@ jobs:
           retention-days: 7
 
       - name: Check Markdown links
+        if: steps.scope.outputs.md == 'true' || steps.scope.outputs.app == 'true'
         run: npm run check:md-links
