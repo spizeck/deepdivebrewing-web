@@ -126,11 +126,12 @@ export function normalizePhoneNumber(
 }
 
 // `tel:` link. Prefers the canonical E.164 form; falls back to the raw
-// digits so an unparseable number still dials (the handler sorts it out).
+// digits so an unparseable number still dials (the handset sorts it out) —
+// numbers that don't normalize still deserve a call link.
 export function telHref(phone: NormalizedPhone): string | null {
   if (phone.e164) return `tel:${phone.e164}`;
-  if (phone.digits) return `tel:+${phone.digits}`;
-  return null;
+  const raw = phone.display.replace(/[^\d]/g, "");
+  return raw.length >= 3 ? `tel:${raw}` : null;
 }
 
 // `wa.me` deep link. wa.me requires the full international number, so this

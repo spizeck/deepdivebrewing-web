@@ -640,10 +640,7 @@ export async function applyDeliveryEvent(
     .get();
   if (snap.empty) return "unknown_message";
 
-  const doc = snap.docs[0]!;
-  const current = doc.data().deliveryState;
-  if (!shouldAdvanceDeliveryState(current, state)) return "ignored";
-
+  const ref = snap.docs[0]!.ref;
   const updates: Record<string, unknown> = {
     deliveryState: state,
     deliveryStateAt: FieldValue.serverTimestamp(),
@@ -657,6 +654,16 @@ export async function applyDeliveryEvent(
     (typeof failed?.reason === "string" && failed.reason) ||
     undefined;
   if (detail) updates.deliveryDetails = detail.slice(0, 300);
-  await doc.ref.update(updates);
-  return "updated";
+
+  // Rank check + write in one transaction: concurrent provider events
+  // (delivered vs bounced arriving together) cannot regress the stored
+  // state — the loser re-reads inside the transaction and is ignored.
+  return db.runTransaction(async (tx) => {
+    const fresh = await tx.get(ref);
+    if (!shouldAdvanceDeliveryState(fresh.data()?.deliveryState, state)) {
+      return "ignored";
+    }
+    tx.update(ref, updates);
+    return "updated";
+  });
 }

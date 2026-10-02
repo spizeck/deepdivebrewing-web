@@ -357,7 +357,9 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
       setNoteDraft("");
       setOutcomeDraft("");
       try {
-        const data = await apiFetch(`/api/admin/trade-leads/${id}`);
+        const data = await apiFetch(
+          `/api/admin/trade-leads/${encodeURIComponent(id)}`
+        );
         const next = {
           lead: data.lead as TradeLeadView,
           activities: (data.activities as TradeLeadActivityView[]) ?? [],
@@ -407,7 +409,9 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
     if (deepLinkHandled.current) return;
     deepLinkHandled.current = true;
     const id = new URLSearchParams(window.location.search).get("lead");
-    if (id) void openLead(id);
+    // Only id-shaped values are followed — a crafted ?lead=../x must not
+    // steer the fetch onto another admin route.
+    if (id && /^[A-Za-z0-9_-]{1,128}$/.test(id)) void openLead(id);
   }, [openLead]);
 
   // Applies the fresh lead + activities a mutation response returns. The

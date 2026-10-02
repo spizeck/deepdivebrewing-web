@@ -101,7 +101,7 @@ Phone/WhatsApp values are normalized on save (and on read for older records): re
 
 The **Email** section in the lead workspace sends email directly from the app — no need to open your own mail client:
 
-1. Click **Email this lead**, write a subject and message, and send. The message goes to the lead's contact address from `trade@mail.deepdivebrewing.com` (configurable via `TRADE_FROM_EMAIL`).
+1. Click **Email this lead**, write a subject and message, and send. The message goes to the lead's contact address from the configured sender — `TRADE_FROM_EMAIL`, else `RESEND_FROM_EMAIL`, else `trade@mail.deepdivebrewing.com`.
 2. The sent email appears in the lead's **History** with a delivery badge (Sent → Delivered, or Delayed/Bounced/Failed if the provider reports a problem).
 3. When the customer replies, the reply lands back in the same history automatically — app-sent email sets its `Reply-To` to the lead's unique inbound address, and inbound webhooks attach the reply to the lead.
 4. On an inbound email in the history, **Reply** opens the composer with the subject and threading headers prefilled so the conversation stays in one thread.
@@ -181,7 +181,7 @@ Email is powered by Resend with three pieces of configuration:
 
 | Variable | Purpose |
 |---|---|
-| `TRADE_FROM_EMAIL` | Sender for customer-facing lead email. Optional — defaults to `trade@mail.deepdivebrewing.com` on the verified sending domain. |
+| `TRADE_FROM_EMAIL` | Sender for customer-facing lead email. Optional — falls back to `RESEND_FROM_EMAIL`, then `trade@mail.deepdivebrewing.com` on the verified sending domain. |
 | `TRADE_REPLY_DOMAIN` | Domain for per-lead inbound addresses (`<token>@<domain>`). Defaults to `reply.deepdivebrewing.com`. |
 | `RESEND_WEBHOOK_SECRET` | Signing secret (`whsec_…`) for `POST /api/webhooks/resend`. Required for inbound replies and delivery callbacks; the endpoint refuses all events without it. |
 | `TRADE_NOTIFICATION_EMAIL` | Staff mailbox for new-inquiry alerts and replies on unassigned leads. Falls back to legacy `TRADE_INQUIRY_TO_EMAIL`. |

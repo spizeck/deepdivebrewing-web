@@ -115,7 +115,15 @@ describe("telHref", () => {
     assert.strictEqual(telHref(phone), "tel:+5994163544");
   });
 
-  it("returns null for unparseable input — no guessed tel target", () => {
+  it("dials raw digits when the number cannot be confidently normalized", () => {
+    // Unparsed input still deserves a call link — the handset sorts it
+    // out. WhatsApp stays stricter (no guessed wa.me URL).
+    const phone = normalizePhoneNumber("44 20 7946 0958");
+    assert.strictEqual(phone.e164, null);
+    assert.strictEqual(telHref(phone), "tel:442079460958");
+  });
+
+  it("returns null when there are no usable digits to dial", () => {
     const phone = normalizePhoneNumber("call the office");
     assert.strictEqual(telHref(phone), null);
   });

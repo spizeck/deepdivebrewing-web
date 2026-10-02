@@ -753,7 +753,7 @@ Names only — never commit values. Source of truth for names:
 | `RESEND_EMAIL_DOMAIN` | Injected by the Vercel Resend integration | **Not consumed** — explicit sender addresses are used instead |
 | `TRADE_NOTIFICATION_EMAIL` | Staff mailbox: new trade inquiry alerts + customer-reply alerts on unassigned leads | Runtime only — falls back to `TRADE_INQUIRY_TO_EMAIL`; if neither is set the lead still persists and `trade_inquiry.notification_failed` is logged |
 | `TRADE_INQUIRY_TO_EMAIL` | Legacy name for `TRADE_NOTIFICATION_EMAIL` | Deprecated fallback — kept so un-migrated deployments keep notifying |
-| `TRADE_FROM_EMAIL` | Sender for customer-facing lead email | Optional — defaults to `trade@mail.deepdivebrewing.com` on the verified sending domain, then `RESEND_FROM_EMAIL` |
+| `TRADE_FROM_EMAIL` | Sender for customer-facing lead email | Optional — falls back to `RESEND_FROM_EMAIL`, then `trade@mail.deepdivebrewing.com` on the verified sending domain |
 | `TRADE_REPLY_DOMAIN` | Inbound domain for per-lead reply/attach addresses (`<token>@<domain>`) | Optional — defaults to `reply.deepdivebrewing.com`; requires Resend inbound (MX) configuration |
 | `RESEND_WEBHOOK_SECRET` | svix signing secret (`whsec_…`) for `POST /api/webhooks/resend` | Required for inbound email + delivery callbacks — the endpoint refuses events when unset |
 | `RESEND_FROM_EMAIL` | Shared default sender (trade emails; fallback for invites) | Optional — defaults to `Deep Dive Brewing <noreply@mail.deepdivebrewing.com>` (`DEFAULT_RESEND_FROM_EMAIL` in `lib/resend-config.ts`, on the verified sending domain) |
