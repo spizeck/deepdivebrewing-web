@@ -850,15 +850,19 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                         className="rounded-md border border-ink/50 px-2.5 py-1.5 text-sm"
                         value={followUpDraft}
                         disabled={saving !== null}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setFollowUpDraft(value);
-                          // A complete picked date is explicit intent — the
-                          // same save-on-select pattern as the status/owner
-                          // selects. An emptied field does NOT clear; clearing
-                          // stays explicit via the Clear button.
-                          const iso = dateInputToIso(value);
-                          if (iso) {
+                        onChange={(e) => setFollowUpDraft(e.target.value)}
+                        // Save on blur, not per keystroke: date inputs emit a
+                        // change event per segment while typing (year "2026"
+                        // passes through "0202", a valid-but-wrong date). An
+                        // emptied field does NOT clear; clearing stays
+                        // explicit via the Clear button.
+                        onBlur={(e) => {
+                          const iso = dateInputToIso(e.target.value);
+                          if (
+                            iso &&
+                            e.target.value !==
+                              dateToLocalDateInput(detail.lead.nextFollowUpAt)
+                          ) {
                             void patchLead({ nextFollowUpAt: iso }, "followup");
                           }
                         }}
