@@ -99,7 +99,7 @@ export function tradeLeadRetentionStatus(
 }
 
 // Accepts Date, firebase-admin Timestamp (toMillis), or a { seconds } shape.
-function timestampMillis(value: unknown): number | null {
+export function timestampMillis(value: unknown): number | null {
   if (value == null) return null;
   if (value instanceof Date) {
     const t = value.getTime();

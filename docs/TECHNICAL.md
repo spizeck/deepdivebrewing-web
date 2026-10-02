@@ -53,7 +53,8 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   `terms`, `trade`, `sitemap`) are async server components; the data-driven
   ones await Firestore reads during rendering.
 - **Client components** are used where interactivity or browser state is
-  required: `admin-dashboard.tsx`, `admin-access.tsx`, `trade-inquiry-form.tsx`,
+  required: `admin-dashboard.tsx`, `admin-access.tsx`, `admin-trade-*.tsx`,
+  `trade-inquiry-form.tsx`,
   `beer-carousel.tsx`, `beers-filter-grid.tsx`, the analytics trackers,
   `mobile-menu.tsx`, `site-header-default.tsx`, and the home-page intro/CTA
   components.
@@ -120,10 +121,10 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | --- | --- |
 | `app/` | App Router routes. Root `layout.tsx` (header/footer shell, SEO defaults, favicon metadata pointing at `public/`, analytics wiring), `globals.css` (Tailwind v4 theme tokens), `robots.ts`, `sitemap.ts`, `page.tsx` (home). |
 | `app/(pages)/` | Route group for all content pages — `about` (MDX), `admin`, `beers` (+`[slug]`), `contact`, `privacy`, `terms`, `trade` (+ `login`/`order`/`orders` "coming soon" placeholders), `where-to-buy` — sharing a `SiteHeaderDefault` layout. Pages are `.tsx`; `about` is authored as `page.mdx` — see §4. |
-| `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry`. |
-| `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx` (auth + data orchestration), `admin-workspace.tsx` (props-driven authenticated view shared with `/admin-fixture`), `admin-access.tsx`, `admin-fixture.tsx` (test-only data), `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
+| `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), `admin/trade-leads` (GET list + POST create), `admin/trade-leads/[id]` (GET + PATCH), `admin/trade-leads/[id]/activities` (POST note), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry`. |
+| `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx` (auth + data orchestration), `admin-workspace.tsx` (props-driven authenticated view shared with `/admin-fixture`), `admin-access.tsx`, `admin-fixture.tsx` (test-only data), `admin-trade-page.tsx`/`admin-trade-workspace.tsx`/`admin-trade-summary.tsx`/`admin-trade-fixture.tsx` (lead pipeline + test fixture), `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |
-| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `email.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
+| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `email.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers, `trade-leads-admin-common.ts`. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`, `trade-leads-admin.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
 | `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
 | `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `prune-trade-leads.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics and data scripts do not (CI browser coverage lives in `smoke-tests/`). |
@@ -221,19 +222,32 @@ in code are listed.
   — the system of record (owner decision, #57); the Resend email is only a
   notification.
 - **Fields:** `businessName`, `contactName`, `email`, `phoneOrWhatsapp`,
-  `venueType`, `message`, `status` (`"new"` on create), `source`
-  (`"trade_form"`), `createdAt`/`updatedAt` (server timestamps).
+  `venueType`, `message`, `status` (`new | contacted | follow_up | customer |
+  closed`; `"new"` on create), `source` (`"trade_form"` for the public form;
+  manual leads use `whatsapp | phone | in_person | referral | event | email |
+  other`), pipeline fields `assignedToUid`/`assignedToName`, `nextFollowUpAt`,
+  `closedAt`, `outcome`, and `createdAt`/`updatedAt`/`lastActivityAt`
+  timestamps. History lives in a `tradeLeads/{id}/activities` subcollection —
+  append-only entries (`type`, `seq`, `authorUid`/`authorName`, `body`,
+  `details`, `createdAt`); a reserved `communication` type with a channel-
+  agnostic payload scaffolds future outbound messaging.
 - **Writes:** server-only — `persistTradeLead()` in `lib/trade-leads.ts` via
-  the Admin SDK from `POST /api/trade-inquiry`.
-- **Visibility:** **no client access at all** — `read, write: if false`.
-  Leads are PII; operators view them via the Firebase console (an admin UI
-  would be a separate feature).
+  the Admin SDK from `POST /api/trade-inquiry` (writes a `lead_created`
+  activity), plus the `/api/admin/trade-leads*` routes (`lib/
+  trade-leads-admin.ts`) for the pipeline's list/detail/patch/create/note
+  operations.
+- **Visibility:** **no client access at all** — `read, write: if false` on
+  both `tradeLeads/{leadId}` and the nested `activities/{activityId}` match.
+  Leads are PII; admins work them in the `/admin/trade` pipeline, which reads
+  through authenticated API routes only.
 - **Retention (#59):** up to 24 months after the last meaningful activity —
-  anchored on `updatedAt` (currently always equal to `createdAt` since
-  nothing modifies leads) — unless a legitimate business/legal/accounting/
-  dispute/security reason requires longer; earlier deletion when no longer
-  needed. Pruning is manual via `npm run prune:trade-leads` (dry-run by
-  default; `--delete` executes). No automated deletion exists.
+  anchored on `updatedAt`, which advances on notes, status, owner, and
+  follow-up mutations but **not** on reads — unless a legitimate business/
+  legal/accounting/dispute/security reason requires longer; earlier deletion
+  when no longer needed. Pruning is manual via `npm run prune:trade-leads`
+  (dry-run by default; `--delete` executes and removes each lead's
+  `activities` subcollection — Firestore deletes do not cascade). No
+  automated deletion exists.
 
 ### `adminUsers`
 
@@ -316,8 +330,9 @@ API routes (with rollback on partial failure — see §7/§8).
   `isPublic == true` and admin-writable; `meta` is admin-only; `adminUsers`,
   `adminInvitations`, and `adminAuditLogs` are superadmin-only in rules
   (audit logs additionally immutable — `update, delete: if false`); in practice
-  only Admin SDK server code touches admin collections; `tradeLeads` denies
-  all client access — leads are written server-side only. A catch-all rule
+  only Admin SDK server code touches admin collections; `tradeLeads` and its
+  `activities` subcollection deny all client access — leads are written
+  server-side only. A catch-all rule
   denies everything else.
 - **Storage:** `storage.rules` allows public reads and active-admin writes
   (`hasActiveAdmin`); images are stored under the `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
@@ -534,7 +549,9 @@ notification.** (Owner decision, #57.)
      across serverless instances.
 3. **Persistence:** `persistTradeLead()` writes the inquiry to `tradeLeads`
    via the Admin SDK (`buildTradeLeadRecord()` in
-   `lib/trade-leads-common.ts` shapes the document). Orchestration lives in
+   `lib/trade-leads-common.ts` shapes the document), along with a
+   `lead_created` entry in the lead's `activities` subcollection.
+   Orchestration lives in
    `processTradeInquiry()` — injectable and unit-tested. Only validated form
    fields plus `status`, `source`, and server timestamps are stored — never
    IPs, headers, honeypot values, or analytics identifiers.
@@ -557,6 +574,28 @@ notification.** (Owner decision, #57.)
    console since rules deny all client access — and transits to Resend and
    the configured inbox. Spam controls are the honeypot plus the per-instance
    IP rate limit — no captcha. The route is unauthenticated by design.
+
+### Admin pipeline (`/admin/trade`, issue #150)
+
+The `tradeLeads` store is worked through an authenticated pipeline:
+
+- `GET /api/admin/trade-leads` returns all leads plus the active-admin
+  directory; `POST` creates a manual lead (source is explicit and never
+  `trade_form`). `GET/PATCH /api/admin/trade-leads/[id]` return/update one
+  lead with its activity timeline; `POST .../activities` appends a note.
+  Every route calls `requireAdminActor()`; mutations re-read the lead inside
+  a transaction and write lead + `activities` atomically so a failed update
+  never leaves a dangling history entry.
+- The UI (`components/admin-trade-workspace.tsx` behind
+  `components/admin-trade-page.tsx`, routed at `app/(pages)/admin/trade`)
+  holds the list + detail in one client surface, with filters (status,
+  owner, business type, follow-up state, text search) applied **in memory**
+  over the single list fetch — expected volume is low, so no Firestore
+  composite indexes were added (`firestore.indexes.json` stays empty).
+- Status/owner/follow-up changes are validated by `buildLeadUpdate()` in
+  `lib/trade-leads-admin-common.ts`, which produces both the document patch
+  and the matching timeline entries. Reads never write, so viewing a lead
+  does not extend its retention.
 
 ## 12. Analytics and observability
 
@@ -687,19 +726,23 @@ placeholder values exist anywhere in CI.
   `node --test "tests/**/*.test.ts"`). The glob requires Node ≥ 21 — satisfied
   by the repository's Node 24 runtime (on Node 20 the pattern silently matched
   zero files, which is why the runtime was normalized).
-- **Coverage (104 tests, all in `tests/`):** admin auth/claim parsing
+- **Coverage (`tests/`):** admin auth/claim parsing
   (`admin-auth`), admin-users record building/serialization, invitation
   policy/email/resend/cooldown logic, audit helpers, `admin-policy` mutation
-  guards and the `checkAdminActorRecord` active-record policy,
+  guards and the `checkAdminActorRecord` active-record policy, the trade-lead
+  pipeline domain (`trade-leads-admin`: status model, follow-up
+  classification, update planning, manual-lead validation, serializers,
+  route-auth wiring),
   service-initialization config (`resend-config` key validation and sender
   selection, `lib/firebase.ts` import-time laziness/first-use caching), and
   **rules-content tests** that read `firestore.rules` and `storage.rules` as
   text and assert required patterns.
-- **Emulator rules tests (`rules-tests/`, 27 tests):** `npm run test:rules`
+- **Emulator rules tests (`rules-tests/`):** `npm run test:rules`
   wraps `firebase emulators:exec --only firestore,storage` and evaluates the
   real rules via `@firebase/rules-unit-testing` — active/disabled/missing
   `adminUsers` records, role mismatches in both directions, unauthenticated
-  and non-admin callers, public reads, the `tradeLeads` schema, superadmin
+  and non-admin callers, public reads, the `tradeLeads` schema and its
+  `activities` subcollection deny-all, superadmin
   collections, audit immutability, and the Storage cross-service lookup. Each
   test file uses its own `demo-*` project so parallel `node:test` files never
   share emulator state. (`firebase-tools` and `@firebase/rules-unit-testing`

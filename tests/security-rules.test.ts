@@ -74,6 +74,22 @@ describe("firestore.rules", () => {
       "Expected the venue island allowlist on writes"
     );
   });
+
+  it("keeps tradeLeads and its activities subcollection fully server-side (Issue #150)", () => {
+    assert.ok(
+      rules.includes("match /tradeLeads/{leadId}"),
+      "Expected the tradeLeads deny-all match"
+    );
+    assert.ok(
+      rules.includes("match /activities/{activityId}"),
+      "Expected the nested tradeLeads activities deny-all match"
+    );
+    const leadSection = rules.slice(rules.indexOf("match /tradeLeads/{leadId}"));
+    assert.ok(
+      leadSection.includes("allow read, write: if false"),
+      "Expected tradeLeads to deny all client access"
+    );
+  });
 });
 
 describe("storage.rules", () => {

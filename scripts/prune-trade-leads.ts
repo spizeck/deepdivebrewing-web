@@ -24,6 +24,7 @@ import {
   TRADE_LEADS_COLLECTION,
   TRADE_LEAD_RETENTION_MONTHS,
 } from "@/lib/trade-leads-common";
+import { TRADE_LEAD_ACTIVITIES_SUBCOLLECTION } from "@/lib/trade-leads-admin-common";
 
 const DELETE = process.argv.includes("--delete");
 
@@ -98,7 +99,9 @@ async function main() {
   }
 
   // Re-verify each document inside a transaction before deleting so a lead
-  // updated between scan and delete (new activity extends retention) is kept.
+  // updated between scan and delete (new activity extends retention) is
+  // kept. Deleting a document does not cascade to subcollections, so the
+  // lead's activity history is removed explicitly — no orphaned records.
   const collection = db.collection(TRADE_LEADS_COLLECTION);
   let deleted = 0;
   for (const id of expired) {
@@ -110,6 +113,12 @@ async function main() {
         tradeLeadRetentionStatus(fresh.data() ?? {}, cutoff) !== "expired"
       ) {
         return false;
+      }
+      const activities = await tx.get(
+        ref.collection(TRADE_LEAD_ACTIVITIES_SUBCOLLECTION)
+      );
+      for (const activity of activities.docs) {
+        tx.delete(activity.ref);
       }
       tx.delete(ref);
       return true;

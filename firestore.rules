@@ -60,11 +60,19 @@ service cloud.firestore {
       allow delete: if hasActiveAdmin();
     }
 
-    // Trade inquiries are PII and are written exclusively server-side by
-    // /api/trade-inquiry via the Admin SDK, which bypasses these rules.
-    // No client may read or write this collection.
+    // Trade inquiries are PII and are written exclusively server-side —
+    // /api/trade-inquiry creates them and the /api/admin/trade-leads routes
+    // serve the admin pipeline (#150), all via the Admin SDK, which bypasses
+    // these rules. No client may read or write this collection.
     match /tradeLeads/{leadId} {
       allow read, write: if false;
+
+      // Per-lead activity history (notes, status/owner/follow-up changes).
+      // The catch-all rule would already deny this; the explicit nested
+      // match documents that the subcollection is part of the PII boundary.
+      match /activities/{activityId} {
+        allow read, write: if false;
+      }
     }
 
     match /meta/{docId} {
