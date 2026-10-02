@@ -6,6 +6,7 @@ import {
   buildLeadUpdate,
   classifyFollowUp,
   DELETE_FIELD,
+  followUpDayDelta,
   describeTradeLeadActivity,
   isManualLeadSource,
   isTerminalLeadStatus,
@@ -102,6 +103,35 @@ describe("classifyFollowUp", () => {
     const past = followUpIso(2026, 9, 1);
     assert.strictEqual(classifyFollowUp(past, "customer", TODAY), "none");
     assert.strictEqual(classifyFollowUp(past, "closed", TODAY), "none");
+  });
+});
+
+describe("followUpDayDelta", () => {
+  const followUpIso = (year: number, month: number, day: number) =>
+    new Date(year, month - 1, day).toISOString();
+
+  it("returns signed calendar-day deltas", () => {
+    assert.strictEqual(
+      followUpDayDelta(followUpIso(2026, 9, 30), "contacted", TODAY),
+      -2
+    );
+    assert.strictEqual(
+      followUpDayDelta(followUpIso(2026, 10, 2), "contacted", TODAY),
+      0
+    );
+    assert.strictEqual(
+      followUpDayDelta(followUpIso(2026, 10, 5), "contacted", TODAY),
+      3
+    );
+  });
+
+  it("returns null when there is no active follow-up", () => {
+    assert.strictEqual(followUpDayDelta(undefined, "new", TODAY), null);
+    assert.strictEqual(followUpDayDelta("junk", "new", TODAY), null);
+    assert.strictEqual(
+      followUpDayDelta(followUpIso(2026, 9, 1), "closed", TODAY),
+      null
+    );
   });
 });
 
