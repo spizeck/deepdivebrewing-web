@@ -2,6 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  ArrowLeft,
+  ArrowRightLeft,
+  CalendarClock,
+  Flag,
+  Mail,
+  MessageSquare,
+  Phone,
+  Sparkles,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +28,7 @@ import { TRADE_VENUE_TYPES } from "@/lib/trade-leads-common";
 import {
   classifyFollowUp,
   describeTradeLeadActivity,
+  followUpDayDelta,
   MANUAL_LEAD_SOURCES,
   TRADE_LEAD_STATUSES,
   tradeLeadSourceLabel,
@@ -31,6 +44,12 @@ import {
 // Input/select borders use ink at 50% so every form control boundary is
 // visible against the paper background (WCAG 1.4.11 non-text contrast).
 const fieldClass = "w-full rounded-md border border-ink/50 px-3 py-2";
+// Denser variant for the left-rail filters.
+const filterFieldClass =
+  "w-full rounded-md border border-ink/50 px-2.5 py-1.5 text-sm";
+// Small uppercase labels group read-only context vs. editable controls.
+const sectionLabelClass =
+  "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
 type StatusFilter = "all" | TradeLeadStatus;
 type FollowUpFilter = "all" | FollowUpState;
@@ -104,17 +123,27 @@ function StatusBadge({ status }: { status: TradeLeadStatus }) {
   );
 }
 
-function FollowUpBadge({ lead }: { lead: TradeLeadView }) {
-  const state = classifyFollowUp(lead.nextFollowUpAt, lead.status);
-  if (state === "none") return null;
-  if (state === "overdue") {
+function FollowUpBadge({
+  lead,
+  showEmpty = false,
+}: {
+  lead: TradeLeadView;
+  showEmpty?: boolean;
+}) {
+  const delta = followUpDayDelta(lead.nextFollowUpAt, lead.status);
+  if (delta === null) {
+    return showEmpty ? (
+      <span className="text-xs text-muted-foreground">No follow-up</span>
+    ) : null;
+  }
+  if (delta < 0) {
     return (
       <Badge variant="outline" className="border-ember/40 bg-ember/10 text-ember">
-        Overdue · {formatAdminDate(lead.nextFollowUpAt)}
+        {delta === -1 ? "Overdue" : `Overdue by ${-delta} days`}
       </Badge>
     );
   }
-  if (state === "due_today") {
+  if (delta === 0) {
     return (
       <Badge
         variant="outline"
@@ -125,9 +154,30 @@ function FollowUpBadge({ lead }: { lead: TradeLeadView }) {
     );
   }
   return (
-    <Badge variant="outline">{formatAdminDate(lead.nextFollowUpAt)}</Badge>
+    <Badge variant="outline">Due {formatAdminDate(lead.nextFollowUpAt)}</Badge>
   );
 }
+
+// Timeline type → icon + tint. Restrained accents: notes read as the
+// human-authored entries, system entries stay muted.
+const ACTIVITY_ICON: Record<
+  string,
+  { icon: LucideIcon; className: string }
+> = {
+  note: { icon: MessageSquare, className: "text-ocean" },
+  lead_created: { icon: Sparkles, className: "text-moss" },
+  status_changed: { icon: ArrowRightLeft, className: "text-ink" },
+  owner_changed: { icon: UserRound, className: "text-ocean" },
+  follow_up_set: { icon: CalendarClock, className: "text-amber-700" },
+  follow_up_changed: { icon: CalendarClock, className: "text-amber-700" },
+  follow_up_cleared: { icon: CalendarClock, className: "text-amber-700" },
+  outcome_changed: { icon: Flag, className: "text-moss" },
+  communication: { icon: Mail, className: "text-muted-foreground" },
+};
+const DEFAULT_ACTIVITY_ICON = {
+  icon: MessageSquare,
+  className: "text-muted-foreground",
+};
 
 // wa.me accepts digits only; strip formatting from whatever was submitted.
 function whatsappDigits(phone: string): string {
@@ -246,6 +296,14 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
     },
     [apiFetch]
   );
+
+  // Clears the selection (mobile "back to list" and any future deselect).
+  function closeLead() {
+    selectedIdRef.current = null;
+    setSelectedId(null);
+    setDetail(null);
+    setDetailLoading(false);
+  }
 
   // Applies the fresh lead + activities a mutation response returns. The
   // list always updates; the detail panel only updates when the mutated
@@ -430,54 +488,58 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
   const waDigits = detail ? whatsappDigits(detail.lead.phoneOrWhatsapp) : "";
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-stone bg-paper p-6">
+    <div className="space-y-4">
+      <div className="rounded-lg border border-stone bg-paper px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Trade Leads</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h1 className="text-xl font-bold tracking-tight">Trade Leads</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               <Link href="/admin" className="text-ocean hover:underline">
                 Admin dashboard
               </Link>{" "}
               → Trade leads
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {!loading && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {counts.fresh} new · {counts.dueToday} due today ·{" "}
                 {counts.overdue} overdue
               </p>
             )}
-            <Button onClick={() => setNewLeadOpen(true)}>New lead</Button>
+            <Button size="sm" onClick={() => setNewLeadOpen(true)}>New lead</Button>
           </div>
         </div>
         {statusMessage && (
           <p
             role="status"
-            className={`mt-3 text-sm ${statusIsError ? "text-ember" : "text-ocean"}`}
+            className={`mt-2 text-sm ${statusIsError ? "text-ember" : "text-ocean"}`}
           >
             {statusMessage}
           </p>
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-        <div className="rounded-lg border border-stone bg-paper p-4">
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div
+          className={`rounded-lg border border-stone bg-paper p-3 ${
+            selectedId ? "hidden lg:block" : ""
+          }`}
+        >
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Search</span>
+            <label className="text-xs">
+              <span className="mb-0.5 block font-medium">Search</span>
               <input
-                className={fieldClass}
+                className={filterFieldClass}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Business or contact"
               />
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Status</span>
+            <label className="text-xs">
+              <span className="mb-0.5 block font-medium">Status</span>
               <select
-                className={fieldClass}
+                className={filterFieldClass}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
               >
@@ -489,10 +551,10 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 ))}
               </select>
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Owner</span>
+            <label className="text-xs">
+              <span className="mb-0.5 block font-medium">Owner</span>
               <select
-                className={fieldClass}
+                className={filterFieldClass}
                 value={ownerFilter}
                 onChange={(e) => setOwnerFilter(e.target.value)}
               >
@@ -505,10 +567,10 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 ))}
               </select>
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Business type</span>
+            <label className="text-xs">
+              <span className="mb-0.5 block font-medium">Business type</span>
               <select
-                className={fieldClass}
+                className={filterFieldClass}
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
               >
@@ -520,10 +582,10 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 ))}
               </select>
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Follow-up</span>
+            <label className="text-xs">
+              <span className="mb-0.5 block font-medium">Follow-up</span>
               <select
-                className={fieldClass}
+                className={filterFieldClass}
                 value={followUpFilter}
                 onChange={(e) => setFollowUpFilter(e.target.value as FollowUpFilter)}
               >
@@ -534,10 +596,10 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 <option value="none">None scheduled</option>
               </select>
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Sort</span>
+            <label className="text-xs">
+              <span className="mb-0.5 block font-medium">Sort</span>
               <select
-                className={fieldClass}
+                className={filterFieldClass}
                 value={sortMode}
                 onChange={(e) => setSortMode(e.target.value as SortMode)}
               >
@@ -549,47 +611,50 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
           </div>
 
           {loading ? (
-            <p role="status" className="mt-4 text-sm text-muted-foreground">
+            <p role="status" className="mt-3 text-sm text-muted-foreground">
               Loading leads...
             </p>
           ) : leads.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-foreground">
+            <p className="mt-3 text-sm text-muted-foreground">
               No trade leads yet. New website inquiries appear here
               automatically; use New lead to record one by hand.
             </p>
           ) : filtered.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-foreground">
+            <p className="mt-3 text-sm text-muted-foreground">
               No leads match the current filters.
             </p>
           ) : (
-            <ul className="mt-4 space-y-1">
+            <ul className="mt-3 space-y-1.5">
               {filtered.map((lead) => (
                 <li key={lead.id}>
                   <button
                     type="button"
                     aria-current={selectedId === lead.id}
                     onClick={() => void openLead(lead.id)}
-                    className={`w-full rounded-md px-2 py-2 text-left text-sm ${
-                      selectedId === lead.id ? "bg-stone/40" : "hover:bg-stone/20"
+                    className={`w-full rounded-md border px-2.5 py-2 text-left text-sm ${
+                      selectedId === lead.id
+                        ? "border-ocean/60 bg-ocean/[0.07]"
+                        : "border-transparent hover:border-stone hover:bg-stone/25"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">
+                      <span className="min-w-0 truncate font-medium">
                         {lead.businessName}
                       </span>
                       <StatusBadge status={lead.status} />
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {lead.contactName || "—"} · {tradeVenueTypeLabel(lead.venueType)}
-                      {" · "}
-                      {lead.assignedToName ?? "Unassigned"}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Owner: {lead.assignedToName ?? "Unassigned"}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       <FollowUpBadge lead={lead} />
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      Last activity {formatAdminDate(leadLastActivityIso(lead))} ·
-                      Created {formatAdminDate(lead.createdAt)}
+                      Active {formatAdminDate(leadLastActivityIso(lead))} ·
+                      Added {formatAdminDate(lead.createdAt)}
                     </p>
                   </button>
                 </li>
@@ -598,23 +663,40 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
           )}
         </div>
 
-        <div className="rounded-lg border border-stone bg-paper p-5">
+        <div
+          className={`rounded-lg border border-stone bg-paper p-4 sm:p-5 ${
+            selectedId ? "" : "hidden lg:block"
+          }`}
+        >
           {!selectedId ? (
             <p className="text-sm text-muted-foreground">
               Select a lead from the list to view its details and history.
             </p>
-          ) : detailLoading || !detail ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              Loading lead...
-            </p>
           ) : (
-            <div className="space-y-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold">
+            <>
+              <div className="mb-3 lg:hidden">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={closeLead}
+                  className="-ml-2"
+                >
+                  <ArrowLeft className="mr-1 h-4 w-4" aria-hidden="true" />
+                  All leads
+                </Button>
+              </div>
+              {detailLoading || !detail ? (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Loading lead...
+                </p>
+              ) : (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h2 className="text-xl font-semibold leading-tight">
                     {detail.lead.businessName}
                   </h2>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {tradeLeadSourceLabel(detail.lead.source)} ·{" "}
                     {tradeVenueTypeLabel(detail.lead.venueType)}
                   </p>
@@ -622,18 +704,19 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 <StatusBadge status={detail.lead.status} />
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="text-sm">
-                  <p className="font-medium">Contact</p>
-                  <p className="mt-1 text-muted-foreground">
+              <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+                <div>
+                  <p className={sectionLabelClass}>Contact</p>
+                  <p className="mt-1">
                     {detail.lead.contactName || "—"}
                   </p>
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                     {detail.lead.email && (
                       <a
                         href={`mailto:${detail.lead.email}`}
-                        className="text-ocean hover:underline"
+                        className="inline-flex items-center gap-1.5 break-all text-ocean hover:underline"
                       >
+                        <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                         {detail.lead.email}
                       </a>
                     )}
@@ -641,8 +724,9 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                       <>
                         <a
                           href={`tel:${detail.lead.phoneOrWhatsapp.replace(/[^\d+]/g, "")}`}
-                          className="text-ocean hover:underline"
+                          className="inline-flex items-center gap-1.5 text-ocean hover:underline"
                         >
+                          <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                           {detail.lead.phoneOrWhatsapp}
                         </a>
                         {waDigits && (
@@ -650,8 +734,9 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                             href={`https://wa.me/${waDigits}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-ocean hover:underline"
+                            className="inline-flex items-center gap-1.5 text-ocean hover:underline"
                           >
+                            <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             WhatsApp
                           </a>
                         )}
@@ -659,13 +744,13 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                     )}
                   </div>
                 </div>
-                <div className="text-sm">
-                  <p className="font-medium">Dates</p>
+                <div>
+                  <p className={sectionLabelClass}>Activity</p>
                   <p className="mt-1 text-muted-foreground">
-                    Created {formatAdminDateTime(detail.lead.createdAt)}
-                    <br />
                     Last activity{" "}
-                    {formatAdminDateTime(leadLastActivityIso(detail.lead))}
+                    {formatAdminDate(leadLastActivityIso(detail.lead))}
+                    <br />
+                    Created {formatAdminDate(detail.lead.createdAt)}
                     {detail.lead.closedAt && (
                       <>
                         <br />
@@ -677,138 +762,131 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
               </div>
 
               {detail.lead.message && (
-                <div className="text-sm">
-                  <p className="font-medium">Original inquiry</p>
-                  <p className="mt-1 whitespace-pre-wrap rounded-md border border-stone bg-stone/20 p-3 text-muted-foreground">
+                <div>
+                  <p className={sectionLabelClass}>Original inquiry</p>
+                  <p className="mt-1 whitespace-pre-wrap rounded-md bg-stone/30 p-2.5 text-[13px] text-muted-foreground">
                     {detail.lead.message}
                   </p>
                 </div>
               )}
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium">Status</span>
-                  <select
-                    className={fieldClass}
-                    value={detail.lead.status}
-                    disabled={saving !== null}
-                    onChange={(e) =>
-                      void patchLead({ status: e.target.value }, "status")
-                    }
-                  >
-                    {TRADE_LEAD_STATUSES.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium">Owner</span>
-                  <select
-                    className={fieldClass}
-                    value={detail.lead.assignedToUid ?? ""}
-                    disabled={saving !== null}
-                    onChange={(e) =>
-                      void patchLead(
-                        { assignedToUid: e.target.value || null },
-                        "owner"
-                      )
-                    }
-                  >
-                    <option value="">Unassigned</option>
-                    {ownerOptions.map((a) => (
-                      <option key={a.uid} value={a.uid}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              {selectedTerminal && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <label className="min-w-48 flex-1 text-sm">
-                    <span className="mb-1 block font-medium">
-                      Outcome (optional)
-                    </span>
-                    <input
+              <div className="rounded-md border border-stone p-3">
+                <p className={sectionLabelClass}>Manage</p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium">Status</span>
+                    <select
                       className={fieldClass}
-                      value={outcomeDraft}
-                      onChange={(e) => setOutcomeDraft(e.target.value)}
-                      placeholder="e.g. First order placed"
-                      maxLength={200}
-                    />
-                  </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={saving !== null}
-                    onClick={() =>
-                      void patchLead({ outcome: outcomeDraft }, "outcome")
-                    }
-                  >
-                    Save outcome
-                  </Button>
-                </div>
-              )}
-
-              {!selectedTerminal && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <label className="min-w-48 flex-1 text-sm">
-                    <span className="mb-1 block font-medium">
-                      Next follow-up
-                    </span>
-                    <input
-                      type="date"
-                      className={fieldClass}
-                      value={followUpDraft}
-                      onChange={(e) => setFollowUpDraft(e.target.value)}
-                    />
-                  </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      saving !== null ||
-                      !followUpDraft ||
-                      followUpDraft ===
-                        dateToLocalDateInput(detail.lead.nextFollowUpAt)
-                    }
-                    onClick={() => {
-                      const iso = dateInputToIso(followUpDraft);
-                      if (!iso) {
-                        setStatusMessage("Enter a valid follow-up date.");
-                        setStatusIsError(true);
-                        return;
+                      value={detail.lead.status}
+                      disabled={saving !== null}
+                      onChange={(e) =>
+                        void patchLead({ status: e.target.value }, "status")
                       }
-                      void patchLead({ nextFollowUpAt: iso }, "followup");
-                    }}
-                  >
-                    Set follow-up
-                  </Button>
-                  {detail.lead.nextFollowUpAt && (
+                    >
+                      {TRADE_LEAD_STATUSES.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium">Owner</span>
+                    <select
+                      className={fieldClass}
+                      value={detail.lead.assignedToUid ?? ""}
+                      disabled={saving !== null}
+                      onChange={(e) =>
+                        void patchLead(
+                          { assignedToUid: e.target.value || null },
+                          "owner"
+                        )
+                      }
+                    >
+                      <option value="">Unassigned</option>
+                      {ownerOptions.map((a) => (
+                        <option key={a.uid} value={a.uid}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {selectedTerminal ? (
+                  <div className="mt-3 flex flex-wrap items-end gap-2">
+                    <label className="min-w-48 flex-1 text-sm">
+                      <span className="mb-1 block font-medium">
+                        Outcome (optional)
+                      </span>
+                      <input
+                        className={fieldClass}
+                        value={outcomeDraft}
+                        onChange={(e) => setOutcomeDraft(e.target.value)}
+                        placeholder="e.g. First order placed"
+                        maxLength={200}
+                      />
+                    </label>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       disabled={saving !== null}
                       onClick={() =>
-                        void patchLead({ nextFollowUpAt: null }, "followup")
+                        void patchLead({ outcome: outcomeDraft }, "outcome")
                       }
                     >
-                      Clear
+                      Save outcome
                     </Button>
-                  )}
-                  <FollowUpBadge lead={detail.lead} />
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <div className="mt-3">
+                    <span id="next-follow-up-label" className="mb-1 block text-sm font-medium">
+                      Next follow-up
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="date"
+                        aria-labelledby="next-follow-up-label"
+                        className="rounded-md border border-ink/50 px-2.5 py-1.5 text-sm"
+                        value={followUpDraft}
+                        disabled={saving !== null}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setFollowUpDraft(value);
+                          // A complete picked date is explicit intent — the
+                          // same save-on-select pattern as the status/owner
+                          // selects. An emptied field does NOT clear; clearing
+                          // stays explicit via the Clear button.
+                          const iso = dateInputToIso(value);
+                          if (iso) {
+                            void patchLead({ nextFollowUpAt: iso }, "followup");
+                          }
+                        }}
+                      />
+                      <FollowUpBadge lead={detail.lead} showEmpty />
+                      {detail.lead.nextFollowUpAt && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={saving !== null}
+                          onClick={() =>
+                            void patchLead({ nextFollowUpAt: null }, "followup")
+                          }
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <form onSubmit={addNote} className="text-sm">
                 <label className="block">
                   <span className="mb-1 block font-medium">Add a note</span>
                   <textarea
                     className={fieldClass}
-                    rows={3}
+                    rows={2}
                     value={noteDraft}
                     onChange={(e) => setNoteDraft(e.target.value)}
                     placeholder="e.g. Spoke on WhatsApp — interested in the Saison"
@@ -818,7 +896,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 <Button
                   type="submit"
                   size="sm"
-                  className="mt-2"
+                  className="mt-1.5"
                   disabled={saving !== null || !noteDraft.trim()}
                 >
                   {saving === "note" ? "Adding..." : "Add note"}
@@ -826,33 +904,55 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
               </form>
 
               <div>
-                <h3 className="text-sm font-semibold">History</h3>
+                <h3 className={sectionLabelClass}>History</h3>
                 {timeline.length === 0 ? (
                   <p className="mt-2 text-sm text-muted-foreground">
                     No activity recorded yet.
                   </p>
                 ) : (
-                  <ol className="mt-2 space-y-3 border-l-2 border-stone pl-4">
-                    {timeline.map((activity) => (
-                      <li key={activity.id} className="text-sm">
-                        <p className="text-xs text-muted-foreground">
-                          {formatAdminDateTime(activity.createdAt)}
-                          {activity.authorName
-                            ? ` · ${activity.authorName}`
-                            : ""}
-                        </p>
-                        <p>{describeTradeLeadActivity(activity)}</p>
-                        {activity.body && (
-                          <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">
-                            {activity.body}
-                          </p>
-                        )}
-                      </li>
-                    ))}
+                  <ol className="mt-2 space-y-3">
+                    {timeline.map((activity) => {
+                      const iconMeta =
+                        ACTIVITY_ICON[activity.type] ?? DEFAULT_ACTIVITY_ICON;
+                      const ActivityIcon = iconMeta.icon;
+                      const isNote = activity.type === "note";
+                      return (
+                        <li key={activity.id} className="flex gap-2.5 text-sm">
+                          <ActivityIcon
+                            className={`mt-0.5 h-4 w-4 shrink-0 ${iconMeta.className}`}
+                            aria-hidden="true"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs text-muted-foreground">
+                              {formatAdminDateTime(activity.createdAt)}
+                              {activity.authorName
+                                ? ` · ${activity.authorName}`
+                                : ""}
+                            </p>
+                            <p
+                              className={`mt-0.5 whitespace-pre-wrap ${
+                                isNote ? "" : "text-muted-foreground"
+                              }`}
+                            >
+                              {isNote
+                                ? activity.body
+                                : describeTradeLeadActivity(activity)}
+                            </p>
+                            {!isNote && activity.body && (
+                              <p className="mt-0.5 whitespace-pre-wrap">
+                                {activity.body}
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ol>
                 )}
               </div>
             </div>
+              )}
+            </>
           )}
         </div>
       </div>

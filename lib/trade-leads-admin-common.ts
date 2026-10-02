@@ -320,6 +320,22 @@ export function classifyFollowUp(
   return "upcoming";
 }
 
+// Signed calendar-day delta between the follow-up date and `today` in the
+// viewer's local timezone: negative = overdue by N days, 0 = due today,
+// positive = N days until due. Returns null when the lead has no active
+// follow-up (unset, unparseable, or terminal).
+export function followUpDayDelta(
+  nextFollowUpAt: string | Date | null | undefined,
+  status: string,
+  today: CalendarDate = todayCalendarDate()
+): number | null {
+  if (classifyFollowUp(nextFollowUpAt, status, today) === "none") return null;
+  if (nextFollowUpAt == null) return null;
+  const date =
+    nextFollowUpAt instanceof Date ? nextFollowUpAt : new Date(nextFollowUpAt);
+  return dayNumber(calendarDateOf(date)) - dayNumber(today);
+}
+
 // --- Admin mutations (pure planning layer) ---
 
 export class TradeLeadError extends Error {
