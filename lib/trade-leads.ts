@@ -8,21 +8,39 @@ import {
   buildTradeLeadRecord,
   processTradeInquiry,
   TRADE_LEADS_COLLECTION,
+  TRADE_LEAD_SOURCE,
   type TradeInquiryOutcome,
   type TradeLeadInput,
 } from "@/lib/trade-leads-common";
+import { TRADE_LEAD_ACTIVITIES_SUBCOLLECTION } from "@/lib/trade-leads-admin-common";
 
 export type { TradeLeadInput };
 
 export async function persistTradeLead(input: TradeLeadInput): Promise<string> {
-  const ref = await getFirebaseAdminDb()
-    .collection(TRADE_LEADS_COLLECTION)
-    .add({
-      ...buildTradeLeadRecord(input),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-  return ref.id;
+  const db = getFirebaseAdminDb();
+  const leadRef = db.collection(TRADE_LEADS_COLLECTION).doc();
+  const activityRef = leadRef
+    .collection(TRADE_LEAD_ACTIVITIES_SUBCOLLECTION)
+    .doc();
+
+  // Lead document + its first history entry in one batch so every new lead
+  // opens with a populated timeline (#150).
+  const batch = db.batch();
+  batch.set(leadRef, {
+    ...buildTradeLeadRecord(input),
+    activityCount: 1,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    lastActivityAt: FieldValue.serverTimestamp(),
+  });
+  batch.set(activityRef, {
+    type: "lead_created",
+    seq: 0,
+    details: { source: TRADE_LEAD_SOURCE },
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
+  return leadRef.id;
 }
 
 function escapeHtml(input: string): string {

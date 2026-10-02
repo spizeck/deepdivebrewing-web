@@ -17,15 +17,42 @@
  */
 
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import {
+  getFirestore,
+  type DocumentReference,
+} from "firebase-admin/firestore";
 import {
   tradeLeadRetentionCutoff,
   tradeLeadRetentionStatus,
   TRADE_LEADS_COLLECTION,
   TRADE_LEAD_RETENTION_MONTHS,
 } from "@/lib/trade-leads-common";
+import { TRADE_LEAD_ACTIVITIES_SUBCOLLECTION } from "@/lib/trade-leads-admin-common";
 
 const DELETE = process.argv.includes("--delete");
+
+// Comfortably below Firestore's 500-write batch limit.
+const ACTIVITY_DELETE_BATCH = 450;
+
+// Deletes every document in a lead's `activities` subcollection in bounded
+// write batches. Deleting the parent does not cascade, so this runs after
+// the lead's own transaction commits.
+async function deleteLeadActivities(
+  leadRef: DocumentReference
+): Promise<number> {
+  const activities = leadRef.collection(TRADE_LEAD_ACTIVITIES_SUBCOLLECTION);
+  let removed = 0;
+  for (;;) {
+    const page = await activities.limit(ACTIVITY_DELETE_BATCH).get();
+    if (page.empty) return removed;
+    const batch = leadRef.firestore.batch();
+    for (const doc of page.docs) {
+      batch.delete(doc.ref);
+    }
+    await batch.commit();
+    removed += page.size;
+  }
+}
 
 function getPrivateKey() {
   const key = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
@@ -98,7 +125,13 @@ async function main() {
   }
 
   // Re-verify each document inside a transaction before deleting so a lead
-  // updated between scan and delete (new activity extends retention) is kept.
+  // updated between scan and delete (new activity extends retention) is
+  // kept. Deleting a document does not cascade to subcollections — the
+  // activities history is removed afterwards in bounded batches. Doing it
+  // after commit (rather than inside the transaction) keeps the transaction
+  // under Firestore's per-transaction write limit no matter how long a
+  // lead's history is, and can never wipe a live lead's timeline: if the
+  // recheck fails, the lead — and its history — is left untouched.
   const collection = db.collection(TRADE_LEADS_COLLECTION);
   let deleted = 0;
   for (const id of expired) {
@@ -114,11 +147,26 @@ async function main() {
       tx.delete(ref);
       return true;
     });
-    if (removed) {
-      deleted++;
-      console.log(`  deleted ${id}`);
-    } else {
+    if (!removed) {
       console.log(`  kept ${id} (changed since scan)`);
+      continue;
+    }
+
+    deleted++;
+    let activitiesRemoved = 0;
+    try {
+      activitiesRemoved = await deleteLeadActivities(ref);
+      console.log(`  deleted ${id} (+${activitiesRemoved} activity records)`);
+    } catch (err) {
+      // The lead document is already gone; leftover subcollection docs are
+      // unreachable by the app and denied to clients — report for a manual
+      // sweep rather than failing the whole run.
+      console.warn(
+        `  deleted ${id} (+${activitiesRemoved} activity records) — ` +
+          "remaining history cleanup failed; sweep the activities " +
+          `subcollection for ${id} manually.`,
+        err
+      );
     }
   }
   console.log(`Deleted ${deleted} lead(s).`);

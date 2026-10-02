@@ -14,7 +14,7 @@ function isTimestampLike(value: unknown): value is TimestampLike {
   );
 }
 
-function toIsoString(value: unknown): string | undefined {
+export function toIsoString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (value instanceof Date) return value.toISOString();
   if (isTimestampLike(value)) return value.toDate().toISOString();

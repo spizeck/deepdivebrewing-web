@@ -294,3 +294,127 @@ test("admin list loading state is announced", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Loading...");
   await expect(page.getByText("boss@example.com")).toBeVisible();
 });
+
+// --- Trade-lead pipeline fixture (Issue #150) ---
+
+const TRADE_FIXTURE = "/admin-trade-fixture";
+
+const TRADE_LEAD = {
+  id: "lead-1",
+  businessName: "Fixture Harbour Bar",
+  contactName: "Sam Keeper",
+  email: "sam@harbour.example",
+  phoneOrWhatsapp: "+599 555 1234",
+  venueType: "bar",
+  message: "Interested in carrying the Pilsner.",
+  status: "contacted",
+  source: "trade_form",
+  assignedToName: "Chad",
+  assignedToUid: "u-1",
+  nextFollowUpAt: "2026-10-18T04:00:00.000Z",
+  createdAt: "2026-10-01T12:00:00.000Z",
+  updatedAt: "2026-10-02T12:00:00.000Z",
+  lastActivityAt: "2026-10-02T12:00:00.000Z",
+};
+
+const TRADE_ACTIVITIES = [
+  {
+    id: "a-0",
+    type: "lead_created",
+    seq: 0,
+    details: { source: "trade_form" },
+    createdAt: "2026-10-01T12:00:00.000Z",
+  },
+  {
+    id: "a-1",
+    type: "note",
+    seq: 1,
+    authorUid: "u-1",
+    authorName: "Chad",
+    body: "Spoke on WhatsApp. Interested in the Pilsner.",
+    createdAt: "2026-10-02T12:00:00.000Z",
+  },
+];
+
+function mockTradeApi(page: import("playwright/test").Page) {
+  return page.route(/\/api\/admin\/trade-leads/, (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+
+    if (method === "GET" && url.endsWith("/api/admin/trade-leads")) {
+      return json({
+        ok: true,
+        leads: [TRADE_LEAD],
+        admins: [{ uid: "u-1", name: "Chad" }],
+      });
+    }
+    if (method === "GET" && url.includes("/api/admin/trade-leads/")) {
+      return json({ ok: true, lead: TRADE_LEAD, activities: TRADE_ACTIVITIES });
+    }
+    if (method === "PATCH" || method === "POST") {
+      return json({ ok: true, lead: TRADE_LEAD, activities: TRADE_ACTIVITIES });
+    }
+    return json({ ok: false, error: "Unexpected fixture request" });
+  });
+}
+
+test("axe: trade-lead pipeline workspace has no serious/critical violations", async ({
+  page,
+}) => {
+  await mockTradeApi(page);
+  await page.goto(TRADE_FIXTURE);
+  await waitForAnimations(page);
+  await expect(page.getByText("Fixture Harbour Bar")).toBeVisible();
+
+  // List view.
+  let blocking = await scanAxe(page, `${TRADE_FIXTURE} (list)`);
+  expect(blocking, formatBlocking(`${TRADE_FIXTURE} (list)`, blocking)).toEqual(
+    []
+  );
+
+  // Detail workspace with the populated history timeline.
+  await page.getByRole("button", { name: /Fixture Harbour Bar/ }).press("Enter");
+  await expect(page.getByText("Spoke on WhatsApp")).toBeVisible();
+  blocking = await scanAxe(page, `${TRADE_FIXTURE} (detail)`);
+  expect(
+    blocking,
+    formatBlocking(`${TRADE_FIXTURE} (detail)`, blocking)
+  ).toEqual([]);
+});
+
+test("trade-lead list announces loading and rows expose selected state", async ({
+  page,
+}) => {
+  await mockTradeApi(page);
+  await page.goto(TRADE_FIXTURE);
+  const row = page.getByRole("button", { name: /Fixture Harbour Bar/ });
+  await expect(row).toBeVisible();
+  expect(await row.evaluate((el) => el.closest("ul > li") !== null)).toBe(true);
+  await row.press("Enter");
+  await expect(row).toHaveAttribute("aria-current", "true");
+  await expect(
+    page.getByRole("heading", { name: "Fixture Harbour Bar" })
+  ).toBeVisible();
+});
+
+test("trade-lead note entry is labeled and announces its result", async ({
+  page,
+}) => {
+  await mockTradeApi(page);
+  await page.goto(TRADE_FIXTURE);
+  await page.getByRole("button", { name: /Fixture Harbour Bar/ }).press("Enter");
+  await expect(page.getByText("Spoke on WhatsApp")).toBeVisible();
+
+  const noteBox = page.getByRole("textbox", { name: "Add a note" });
+  await noteBox.fill("Dropped off samples.");
+  await page.getByRole("button", { name: "Add note" }).press("Enter");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Note added." })
+  ).toBeVisible();
+});

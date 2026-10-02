@@ -336,4 +336,40 @@ describe("tradeLeads denies all client access", () => {
       deleteDoc(doc(db, "tradeLeads", "lead1"))
     );
   });
+
+  // Issue #150: lead history lives in a `activities` subcollection that is
+  // part of the same PII boundary — server-only via the Admin SDK.
+  it("denies all client access to the lead activities subcollection", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "tradeLeads", "lead1"), validTradeLead);
+      await setDoc(
+        doc(ctx.firestore(), "tradeLeads", "lead1", "activities", "a1"),
+        { type: "note", seq: 0 }
+      );
+    });
+
+    const anonDb = testEnv.unauthenticatedContext().firestore();
+    await assertFails(
+      getDoc(doc(anonDb, "tradeLeads", "lead1", "activities", "a1"))
+    );
+    await assertFails(
+      getDocs(collection(anonDb, "tradeLeads", "lead1", "activities"))
+    );
+    await assertFails(
+      addDoc(collection(anonDb, "tradeLeads", "lead1", "activities"), {
+        type: "note",
+      })
+    );
+
+    await seedAdminRecord("admin1", "admin", "active");
+    const db = adminContext("admin1", "admin").firestore();
+    await assertFails(
+      getDoc(doc(db, "tradeLeads", "lead1", "activities", "a1"))
+    );
+    await assertFails(
+      addDoc(collection(db, "tradeLeads", "lead1", "activities"), {
+        type: "note",
+      })
+    );
+  });
 });

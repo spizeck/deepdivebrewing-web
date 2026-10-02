@@ -7,6 +7,7 @@ import {
   AdminAccessPanel,
   type AdminPanelUser,
 } from "@/components/admin-access";
+import { AdminTradeSummary } from "@/components/admin-trade-summary";
 import type { Beer, Venue } from "@/lib/types";
 import { VENUE_ISLAND_OPTIONS, type VenueIsland } from "@/lib/venue-islands";
 
@@ -194,6 +195,8 @@ export function AdminWorkspace({
           </p>
         )}
       </div>
+
+      <AdminTradeSummary user={accessUser} />
 
       <Tabs defaultValue="beers">
         <div className="flex flex-wrap items-center gap-2">

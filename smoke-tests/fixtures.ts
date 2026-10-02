@@ -69,6 +69,18 @@ export const test = base.extend({
       return route.continue();
     });
 
+    // The admin workspace renders a trade-lead summary that fetches this
+    // endpoint on every /admin-fixture mount; default to an empty pipeline so
+    // specs that don't exercise the pipeline stay hermetic. Specs register
+    // their own route afterwards — Playwright matches last-registered first.
+    await page.route(/\/api\/admin\/trade-leads/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, leads: [], admins: [] }),
+      })
+    );
+
     page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
     page.on("console", (msg) => {
       if (
