@@ -14,10 +14,11 @@ credential rotation unless a procedure below explicitly says so.
 | Value | Authoritative source |
 | --- | --- |
 | `RESEND_API_KEY` | Vercel-managed Resend integration (injected into the project; managed from the integration's Resend settings) |
-| `RESEND_FROM_EMAIL`, `ADMIN_INVITE_FROM_EMAIL` | Verified sender domain (`mail.deepdivebrewing.com`) + Vercel env vars |
+| `RESEND_FROM_EMAIL`, `ADMIN_INVITE_FROM_EMAIL`, `TRADE_FROM_EMAIL` | Verified sender domain (`mail.deepdivebrewing.com`) + Vercel env vars |
+| `RESEND_WEBHOOK_SECRET` | Resend console → Webhooks → endpoint signing secret (`whsec_…`) + Vercel env var |
 | `FIREBASE_ADMIN_*` | Firebase console → Project settings → Service accounts (key pair lives in Google Cloud IAM) |
 | `VERCEL_DEPLOY_HOOK_URL` | Vercel project → Settings → Git → Deploy Hooks |
-| `SUPER_ADMIN_EMAIL`, cooldowns, `TRADE_INQUIRY_TO_EMAIL` | Vercel environment variables (no external issuer) |
+| `SUPER_ADMIN_EMAIL`, cooldowns, `TRADE_NOTIFICATION_EMAIL`, `TRADE_INQUIRY_TO_EMAIL`, `TRADE_REPLY_DOMAIN` | Vercel environment variables (no external issuer) |
 | `NEXT_PUBLIC_*` | Firebase console → web app config; GTM admin for `NEXT_PUBLIC_GTM_ID` |
 
 - **Vercel environment variables** (Project → Settings → Environment

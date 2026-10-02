@@ -3,6 +3,7 @@
 // collaborators) so it is unit-testable without Firebase Admin or Resend;
 // `lib/trade-leads.ts` wires the real server-only dependencies.
 import { isValidEmail } from "@/lib/email";
+import { VENUE_ISLAND_CARD_LABELS } from "@/lib/venue-islands";
 import type { LogContext } from "@/lib/log";
 
 export const TRADE_LEADS_COLLECTION = "tradeLeads";
@@ -25,12 +26,51 @@ const TRADE_VENUE_TYPE_VALUES: ReadonlySet<string> = new Set(
   TRADE_VENUE_TYPES.map((t) => t.value)
 );
 
+// --- Island (#152) ---
+//
+// A lead's island is a first-class field: filterable in the pipeline and
+// captured at the source by the public form. The controlled vocabulary
+// reuses the canonical venue island keys/labels (lib/venue-islands.ts,
+// Issue #134) where the geographies overlap — saba/sxm/statia — so island
+// naming never drifts between the public site and the pipeline. The wider
+// set covers islands with no current venue records (a lead can come from
+// anywhere the brewery might ship). Records predating this field simply
+// have no `island` — a neutral "not set" state, never a guessed value.
+export const TRADE_LEAD_ISLANDS = [
+  // Card labels: the compact whole-island forms meant for badges/filters.
+  { value: "saba", label: VENUE_ISLAND_CARD_LABELS.saba },
+  { value: "sxm", label: VENUE_ISLAND_CARD_LABELS.sxm },
+  { value: "statia", label: VENUE_ISLAND_CARD_LABELS.statia },
+  { value: "st_kitts", label: "St. Kitts" },
+  { value: "nevis", label: "Nevis" },
+  { value: "anguilla", label: "Anguilla" },
+  { value: "other", label: "Other / elsewhere" },
+] as const;
+
+export type TradeLeadIsland = (typeof TRADE_LEAD_ISLANDS)[number]["value"];
+
+const TRADE_LEAD_ISLAND_VALUES: ReadonlySet<string> = new Set(
+  TRADE_LEAD_ISLANDS.map((i) => i.value)
+);
+
+export function isTradeLeadIsland(value: unknown): value is TradeLeadIsland {
+  return typeof value === "string" && TRADE_LEAD_ISLAND_VALUES.has(value);
+}
+
+export function tradeLeadIslandLabel(value: unknown): string {
+  return (
+    TRADE_LEAD_ISLANDS.find((i) => i.value === value)?.label ?? "Not set"
+  );
+}
+
 export interface TradeLeadInput {
   businessName: string;
   contactName: string;
   email: string;
   phoneOrWhatsapp: string;
   venueType: string;
+  // Optional — "" when the submitter did not pick an island.
+  island: string;
   message: string;
 }
 
@@ -42,6 +82,7 @@ export const TRADE_LEAD_FIELD_LIMITS = {
   email: 320,
   phoneOrWhatsapp: 64,
   venueType: 64,
+  island: 32,
   message: 4000,
 } as const;
 
@@ -63,6 +104,7 @@ const TRADE_LEAD_FIELD_LABELS: Record<keyof TradeLeadInput, string> = {
   email: "email",
   phoneOrWhatsapp: "phone/WhatsApp",
   venueType: "business type",
+  island: "island",
   message: "message",
 };
 
@@ -132,6 +174,9 @@ export function buildTradeLeadRecord(input: TradeLeadInput) {
     email: input.email,
     phoneOrWhatsapp: input.phoneOrWhatsapp,
     venueType: input.venueType,
+    // Island is only written when a canonical value was supplied — absent
+    // on the record reads as the neutral "not set" state.
+    ...(input.island ? { island: input.island } : {}),
     message: input.message,
     status: TRADE_LEAD_INITIAL_STATUS,
     source: TRADE_LEAD_SOURCE,
@@ -161,6 +206,7 @@ export interface TradeInquiryBody {
   email?: string;
   phoneOrWhatsapp?: string;
   venueType?: string;
+  island?: string;
   message?: string;
   website?: string;
 }
@@ -192,6 +238,7 @@ export async function handleTradeInquiry(
   const email = body.email?.trim() ?? "";
   const phoneOrWhatsapp = body.phoneOrWhatsapp?.trim() ?? "";
   const venueType = body.venueType?.trim() ?? "";
+  const island = body.island?.trim() ?? "";
   const message = body.message?.trim() ?? "";
   const website = body.website?.trim() ?? "";
 
@@ -211,6 +258,7 @@ export async function handleTradeInquiry(
     email,
     phoneOrWhatsapp,
     venueType,
+    island,
     message,
   });
   if (oversized) {
@@ -240,6 +288,16 @@ export async function handleTradeInquiry(
     };
   }
 
+  // Island is optional, but a supplied value must be canonical — same
+  // reasoning as venueType: a tampered request must not write free text
+  // into the controlled field.
+  if (island && !isTradeLeadIsland(island)) {
+    return {
+      status: 400,
+      body: { ok: false, error: "Please choose an island." },
+    };
+  }
+
   // Honeypot: pretend success for bots, but persist nothing and send no email.
   if (website) {
     return { status: 200, body: { ok: true } };
@@ -256,7 +314,15 @@ export async function handleTradeInquiry(
   // we claim success. The Resend notification is best-effort inside submit —
   // its failure is logged, not surfaced to the customer.
   const outcome = await deps.submit(
-    { businessName, contactName, email, phoneOrWhatsapp, venueType, message },
+    {
+      businessName,
+      contactName,
+      email,
+      phoneOrWhatsapp,
+      venueType,
+      island,
+      message,
+    },
     context.requestId
   );
   if (!outcome.ok) {

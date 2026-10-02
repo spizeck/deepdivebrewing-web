@@ -2,6 +2,7 @@ import "server-only";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { getAdminUser, listAdminUsers } from "@/lib/admin-users";
+import { normalizePhoneNumber } from "@/lib/phone";
 import { TRADE_LEADS_COLLECTION } from "@/lib/trade-leads-common";
 import {
   buildLeadUpdate,
@@ -12,6 +13,21 @@ import {
   type ManualTradeLeadInput,
   type NormalizedLeadPatch,
   type TradeLeadAssignee,
+} from "@/lib/trade-leads-admin-common";
+import {
+  generateReplyToken,
+  isReplyToken,
+  replyAddressForToken,
+  serializeTradeLeadCommunication,
+  TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION,
+  type TradeLeadCommunicationView,
+} from "@/lib/trade-leads-email-common";
+import { getInboundReplyDomain } from "@/lib/resend-config";
+import {
+  serializeTradeLead,
+  serializeTradeLeadActivity,
+  type TradeLeadActivityView,
+  type TradeLeadView,
 } from "@/lib/trade-leads-admin-common";
 
 // Identity the activity timeline records. `name` is a stable display string
@@ -78,6 +94,82 @@ export async function listTradeLeadActivities(
     .orderBy("seq", "asc")
     .get();
   return snapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() }));
+}
+
+export async function listTradeLeadCommunications(
+  leadId: string
+): Promise<{ id: string; data: Record<string, unknown> }[]> {
+  const snapshot = await getTradeLeadsCollection()
+    .doc(leadId)
+    .collection(TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION)
+    .orderBy("createdAt", "asc")
+    .get();
+  return snapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() }));
+}
+
+// Provisions the lead's opaque inbound routing token when absent — backfills
+// leads created before Issue #152. Deliberately does NOT touch
+// updatedAt/lastActivityAt: routing identity is infrastructure, not
+// meaningful activity, so provisioning must not extend the retention window.
+// Call only from read paths that already resolved the lead; a concurrent
+// provisioner writing a different token is harmless (first write wins —
+// callers re-read the stored value rather than trusting their generated one).
+export async function ensureLeadReplyToken(leadId: string): Promise<string> {
+  const ref = getTradeLeadsCollection().doc(leadId);
+  return getFirebaseAdminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new TradeLeadNotFoundError();
+    const existing = snap.data()?.replyToken;
+    if (typeof existing === "string" && existing) return existing;
+    const token = generateReplyToken();
+    tx.update(ref, { replyToken: token });
+    return token;
+  });
+}
+
+export interface TradeLeadDetail {
+  lead: TradeLeadView;
+  activities: TradeLeadActivityView[];
+  communications: TradeLeadCommunicationView[];
+}
+
+// The admin detail payload: serialized lead + full history + the
+// communications documents the history entries reference. The timeline is
+// rendered from activities; bodies and live delivery state live on the
+// communication records.
+export async function getTradeLeadDetail(
+  id: string
+): Promise<TradeLeadDetail | null> {
+  const [lead, activities, communications] = await Promise.all([
+    getTradeLead(id),
+    listTradeLeadActivities(id),
+    listTradeLeadCommunications(id),
+  ]);
+  if (!lead) return null;
+
+  // Provision the inbound routing address lazily for leads created before
+  // Issue #152. This writes only the opaque token — never updatedAt/
+  // lastActivityAt — so viewing a lead still cannot extend its retention.
+  let data = lead.data;
+  if (!isReplyToken(data.replyToken)) {
+    const token = await ensureLeadReplyToken(id);
+    data = { ...data, replyToken: token };
+  }
+  const view = serializeTradeLead(lead.id, data);
+  view.inboundAddress = replyAddressForToken(
+    data.replyToken as string,
+    getInboundReplyDomain()
+  );
+
+  return {
+    lead: view,
+    activities: activities.map((a) =>
+      serializeTradeLeadActivity(a.id, a.data)
+    ),
+    communications: communications.map((c) =>
+      serializeTradeLeadCommunication(c.id, c.data)
+    ),
+  };
 }
 
 // Leads may only be assigned to active administrators — the same identity
@@ -155,16 +247,20 @@ export async function createManualTradeLead(
     .collection(TRADE_LEAD_ACTIVITIES_SUBCOLLECTION)
     .doc();
 
+  const phone = normalizePhoneNumber(input.phoneOrWhatsapp);
   const batch = db.batch();
   batch.set(leadRef, {
     businessName: input.businessName,
     contactName: input.contactName,
     email: input.email,
     phoneOrWhatsapp: input.phoneOrWhatsapp,
+    ...(phone.e164 ? { phoneNormalized: phone.e164 } : {}),
     venueType: input.venueType,
+    ...(input.island ? { island: input.island } : {}),
     message: input.message,
     status: "new",
     source: input.source,
+    replyToken: generateReplyToken(),
     activityCount: 1,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),

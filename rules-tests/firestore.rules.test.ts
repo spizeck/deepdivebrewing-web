@@ -372,4 +372,40 @@ describe("tradeLeads denies all client access", () => {
       })
     );
   });
+
+  // Issue #152: email bodies/threading live in a `communications`
+  // subcollection — inside the same deny-all PII boundary as activities.
+  it("denies all client access to the lead communications subcollection", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "tradeLeads", "lead1"), validTradeLead);
+      await setDoc(
+        doc(ctx.firestore(), "tradeLeads", "lead1", "communications", "c1"),
+        { channel: "email", direction: "outbound" }
+      );
+    });
+
+    const anonDb = testEnv.unauthenticatedContext().firestore();
+    await assertFails(
+      getDoc(doc(anonDb, "tradeLeads", "lead1", "communications", "c1"))
+    );
+    await assertFails(
+      getDocs(collection(anonDb, "tradeLeads", "lead1", "communications"))
+    );
+    await assertFails(
+      addDoc(collection(anonDb, "tradeLeads", "lead1", "communications"), {
+        channel: "email",
+      })
+    );
+
+    await seedAdminRecord("admin1", "admin", "active");
+    const db = adminContext("admin1", "admin").firestore();
+    await assertFails(
+      getDoc(doc(db, "tradeLeads", "lead1", "communications", "c1"))
+    );
+    await assertFails(
+      addDoc(collection(db, "tradeLeads", "lead1", "communications"), {
+        channel: "email",
+      })
+    );
+  });
 });

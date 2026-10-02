@@ -1,4 +1,15 @@
 {
   "indexes": [],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      // Delivery-status webhooks resolve the communication document by
+      // provider email id across all leads — a collection-group query,
+      // which requires single-field indexing at COLLECTION_GROUP scope.
+      "collectionGroup": "communications",
+      "fieldPath": "providerEmailId",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
 }

@@ -23,6 +23,7 @@ const input: TradeLeadInput = {
   email: "venue@example.com",
   phoneOrWhatsapp: "+599 000 0000",
   venueType: "bar",
+  island: "",
   message: "We would like to carry your beer.",
 };
 
@@ -71,6 +72,13 @@ describe("buildTradeLeadRecord", () => {
       status: "new",
       source: "trade_form",
     });
+  });
+
+  it("persists island only when a canonical value was supplied (#152)", () => {
+    const withIsland = buildTradeLeadRecord({ ...input, island: "saba" });
+    assert.strictEqual(withIsland.island, "saba");
+    // Missing island → the key is absent, never an empty string.
+    assert.strictEqual("island" in buildTradeLeadRecord(input), false);
   });
 
   it("targets the tradeLeads collection", () => {
@@ -341,6 +349,47 @@ describe("handleTradeInquiry", () => {
     assert.strictEqual(submitted[0]?.venueType, "bar");
   });
 
+  it("accepts canonical island values and passes them through (#152)", async () => {
+    for (const island of ["saba", "sxm", "statia", "other"]) {
+      const { deps, submitted } = routeDeps();
+      const result = await handleTradeInquiry({ ...body, island }, context, deps);
+      assert.strictEqual(result.status, 200, `expected 200 for ${island}`);
+      assert.strictEqual(submitted[0]?.island, island);
+    }
+  });
+
+  it("treats a missing island as optional and trims whitespace", async () => {
+    const { deps, submitted } = routeDeps();
+    const result = await handleTradeInquiry(body, context, deps);
+    assert.strictEqual(result.status, 200);
+    assert.strictEqual(submitted[0]?.island, "");
+
+    const padded = routeDeps();
+    await handleTradeInquiry(
+      { ...body, island: "  saba  " },
+      context,
+      padded.deps
+    );
+    assert.strictEqual(padded.submitted[0]?.island, "saba");
+  });
+
+  it("rejects non-canonical island values before submission", async () => {
+    for (const island of ["garbage", "Saba", "saba; DROP TABLE"]) {
+      const { deps, calls } = routeDeps();
+      const result = await handleTradeInquiry(
+        { ...body, island },
+        context,
+        deps
+      );
+      assert.strictEqual(result.status, 400, `expected 400 for ${island}`);
+      assert.deepStrictEqual(result.body, {
+        ok: false,
+        error: "Please choose an island.",
+      });
+      assert.deepStrictEqual(calls, [], `submit ran for ${island}`);
+    }
+  });
+
   it("accepts ordinary, plus-tag, and subdomain addresses", async () => {
     for (const email of [
       "customer@example.com",
@@ -408,6 +457,7 @@ describe("handleTradeInquiry", () => {
         email: "venue@example.com",
         phoneOrWhatsapp: "+599 000 0000",
         venueType: "bar",
+        island: "",
         message: "We would like to carry your beer.",
       },
     ]);

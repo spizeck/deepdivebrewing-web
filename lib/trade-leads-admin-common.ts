@@ -3,12 +3,16 @@
 // module is pure and safe for client components (no firebase imports);
 // lib/trade-leads-admin.ts wires the server-only Admin SDK access.
 import { isValidEmail } from "@/lib/email";
+import { normalizePhoneNumber } from "@/lib/phone";
 import { toIsoString } from "@/lib/admin-serializers";
 import {
+  isTradeLeadIsland,
   timestampMillis,
+  tradeLeadIslandLabel,
   TRADE_LEAD_FIELD_LIMITS,
   TRADE_LEAD_SOURCE,
   TRADE_VENUE_TYPES,
+  type TradeLeadIsland,
 } from "@/lib/trade-leads-common";
 import { todayCalendarDate, type CalendarDate } from "@/lib/whatsapp";
 
@@ -108,13 +112,16 @@ export function tradeVenueTypeLabel(value: unknown): string {
 // --- Activity / history ---
 
 // Append-only per-lead history stored in the `activities` subcollection.
-// `communication` is reserved for a future outbound/inbound messaging
-// feature (see TradeLeadCommunication below); no code writes it yet.
+// `communication` entries reference a record in the lead's `communications`
+// subcollection (Issue #152) via `communication.communicationId` — the
+// activity carries only a timeline summary (channel, direction, subject,
+// preview); the full message lives on the communication document.
 export const TRADE_LEAD_ACTIVITY_TYPES = [
   "note",
   "lead_created",
   "status_changed",
   "owner_changed",
+  "island_changed",
   "follow_up_set",
   "follow_up_changed",
   "follow_up_cleared",
@@ -125,19 +132,21 @@ export const TRADE_LEAD_ACTIVITY_TYPES = [
 export type TradeLeadActivityType =
   (typeof TRADE_LEAD_ACTIVITY_TYPES)[number];
 
-// Channel-agnostic shape for a future messaging feature (email via Resend,
-// WhatsApp via a provider integration, …). A sent/received message is stored
-// as an activity with `type: "communication"` plus this payload, so it lands
-// in the same timeline as notes and status changes. `deliveryState` may be
-// updated in place as provider delivery callbacks arrive — the only intended
-// exception to append-only history. Not implemented in this issue.
+// Timeline summary embedded on a `type: "communication"` activity. The full
+// message (body, headers, attachments metadata) lives on the referenced
+// communications document — this payload is intentionally compact so the
+// history stays self-contained without duplicating full bodies.
+// `deliveryState` is snapshotted at write time; the live value is read from
+// the communication document (provider callbacks update it — the only
+// intended exception to append-only history).
 export interface TradeLeadCommunication {
   channel: string;
   direction: "outbound" | "inbound";
+  communicationId?: string;
   recipient?: string;
   sender?: string;
   subject?: string;
-  body?: string;
+  preview?: string;
   sentAt?: string;
   sentByUid?: string;
   sentByName?: string;
@@ -159,7 +168,11 @@ export interface TradeLeadRecord {
   contactName: string;
   email: string;
   phoneOrWhatsapp: string;
+  // Canonical E.164 phone when the raw input normalized cleanly (#152).
+  phoneNormalized?: string;
   venueType: string;
+  // Canonical island key (TRADE_LEAD_ISLANDS); absent on pre-#152 records.
+  island?: string;
   message: string;
   status?: string;
   source?: string;
@@ -169,6 +182,9 @@ export interface TradeLeadRecord {
   lastActivityAt?: unknown;
   closedAt?: unknown;
   outcome?: string;
+  // Opaque inbound routing token — the local part of the lead's reply/
+  // attach address. Never the Firestore document id.
+  replyToken?: string;
   activityCount?: number;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -181,8 +197,12 @@ export interface TradeLeadView {
   businessName: string;
   contactName: string;
   email: string;
+  // Raw submitted value, plus the normalized forms the UI links/displays.
   phoneOrWhatsapp: string;
+  phoneDisplay?: string;
+  phoneE164?: string;
   venueType: string;
+  island?: string;
   message: string;
   status: TradeLeadStatus;
   source: string;
@@ -192,6 +212,9 @@ export interface TradeLeadView {
   lastActivityAt?: string;
   closedAt?: string;
   outcome?: string;
+  // The lead's "attach email / reply" address — set by the detail route,
+  // which owns the reply-domain configuration.
+  inboundAddress?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -231,13 +254,27 @@ export function serializeTradeLead(
     const v = data[key];
     return typeof v === "string" && v ? v : undefined;
   };
+  const rawPhone = str("phoneOrWhatsapp");
+  // Prefer the stored canonical form; for records predating the field,
+  // normalize the raw value on read — old leads get the improved display
+  // and links without a data migration.
+  const phone = normalizePhoneNumber(
+    typeof data.phoneNormalized === "string" && data.phoneNormalized
+      ? data.phoneNormalized
+      : rawPhone
+  );
   return {
     id,
     businessName: str("businessName"),
     contactName: str("contactName"),
     email: str("email"),
-    phoneOrWhatsapp: str("phoneOrWhatsapp"),
+    phoneOrWhatsapp: rawPhone,
+    phoneDisplay: phone.display || undefined,
+    phoneE164: phone.e164 ?? undefined,
     venueType: str("venueType"),
+    // Non-canonical or missing island stays absent — the UI renders the
+    // neutral "Not set" state; old records are never silently reclassified.
+    island: isTradeLeadIsland(data.island) ? data.island : undefined,
     message: str("message"),
     status: normalizeTradeLeadStatus(data.status),
     source: str("source") || "unknown",
@@ -368,6 +405,7 @@ const FOLLOW_UP_MAX_YEARS_AHEAD = 10;
 export interface ParsedLeadPatch {
   status?: TradeLeadStatus;
   assignedToUid?: string | null;
+  island?: TradeLeadIsland | null;
   nextFollowUpAt?: Date | null;
   outcome?: string | null;
 }
@@ -402,6 +440,18 @@ export function parseLeadPatchBody(
         ok: false,
         error: "Owner must be an administrator id or null.",
       };
+    }
+  }
+
+  if ("island" in raw) {
+    recognized = true;
+    const value = raw.island;
+    if (value === null || (typeof value === "string" && !value.trim())) {
+      patch.island = null;
+    } else if (isTradeLeadIsland(value)) {
+      patch.island = value;
+    } else {
+      return { ok: false, error: "Unknown island." };
     }
   }
 
@@ -457,6 +507,7 @@ export function parseLeadPatchBody(
 export interface NormalizedLeadPatch {
   status?: TradeLeadStatus;
   assignee?: { uid: string; name: string } | null;
+  island?: TradeLeadIsland | null;
   nextFollowUpAt?: Date | null;
   outcome?: string | null;
 }
@@ -487,7 +538,12 @@ function isoOf(millis: number | null): string | null {
 export function buildLeadUpdate(
   current: Pick<
     TradeLeadRecord,
-    "status" | "assignedToUid" | "assignedToName" | "nextFollowUpAt" | "outcome"
+    | "status"
+    | "assignedToUid"
+    | "assignedToName"
+    | "island"
+    | "nextFollowUpAt"
+    | "outcome"
   >,
   patch: NormalizedLeadPatch,
   now: Date
@@ -568,6 +624,25 @@ export function buildLeadUpdate(
     }
   }
 
+  if (patch.island !== undefined) {
+    // Normalize the stored value the same way serialization does — a legacy
+    // or malformed value compares as "unset" rather than mismatching on
+    // every patch.
+    const from = isTradeLeadIsland(current.island) ? current.island : null;
+    const to = patch.island;
+    if (to !== from) {
+      if (to === null) {
+        updates.island = DELETE_FIELD;
+      } else {
+        updates.island = to;
+      }
+      activities.push({
+        type: "island_changed",
+        details: { from: from ?? null, to },
+      });
+    }
+  }
+
   if (patch.nextFollowUpAt !== undefined && !toTerminal) {
     const toMillis = patch.nextFollowUpAt?.getTime() ?? null;
     if (toMillis !== currentFollowUpMillis) {
@@ -612,6 +687,8 @@ export interface ManualTradeLeadInput {
   email: string;
   phoneOrWhatsapp: string;
   venueType: string;
+  // Optional — "" means not recorded.
+  island: string;
   message: string;
   source: Exclude<TradeLeadSource, typeof TRADE_LEAD_SOURCE>;
 }
@@ -633,6 +710,7 @@ export function parseManualLeadBody(
   const email = str("email");
   const phoneOrWhatsapp = str("phoneOrWhatsapp");
   const venueTypeRaw = str("venueType");
+  const island = str("island");
   const message = str("message");
   const source = raw.source;
 
@@ -666,6 +744,9 @@ export function parseManualLeadBody(
   if (!TRADE_VENUE_TYPES.some((t) => t.value === venueType)) {
     return { ok: false, error: "Choose a valid business type." };
   }
+  if (island && !isTradeLeadIsland(island)) {
+    return { ok: false, error: "Choose a valid island." };
+  }
   if (message.length > TRADE_LEAD_FIELD_LIMITS.message) {
     return { ok: false, error: "Message is too long." };
   }
@@ -681,6 +762,7 @@ export function parseManualLeadBody(
       email,
       phoneOrWhatsapp,
       venueType,
+      island,
       message,
       source,
     },
@@ -738,11 +820,23 @@ export function describeTradeLeadActivity(
       const to = detailStr("to");
       return to ? `Outcome updated: ${to}` : "Outcome cleared";
     }
+    case "island_changed": {
+      const to = detailStr("to");
+      const toLabel = to ? tradeLeadIslandLabel(to) : "Not set";
+      const from = detailStr("from");
+      return from
+        ? `Island changed from ${tradeLeadIslandLabel(from)} to ${toLabel}`
+        : `Island set to ${toLabel}`;
+    }
     case "communication": {
-      const channel = activity.communication?.channel;
-      const direction = activity.communication?.direction;
-      const verb = direction === "inbound" ? "received" : "sent";
-      return channel ? `Message ${verb} via ${channel}` : `Message ${verb}`;
+      const comm = activity.communication;
+      const verb = comm?.direction === "inbound" ? "received" : "sent";
+      const channel = comm?.channel;
+      const subject = comm?.subject?.trim();
+      const base = channel
+        ? `${channel === "email" ? "Email" : "Message"} ${verb}`
+        : `Message ${verb}`;
+      return subject ? `${base} — ${subject}` : base;
     }
     case "note":
     default:

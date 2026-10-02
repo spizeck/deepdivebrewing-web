@@ -75,7 +75,7 @@ describe("firestore.rules", () => {
     );
   });
 
-  it("keeps tradeLeads and its activities subcollection fully server-side (Issue #150)", () => {
+  it("keeps tradeLeads and its subcollections fully server-side (Issues #150, #152)", () => {
     // Scope assertions to the tradeLeads block itself (everything until the
     // next sibling match) so a deny elsewhere in the file can't mask a
     // missing deny here.
@@ -98,6 +98,19 @@ describe("firestore.rules", () => {
     assert.ok(
       leadSection.slice(activitiesStart).includes("allow read, write: if false"),
       "Expected the activities subcollection to deny all client access"
+    );
+    const communicationsStart = leadSection.indexOf(
+      "match /communications/{communicationId}"
+    );
+    assert.ok(
+      communicationsStart > -1,
+      "Expected the nested tradeLeads communications deny-all match"
+    );
+    assert.ok(
+      leadSection
+        .slice(communicationsStart)
+        .includes("allow read, write: if false"),
+      "Expected the communications subcollection to deny all client access"
     );
   });
 });

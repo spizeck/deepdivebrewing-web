@@ -5,32 +5,17 @@ import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId, logInfo } from "@/lib/log";
 import {
   applyLeadPatch,
-  getTradeLead,
-  listTradeLeadActivities,
+  getTradeLeadDetail,
   resolveAssignee,
   tradeLeadActorOf,
 } from "@/lib/trade-leads-admin";
 import {
   parseLeadPatchBody,
-  serializeTradeLead,
-  serializeTradeLeadActivity,
   type NormalizedLeadPatch,
 } from "@/lib/trade-leads-admin-common";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
-}
-
-async function leadDetail(id: string) {
-  const [lead, activities] = await Promise.all([
-    getTradeLead(id),
-    listTradeLeadActivities(id),
-  ]);
-  if (!lead) return null;
-  return {
-    lead: serializeTradeLead(lead.id, lead.data),
-    activities: activities.map((a) => serializeTradeLeadActivity(a.id, a.data)),
-  };
 }
 
 export async function GET(req: NextRequest, { params }: RouteParams) {
@@ -41,15 +26,15 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     await requireAdminActor(idToken);
     const { id } = await params;
-    const detail = await leadDetail(id);
+    const detail = await getTradeLeadDetail(id);
     if (!detail) {
       return NextResponse.json(
         { ok: false, error: "Trade lead not found." },
         { status: 404 }
       );
     }
-    // Read-only: viewing a lead must not touch updatedAt/lastActivityAt —
-    // those timestamps drive the 24-month retention window.
+    // Read-only apart from first-touch routing-token provisioning, which
+    // does not advance updatedAt/lastActivityAt — the retention anchors.
     return NextResponse.json({ ok: true, ...detail });
   } catch (error) {
     return apiErrorResponse(error, {
@@ -81,6 +66,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const patch: NormalizedLeadPatch = {
       status: parsed.patch.status,
+      island: parsed.patch.island,
       nextFollowUpAt: parsed.patch.nextFollowUpAt,
       outcome: parsed.patch.outcome,
     };
@@ -101,7 +87,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       });
     }
 
-    const detail = await leadDetail(id);
+    const detail = await getTradeLeadDetail(id);
     return NextResponse.json({ ok: true, ...detail });
   } catch (error) {
     return apiErrorResponse(error, {

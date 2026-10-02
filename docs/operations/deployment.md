@@ -64,8 +64,10 @@ These variables are used only by API routes or build-time scripts and must not b
 Examples:
 
 - `RESEND_API_KEY` — injected by the Vercel-managed Resend integration (also sets `RESEND_EMAIL_DOMAIN`, which the app does not consume)
-- `RESEND_FROM_EMAIL`, `ADMIN_INVITE_FROM_EMAIL` — optional sender overrides; both default to `noreply@mail.deepdivebrewing.com` on the verified sending domain
-- `TRADE_INQUIRY_TO_EMAIL`
+- `RESEND_FROM_EMAIL`, `ADMIN_INVITE_FROM_EMAIL`, `TRADE_FROM_EMAIL` — optional sender overrides; `TRADE_FROM_EMAIL` defaults to `trade@mail.deepdivebrewing.com` on the verified sending domain
+- `TRADE_NOTIFICATION_EMAIL` — staff mailbox for trade alerts (legacy name `TRADE_INQUIRY_TO_EMAIL` still works as a fallback)
+- `TRADE_REPLY_DOMAIN` — optional; inbound domain for per-lead reply addresses (default `reply.deepdivebrewing.com`, requires Resend inbound/MX setup)
+- `RESEND_WEBHOOK_SECRET` — svix signing secret for `POST /api/webhooks/resend`; required for inbound email and delivery callbacks
 - `VERCEL_DEPLOY_HOOK_URL`
 - `FIREBASE_ADMIN_PROJECT_ID`
 - `FIREBASE_ADMIN_CLIENT_EMAIL`

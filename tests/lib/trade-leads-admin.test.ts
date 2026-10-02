@@ -192,6 +192,20 @@ describe("parseLeadPatchBody", () => {
     );
   });
 
+  it("accepts a canonical island, null clear, and rejects unknown values (#152)", () => {
+    const set = parseLeadPatchBody({ island: "saba" });
+    assert.ok(set.ok);
+    assert.strictEqual(set.patch.island, "saba");
+    const clear = parseLeadPatchBody({ island: null });
+    assert.ok(clear.ok);
+    assert.strictEqual(clear.patch.island, null);
+    assert.deepStrictEqual(parseLeadPatchBody({ island: "garbage" }), {
+      ok: false,
+      error: "Unknown island.",
+    });
+    assert.strictEqual(parseLeadPatchBody({ island: 7 }).ok, false);
+  });
+
   it("requires at least one recognized field", () => {
     assert.strictEqual(parseLeadPatchBody({}).ok, false);
     assert.strictEqual(parseLeadPatchBody({ unrelated: true }).ok, false);
@@ -363,6 +377,47 @@ describe("buildLeadUpdate", () => {
     assert.strictEqual(cleared.plan.updates.nextFollowUpAt, DELETE_FIELD);
   });
 
+  it("records island set, change, and clear in the timeline (#152)", () => {
+    const set = buildLeadUpdate({ status: "new" }, { island: "saba" }, NOW);
+    assert.ok(set.ok);
+    assert.strictEqual(set.plan.updates.island, "saba");
+    assert.deepStrictEqual(set.plan.activities, [
+      { type: "island_changed", details: { from: null, to: "saba" } },
+    ]);
+
+    const changed = buildLeadUpdate(
+      { status: "contacted", island: "saba" },
+      { island: "sxm" },
+      NOW
+    );
+    assert.ok(changed.ok);
+    assert.deepStrictEqual(changed.plan.activities[0]?.details, {
+      from: "saba",
+      to: "sxm",
+    });
+
+    const cleared = buildLeadUpdate(
+      { status: "contacted", island: "saba" },
+      { island: null },
+      NOW
+    );
+    assert.ok(cleared.ok);
+    assert.strictEqual(cleared.plan.updates.island, DELETE_FIELD);
+    assert.deepStrictEqual(cleared.plan.activities[0]?.details, {
+      from: "saba",
+      to: null,
+    });
+
+    // Repeating the current island is a no-op — no history noise.
+    const noop = buildLeadUpdate(
+      { status: "contacted", island: "saba" },
+      { island: "saba" },
+      NOW
+    );
+    assert.ok(noop.ok);
+    assert.strictEqual(noop.plan.changed, false);
+  });
+
   it("advances updatedAt/lastActivityAt only on meaningful changes", () => {
     const changed = buildLeadUpdate(lead, { status: "contacted" }, NOW);
     assert.ok(changed.ok);
@@ -421,6 +476,19 @@ describe("parseManualLeadBody", () => {
     assert.strictEqual(defaulted.input.venueType, "other");
     assert.strictEqual(parseManualLeadBody({ ...base, venueType: "garbage" }).ok, false);
   });
+
+  it("accepts a canonical island and defaults missing to not-set (#152)", () => {
+    const withIsland = parseManualLeadBody({ ...base, island: "sxm" });
+    assert.ok(withIsland.ok);
+    assert.strictEqual(withIsland.input.island, "sxm");
+    const without = parseManualLeadBody(base);
+    assert.ok(without.ok);
+    assert.strictEqual(without.input.island, "");
+    assert.strictEqual(
+      parseManualLeadBody({ ...base, island: "Atlantis" }).ok,
+      false
+    );
+  });
 });
 
 describe("validateNoteBody", () => {
@@ -455,6 +523,40 @@ describe("serializers", () => {
     assert.strictEqual(view.createdAt, "2026-01-01T00:00:00.000Z");
     assert.strictEqual(view.nextFollowUpAt, "2026-10-18T04:00:00.000Z");
     assert.strictEqual(view.assignedToUid, undefined);
+  });
+
+  it("serializes canonical island and omits missing/non-canonical values (#152)", () => {
+    const withIsland = serializeTradeLead("l", { island: "saba" });
+    assert.strictEqual(withIsland.island, "saba");
+    // Old records have no island — the view stays absent, never invented.
+    assert.strictEqual(serializeTradeLead("l", {}).island, undefined);
+    assert.strictEqual(
+      serializeTradeLead("l", { island: "Atlantis" }).island,
+      undefined
+    );
+  });
+
+  it("exposes normalized phone display/E.164, normalizing legacy raw values on read", () => {
+    const normalized = serializeTradeLead("l", {
+      phoneOrWhatsapp: "+599 416 3544",
+      phoneNormalized: "+5994163544",
+    });
+    assert.strictEqual(normalized.phoneE164, "+5994163544");
+    assert.strictEqual(normalized.phoneDisplay, "+599 416 3544");
+
+    // Pre-#152 record: no phoneNormalized — the raw value is normalized
+    // on read so old leads get the improved display without a migration.
+    const legacy = serializeTradeLead("l", {
+      phoneOrWhatsapp: "416-3544",
+    });
+    assert.strictEqual(legacy.phoneE164, "+5994163544");
+    assert.strictEqual(legacy.phoneDisplay, "+599 416 3544");
+    assert.strictEqual(legacy.phoneOrWhatsapp, "416-3544");
+
+    // Unparseable input keeps its raw display and no E.164.
+    const raw = serializeTradeLead("l", { phoneOrWhatsapp: "see note" });
+    assert.strictEqual(raw.phoneE164, undefined);
+    assert.strictEqual(raw.phoneDisplay, "see note");
   });
 
   it("serializes an activity", () => {
@@ -494,15 +596,38 @@ describe("describeTradeLeadActivity", () => {
     );
     assert.strictEqual(act("outcome_changed", { to: null }), "Outcome cleared");
     assert.strictEqual(act("note"), "Note");
+    assert.strictEqual(
+      act("island_changed", { from: null, to: "saba" }),
+      "Island set to Saba"
+    );
+    assert.strictEqual(
+      act("island_changed", { from: "saba", to: "sxm" }),
+      "Island changed from Saba to Sint Maarten"
+    );
+    assert.strictEqual(
+      act("island_changed", { from: "saba", to: null }),
+      "Island changed from Saba to Not set"
+    );
   });
 
-  it("renders the reserved communication type for future messages", () => {
+  it("renders the communication type with direction, channel, and subject (#152)", () => {
     assert.strictEqual(
       describeTradeLeadActivity({
         type: "communication",
         communication: { channel: "email", direction: "outbound" },
       }),
-      "Message sent via email"
+      "Email sent"
+    );
+    assert.strictEqual(
+      describeTradeLeadActivity({
+        type: "communication",
+        communication: {
+          channel: "email",
+          direction: "inbound",
+          subject: "Re: pricing",
+        },
+      }),
+      "Email received — Re: pricing"
     );
   });
 });
@@ -518,6 +643,7 @@ describe("admin trade-lead wiring", () => {
       "app/api/admin/trade-leads/route.ts",
       "app/api/admin/trade-leads/[id]/route.ts",
       "app/api/admin/trade-leads/[id]/activities/route.ts",
+      "app/api/admin/trade-leads/[id]/messages/route.ts",
     ]) {
       assert.ok(
         read(rel).includes("requireAdminActor"),
@@ -526,18 +652,39 @@ describe("admin trade-lead wiring", () => {
     }
   });
 
+  it("the outbound send endpoint never accepts a caller-chosen recipient (#152)", () => {
+    // Mail-relay containment: the send target must come from the lead
+    // record, not the request body — the parser only takes subject/body.
+    const route = read("app/api/admin/trade-leads/[id]/messages/route.ts");
+    assert.ok(!route.includes("raw.to"), "route must not read a `to` field");
+    const sender = read("lib/trade-leads-email.ts");
+    assert.ok(sender.includes("lead.email"), "recipient comes from the lead");
+  });
+
+  it("the Resend webhook verifies the signature before processing (#152)", () => {
+    const route = read("app/api/webhooks/resend/route.ts");
+    assert.ok(route.includes("verifyResendWebhook"));
+    assert.ok(route.includes('"Invalid webhook."'));
+    // Verification must precede any event-type dispatch.
+    assert.ok(
+      route.indexOf("verifyResendWebhook") < route.indexOf("email.received")
+    );
+  });
+
   it("the public submission writes a lead_created activity with the lead", () => {
     const source = read("lib/trade-leads.ts");
     assert.ok(source.includes("TRADE_LEAD_ACTIVITIES_SUBCOLLECTION"));
     assert.ok(source.includes('"lead_created"'));
   });
 
-  it("the prune script removes the activities subcollection with the lead", () => {
+  it("the prune script removes the activities and communications subcollections", () => {
     const source = read("scripts/prune-trade-leads.ts");
     assert.ok(source.includes("TRADE_LEAD_ACTIVITIES_SUBCOLLECTION"));
-    // Activities are batch-deleted after the lead's transaction commits —
-    // a long history must never overflow a single transaction's write limit.
-    assert.ok(source.includes("deleteLeadActivities"));
+    assert.ok(source.includes("TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION"));
+    // Subcollection docs are batch-deleted after the lead's transaction
+    // commits — a long history must never overflow a single transaction's
+    // write limit.
+    assert.ok(source.includes("deleteLeadSubcollection"));
     assert.ok(source.includes("batch.delete(doc.ref)"));
   });
 });

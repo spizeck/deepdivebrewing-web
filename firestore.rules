@@ -67,10 +67,16 @@ service cloud.firestore {
     match /tradeLeads/{leadId} {
       allow read, write: if false;
 
-      // Per-lead activity history (notes, status/owner/follow-up changes).
-      // The catch-all rule would already deny this; the explicit nested
-      // match documents that the subcollection is part of the PII boundary.
+      // Per-lead activity history (notes, status/owner/follow-up changes)
+      // and the email communication records (#152) that history entries
+      // reference. The catch-all rule would already deny these; the explicit
+      // nested matches document that the subcollections are part of the PII
+      // boundary.
       match /activities/{activityId} {
+        allow read, write: if false;
+      }
+
+      match /communications/{communicationId} {
         allow read, write: if false;
       }
     }

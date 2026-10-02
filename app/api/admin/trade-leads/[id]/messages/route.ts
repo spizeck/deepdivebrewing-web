@@ -1,21 +1,31 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdminActor } from "@/lib/admin-auth";
-import { badRequestResponse, getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
+import {
+  badRequestResponse,
+  getBearerToken,
+  unauthorizedResponse,
+} from "@/lib/api-auth";
 import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId, logInfo } from "@/lib/log";
 import {
-  addTradeLeadNote,
   getTradeLeadDetail,
   tradeLeadActorOf,
 } from "@/lib/trade-leads-admin";
-import { validateNoteBody } from "@/lib/trade-leads-admin-common";
+import {
+  parseOutboundMessageBody,
+  sendLeadEmail,
+} from "@/lib/trade-leads-email";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// Append-only internal note. The note body is lead PII-adjacent content:
-// logged as lead id + action only.
+// Sends an admin-composed email to the lead's contact address (Issue #152).
+// The recipient is always the lead's stored email — the request cannot aim
+// the message at an arbitrary address, so the endpoint is not a mail relay.
+// The send is recorded on the lead (communication doc + timeline entry)
+// whether or not the provider accepts it, so the history never claims a
+// message that did not happen.
 export async function POST(req: NextRequest, { params }: RouteParams) {
   const requestId = getRequestId(req.headers);
   const idToken = getBearerToken(req);
@@ -32,20 +42,26 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const actor = await requireAdminActor(idToken);
     const { id } = await params;
 
-    const parsed = validateNoteBody(
-      (body as Record<string, unknown>)?.note
-    );
+    const parsed = parseOutboundMessageBody(body);
     if (!parsed.ok) return badRequestResponse(parsed.error);
 
-    await addTradeLeadNote(id, parsed.note, tradeLeadActorOf(actor));
-    logInfo("trade_lead.note_added", { leadId: id, requestId });
+    const result = await sendLeadEmail(
+      id,
+      parsed.message,
+      tradeLeadActorOf(actor)
+    );
+    logInfo("trade_lead.email_sent", {
+      leadId: id,
+      communicationId: result.communicationId,
+      requestId,
+    });
 
     const detail = await getTradeLeadDetail(id);
     return NextResponse.json({ ok: true, ...detail });
   } catch (error) {
     return apiErrorResponse(error, {
-      fallback: "Failed to add note.",
-      event: "trade_lead.note_failed",
+      fallback: "Failed to send the email.",
+      event: "trade_lead.email_send_failed",
       context: { requestId },
     });
   }

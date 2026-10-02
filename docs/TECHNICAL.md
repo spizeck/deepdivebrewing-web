@@ -95,7 +95,8 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   `NEXT_PUBLIC_SITE_URL` defaults to `https://deepdivebrewing.com`
   in code, resolved once by `lib/site.ts` (`siteUrl`) — the single source of
   truth for canonical/OG/sitemap/robots/JSON-LD URLs. `firebase.json` configures Firestore/Storage rules files and
-  `firestore.indexes.json` (currently empty) — Firebase hosts no frontend here;
+  `firestore.indexes.json` (a `communications` collection-group override for
+  delivery-callback lookups) — Firebase hosts no frontend here;
   the Firebase project is used only for Auth, Firestore, and Storage.
 - **Git → CI → production.** `main` is the production branch. GitHub Actions CI
   (`.github/workflows/ci.yml`) runs on every PR targeting `main` and every push
@@ -121,17 +122,17 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | --- | --- |
 | `app/` | App Router routes. Root `layout.tsx` (header/footer shell, SEO defaults, favicon metadata pointing at `public/`, analytics wiring), `globals.css` (Tailwind v4 theme tokens), `robots.ts`, `sitemap.ts`, `page.tsx` (home). |
 | `app/(pages)/` | Route group for all content pages — `about` (MDX), `admin`, `beers` (+`[slug]`), `contact`, `privacy`, `terms`, `trade` (+ `login`/`order`/`orders` "coming soon" placeholders), `where-to-buy` — sharing a `SiteHeaderDefault` layout. Pages are `.tsx`; `about` is authored as `page.mdx` — see §4. |
-| `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), `admin/trade-leads` (GET list + POST create), `admin/trade-leads/[id]` (GET + PATCH), `admin/trade-leads/[id]/activities` (POST note), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry`. |
+| `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), `admin/trade-leads` (GET list + POST create), `admin/trade-leads/[id]` (GET + PATCH), `admin/trade-leads/[id]/activities` (POST note), `admin/trade-leads/[id]/messages` (POST send email), `webhooks/resend` (POST — signature-verified provider events), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry` and `webhooks/resend` (which trusts the Resend webhook signature instead). |
 | `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx` (auth + data orchestration), `admin-workspace.tsx` (props-driven authenticated view shared with `/admin-fixture`), `admin-access.tsx`, `admin-fixture.tsx` (test-only data), `admin-trade-page.tsx`/`admin-trade-workspace.tsx`/`admin-trade-summary.tsx`/`admin-trade-fixture.tsx` (lead pipeline + test fixture), `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |
-| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `email.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers, `trade-leads-admin-common.ts`. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`, `trade-leads-admin.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
+| `lib/` | Shared logic. Client-safe: `firebase.ts`, `beers.ts`, `venues.ts`, `analytics.ts`, `types.ts`, `utils.ts`, `email.ts`, `trade-leads-common.ts`, admin `*-common`/`admin-format.ts` helpers, `trade-leads-admin-common.ts`, `trade-leads-email-common.ts`, `phone.ts`. Server-only (`import "server-only"`): `firebase-admin.ts`, `admin-auth.ts`, `admin-users.ts`, `admin-invitations.ts`, `admin-invitation-email.ts`, `admin-invitation-resend-core.ts`, `admin-audit.ts`, `trade-leads.ts`, `trade-leads-admin.ts`, `trade-leads-email.ts`. Policy/serialization helpers shared by both: `admin-policy.ts`, `admin-serializers.ts`, `admin-invitation-policy.ts`, `admin-invitation-resend-policy.ts`, `admin-types.ts`. |
 | `tests/` | Node `node:test` unit tests (`tsx` loader) for admin/auth/invitation/audit helpers and for the *contents* of `firestore.rules` and `storage.rules`. |
 | `rules-tests/` | Emulator-backed security-rules tests (`@firebase/rules-unit-testing` against the Firestore/Storage emulators). Run via `npm run test:rules`, which wraps `firebase emulators:exec`; each file uses its own `demo-*` project so parallel `node:test` files stay isolated. |
 | `scripts/` | Local/manual tooling: Playwright diagnostics (`*-check.mjs`, `hero-video-network.mjs`), `check-md-links.mjs`, `check-react-versions.mjs`, `optimize-assets.mjs`, `bootstrap-superadmin.ts`, `prune-trade-leads.ts`, `seed-beers.ts`, `seed-venues.ts`. `check-md-links.mjs` and `check-react-versions.mjs` run in CI; the Playwright diagnostics and data scripts do not (CI browser coverage lives in `smoke-tests/`). |
 | `docs/` | Admin handbook (`docs/admin/`), operations guides (`docs/operations/`: deployment, troubleshooting, post-deploy checklist), and this file. |
 | `content/` | Legacy placeholder (`.gitkeep` only). MDX content is co-located under `app/(pages)/`; do not add files here expecting them to render. |
 | `firestore.rules`, `storage.rules` | Firebase security rules — see §6/§15. |
-| `firebase.json`, `.firebaserc`, `firestore.indexes.json` | Firebase project config (`deepdive-brewing` project), rules file mapping, and (empty) index config. |
+| `firebase.json`, `.firebaserc`, `firestore.indexes.json` | Firebase project config (`deepdive-brewing` project), rules file mapping, and index config (a `communications` collection-group `providerEmailId` override for delivery-callback lookups). |
 | `.github/workflows/ci.yml` | CI — Node from `.nvmrc` (24), `npm ci`, typecheck, lint, unit tests, emulator rules tests (`test:rules`), build, Markdown-link check. |
 | `.env.local.example` | Documented environment variable names (values are never committed). |
 
@@ -222,31 +223,49 @@ in code are listed.
   — the system of record (owner decision, #57); the Resend email is only a
   notification.
 - **Fields:** `businessName`, `contactName`, `email`, `phoneOrWhatsapp`,
-  `venueType`, `message`, `status` (`new | contacted | follow_up | customer |
+  `phoneNormalized` (canonical E.164 when the raw value parses — #152),
+  `venueType`, `island` (optional controlled key from
+  `TRADE_LEAD_ISLANDS` — `saba | sxm | statia | st_kitts | nevis | anguilla |
+  other`; reuses the venue-island keys/labels for overlapping geography),
+  `message`, `status` (`new | contacted | follow_up | customer |
   closed`; `"new"` on create), `source` (`"trade_form"` for the public form;
   manual leads use `whatsapp | phone | in_person | referral | event | email |
-  other`), pipeline fields `assignedToUid`/`assignedToName`, `nextFollowUpAt`,
+  other`), `replyToken` (opaque 8-char routing token — the local part of the
+  lead's inbound email address; never the document id), pipeline fields
+  `assignedToUid`/`assignedToName`, `nextFollowUpAt`,
   `closedAt`, `outcome`, and `createdAt`/`updatedAt`/`lastActivityAt`
   timestamps. History lives in a `tradeLeads/{id}/activities` subcollection —
   append-only entries (`type`, `seq`, `authorUid`/`authorName`, `body`,
-  `details`, `createdAt`); a reserved `communication` type with a channel-
-  agnostic payload scaffolds future outbound messaging.
+  `details`, `communication`, `createdAt`). Email lives in a
+  `tradeLeads/{id}/communications` subcollection (#152): one document per
+  sent/received message (`channel`, `direction`, `from`/`to`/`cc`,
+  `subject`, `textBody`, `attachments` metadata, `provider`/`providerEmailId`,
+  RFC `messageId`/`inReplyTo`/`references`, `threadId`,
+  `sentAt`/`receivedAt`, `sentByUid`/`sentByName`, `deliveryState`). Timeline
+  `communication` activities reference the doc via `communicationId` — the
+  only mutable field on a communication is delivery metadata (provider
+  callbacks advance it); content is append-only.
 - **Writes:** server-only — `persistTradeLead()` in `lib/trade-leads.ts` via
   the Admin SDK from `POST /api/trade-inquiry` (writes a `lead_created`
   activity), plus the `/api/admin/trade-leads*` routes (`lib/
   trade-leads-admin.ts`) for the pipeline's list/detail/patch/create/note
-  operations.
+  operations, `POST .../messages` (`lib/trade-leads-email.ts`) for outbound
+  email, and `POST /api/webhooks/resend` for inbound replies and delivery
+  events.
 - **Visibility:** **no client access at all** — `read, write: if false` on
-  both `tradeLeads/{leadId}` and the nested `activities/{activityId}` match.
+  `tradeLeads/{leadId}` and the nested `activities/{activityId}` and
+  `communications/{communicationId}` matches.
   Leads are PII; admins work them in the `/admin/trade` pipeline, which reads
   through authenticated API routes only.
 - **Retention (#59):** up to 24 months after the last meaningful activity —
-  anchored on `updatedAt`, which advances on notes, status, owner, and
-  follow-up mutations but **not** on reads — unless a legitimate business/
-  legal/accounting/dispute/security reason requires longer; earlier deletion
+  anchored on `updatedAt`, which advances on notes, status, owner, island,
+  follow-up, and sent/received email mutations but **not** on reads — unless
+  a legitimate business/legal/accounting/dispute/security reason requires
+  longer; earlier deletion
   when no longer needed. Pruning is manual via `npm run prune:trade-leads`
   (dry-run by default; `--delete` executes and removes each lead's
-  `activities` subcollection — Firestore deletes do not cascade). No
+  `activities` and `communications` subcollections in bounded batches —
+  Firestore deletes do not cascade). No
   automated deletion exists.
 
 ### `adminUsers`
@@ -556,10 +575,11 @@ notification.** (Owner decision, #57.)
    fields plus `status`, `source`, and server timestamps are stored — never
    IPs, headers, honeypot values, or analytics identifiers.
 4. **Notification:** after a successful write, the Resend email goes to
-   `TRADE_INQUIRY_TO_EMAIL` from `RESEND_FROM_EMAIL` (defaulting to the
+   `TRADE_NOTIFICATION_EMAIL` (legacy fallback `TRADE_INQUIRY_TO_EMAIL`) from
+   `RESEND_FROM_EMAIL` (defaulting to the
    shared `noreply@mail.deepdivebrewing.com` sender in `lib/resend-config.ts`),
-   `replyTo` set to the submitter's email, values HTML-escaped, and the lead
-   document id included as an operator reference. The Resend client is built
+   `replyTo` set to the submitter's email, values HTML-escaped, and a deep
+   link to the lead in the pipeline. The Resend client is built
    **lazily at send time** via `getResendClient()` (`lib/resend.ts`), so
    `next build` needs no Resend value.
 5. **Response/error handling:**
@@ -582,20 +602,66 @@ The `tradeLeads` store is worked through an authenticated pipeline:
 - `GET /api/admin/trade-leads` returns all leads plus the active-admin
   directory; `POST` creates a manual lead (source is explicit and never
   `trade_form`). `GET/PATCH /api/admin/trade-leads/[id]` return/update one
-  lead with its activity timeline; `POST .../activities` appends a note.
+  lead with its activity timeline and communications; `POST .../activities`
+  appends a note; `POST .../messages` sends a customer-facing email.
   Every route calls `requireAdminActor()`; mutations re-read the lead inside
   a transaction and write lead + `activities` atomically so a failed update
   never leaves a dangling history entry.
 - The UI (`components/admin-trade-workspace.tsx` behind
   `components/admin-trade-page.tsx`, routed at `app/(pages)/admin/trade`)
   holds the list + detail in one client surface, with filters (status,
-  owner, business type, follow-up state, text search) applied **in memory**
+  owner, business type, island, follow-up state, text search) applied **in
+  memory**
   over the single list fetch — expected volume is low, so no Firestore
-  composite indexes were added (`firestore.indexes.json` stays empty).
-- Status/owner/follow-up changes are validated by `buildLeadUpdate()` in
+  composite indexes were added for the lead queries (`firestore.indexes.json`
+  holds only the `communications` collection-group field override used by
+  delivery-callback lookups).
+- Status/owner/island/follow-up changes are validated by `buildLeadUpdate()` in
   `lib/trade-leads-admin-common.ts`, which produces both the document patch
   and the matching timeline entries. Reads never write, so viewing a lead
   does not extend its retention.
+
+### Trade email pipeline (issue #152)
+
+Email is a channel on the lead, not a separate inbox:
+
+- **Outbound** — `POST /api/admin/trade-leads/[id]/messages` validates the
+  subject/body (`parseOutboundMessageBody`), persists the communication +
+  timeline entry in one transaction *before* calling Resend (a provider
+  failure is recorded as `deliveryState: "failed"`, never a false success),
+  then sends via `getResendClient().emails.send`. The recipient is always
+  the lead's stored `email` — the endpoint is not a mail relay. `Reply-To`
+  is the lead's inbound address and the send carries a deterministic RFC
+  `Message-ID` (`<commId@<sender domain>>`) plus `In-Reply-To`/`References`
+  when replying to a stored message.
+- **Inbound routing** — each lead owns `replyToken`, an 8-char token from an
+  unambiguous alphabet, forming `<token>@<TRADE_REPLY_DOMAIN>` (default
+  `reply.deepdivebrewing.com`). Replies to app-sent mail and staff-forwarded
+  mail ("attach email to this lead") land on the same address. Leads created
+  before the field existed are provisioned lazily on first detail read —
+  without touching the retention anchors.
+- **Webhook** — `POST /api/webhooks/resend` verifies the svix signature via
+  `resend.webhooks.verify` (`RESEND_WEBHOOK_SECRET`) before touching the
+  payload. `email.received` resolves the token → lead, dedupes on the
+  deterministic communication id `inb_<email_id>` (provider retries are
+  idempotent), fetches the full message (`emails.receiving.get`), stores a
+  plain-text body (HTML is converted to text — inbound markup is never
+  rendered), and notifies the assigned owner (or the shared mailbox when
+  unassigned). `email.*` delivery events advance `deliveryState` on the
+  matching outbound communication by rank, so replays never regress state.
+- **Threading** — `threadId` is the id of the communication at the root of
+  the thread; inbound mail correlates on `In-Reply-To`/`References` against
+  stored Message-IDs, and the routing token provides the lead-level
+  fallback. A lead can hold several threads.
+- **Notifications** — staff alerts (new inquiry, customer reply) are a
+  separate channel: sent to `TRADE_NOTIFICATION_EMAIL` or the assigned
+  owner's `adminUsers` email, deep-linking to `/admin/trade?lead=<id>`, and
+  never recorded on the lead. Notification failure never loses a stored
+  inquiry or reply.
+- **Attachments** — metadata only (filename/content-type/size); content is
+  not downloaded or stored yet.
+- **Logging** — operational logs carry ids and event names only; email
+  bodies, recipients, and customer addresses are never logged.
 
 ## 12. Analytics and observability
 
@@ -685,7 +751,11 @@ Names only — never commit values. Source of truth for names:
 | --- | --- | --- |
 | `RESEND_API_KEY` | Resend client (lazy `getResendClient()`); supplied by the Vercel-managed Resend integration in deployed environments | Runtime only — required when mail is actually sent; trade route logs `trade_inquiry.notification_failed` (lead is already persisted), invitation send returns a structured failure |
 | `RESEND_EMAIL_DOMAIN` | Injected by the Vercel Resend integration | **Not consumed** — explicit sender addresses are used instead |
-| `TRADE_INQUIRY_TO_EMAIL` | Trade inquiry notification recipient | Runtime only — if unset the lead still persists and `trade_inquiry.notification_failed` is logged |
+| `TRADE_NOTIFICATION_EMAIL` | Staff mailbox: new trade inquiry alerts + customer-reply alerts on unassigned leads | Runtime only — falls back to `TRADE_INQUIRY_TO_EMAIL`; if neither is set the lead still persists and `trade_inquiry.notification_failed` is logged |
+| `TRADE_INQUIRY_TO_EMAIL` | Legacy name for `TRADE_NOTIFICATION_EMAIL` | Deprecated fallback — kept so un-migrated deployments keep notifying |
+| `TRADE_FROM_EMAIL` | Sender for customer-facing lead email | Optional — defaults to `trade@mail.deepdivebrewing.com` on the verified sending domain, then `RESEND_FROM_EMAIL` |
+| `TRADE_REPLY_DOMAIN` | Inbound domain for per-lead reply/attach addresses (`<token>@<domain>`) | Optional — defaults to `reply.deepdivebrewing.com`; requires Resend inbound (MX) configuration |
+| `RESEND_WEBHOOK_SECRET` | svix signing secret (`whsec_…`) for `POST /api/webhooks/resend` | Required for inbound email + delivery callbacks — the endpoint refuses events when unset |
 | `RESEND_FROM_EMAIL` | Shared default sender (trade emails; fallback for invites) | Optional — defaults to `Deep Dive Brewing <noreply@mail.deepdivebrewing.com>` (`DEFAULT_RESEND_FROM_EMAIL` in `lib/resend-config.ts`, on the verified sending domain) |
 | `ADMIN_INVITE_FROM_EMAIL` | Invite sender (preferred) | Optional — falls back to `RESEND_FROM_EMAIL`, then the shared default |
 | `FIREBASE_ADMIN_PROJECT_ID` | Admin SDK credential | Yes for all `/api/admin/*` |
