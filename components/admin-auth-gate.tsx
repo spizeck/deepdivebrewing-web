@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   getIdTokenResult,
@@ -26,7 +26,13 @@ export function AdminAuthGate({
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Claims are resolved asynchronously after each auth event; while pending,
+  // the gate must show neither the workspace nor a false "not authorized".
+  const [claimsResolved, setClaimsResolved] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  // uid of the most recent auth event — a slow getIdTokenResult must never
+  // apply claims to a user that has since signed out or been replaced.
+  const latestUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -34,24 +40,34 @@ export function AdminAuthGate({
       unsub = onAuthStateChanged(
         getFirebaseAuth(),
         async (nextUser) => {
+          const uid = nextUser?.uid ?? null;
+          latestUidRef.current = uid;
           setUser(nextUser);
           setIsAdmin(false);
-          if (nextUser) {
-            try {
-              const tokenResult = await getIdTokenResult(nextUser, true);
-              const claims = tokenResult.claims as {
-                admin?: boolean;
-                role?: string;
-              };
-              setIsAdmin(
-                claims.admin === true &&
-                  (claims.role === "admin" || claims.role === "superadmin")
-              );
-            } catch (error) {
-              console.error("Failed to resolve admin session:", error);
-            }
-          }
+          setClaimsResolved(false);
           setAuthReady(true);
+          if (!nextUser) {
+            setClaimsResolved(true);
+            return;
+          }
+          try {
+            const tokenResult = await getIdTokenResult(nextUser, true);
+            // A newer auth event superseded this resolution — drop it.
+            if (latestUidRef.current !== uid) return;
+            const claims = tokenResult.claims as {
+              admin?: boolean;
+              role?: string;
+            };
+            setIsAdmin(
+              claims.admin === true &&
+                (claims.role === "admin" || claims.role === "superadmin")
+            );
+          } catch (error) {
+            console.error("Failed to resolve admin session:", error);
+          }
+          if (latestUidRef.current === uid) {
+            setClaimsResolved(true);
+          }
         },
         (error) => {
           console.error("Auth state listener failed:", error);
@@ -81,7 +97,7 @@ export function AdminAuthGate({
     }
   }
 
-  if (!authReady) {
+  if (!authReady || (user && !claimsResolved)) {
     return (
       <p role="status" className="text-sm text-muted-foreground">
         Loading admin...

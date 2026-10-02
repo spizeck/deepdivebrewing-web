@@ -76,18 +76,28 @@ describe("firestore.rules", () => {
   });
 
   it("keeps tradeLeads and its activities subcollection fully server-side (Issue #150)", () => {
-    assert.ok(
-      rules.includes("match /tradeLeads/{leadId}"),
-      "Expected the tradeLeads deny-all match"
-    );
-    assert.ok(
-      rules.includes("match /activities/{activityId}"),
-      "Expected the nested tradeLeads activities deny-all match"
-    );
-    const leadSection = rules.slice(rules.indexOf("match /tradeLeads/{leadId}"));
+    // Scope assertions to the tradeLeads block itself (everything until the
+    // next sibling match) so a deny elsewhere in the file can't mask a
+    // missing deny here.
+    const leadStart = rules.indexOf("match /tradeLeads/{leadId}");
+    const leadEnd = rules.indexOf("match /meta/{docId}", leadStart);
+    assert.ok(leadStart > -1, "Expected the tradeLeads deny-all match");
+    assert.ok(leadEnd > leadStart, "Expected meta match after tradeLeads");
+    const leadSection = rules.slice(leadStart, leadEnd);
     assert.ok(
       leadSection.includes("allow read, write: if false"),
       "Expected tradeLeads to deny all client access"
+    );
+    const activitiesStart = leadSection.indexOf(
+      "match /activities/{activityId}"
+    );
+    assert.ok(
+      activitiesStart > -1,
+      "Expected the nested tradeLeads activities deny-all match"
+    );
+    assert.ok(
+      leadSection.slice(activitiesStart).includes("allow read, write: if false"),
+      "Expected the activities subcollection to deny all client access"
     );
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -144,6 +144,11 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<LeadDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Synchronous mirror of selectedId — async detail/mutation responses must
+  // only paint if they still belong to the currently selected lead. Without
+  // this a slow fetch for lead A can overwrite the panel for lead B and a
+  // follow-up edit would land on the wrong record.
+  const selectedIdRef = useRef<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
@@ -205,6 +210,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
 
   const openLead = useCallback(
     async (id: string) => {
+      selectedIdRef.current = id;
       setSelectedId(id);
       setDetailLoading(true);
       setDetail(null);
@@ -216,34 +222,45 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
           lead: data.lead as TradeLeadView,
           activities: (data.activities as TradeLeadActivityView[]) ?? [],
         };
-        setDetail(next);
-        setFollowUpDraft(dateToLocalDateInput(next.lead.nextFollowUpAt));
-        setOutcomeDraft(next.lead.outcome ?? "");
+        // The list is shared state — always merge the fresh record so a
+        // stale panel can't keep showing outdated values later.
         setLeads((prev) =>
           prev.map((lead) => (lead.id === next.lead.id ? next.lead : lead))
         );
+        // Selection moved on while this fetch was in flight — discard the
+        // detail (the newer request owns the panel and the loading flag).
+        if (selectedIdRef.current !== id) return;
+        setDetail(next);
+        setFollowUpDraft(dateToLocalDateInput(next.lead.nextFollowUpAt));
+        setOutcomeDraft(next.lead.outcome ?? "");
       } catch (error) {
+        if (selectedIdRef.current !== id) return;
         console.error(error);
         setStatusMessage("Failed to load the selected lead.");
         setStatusIsError(true);
       } finally {
-        setDetailLoading(false);
+        if (selectedIdRef.current === id) {
+          setDetailLoading(false);
+        }
       }
     },
     [apiFetch]
   );
 
-  // Applies the fresh lead + activities a mutation response returns.
+  // Applies the fresh lead + activities a mutation response returns. The
+  // list always updates; the detail panel only updates when the mutated
+  // lead is still the selected one (a response may land after switching).
   function applyDetail(next: LeadDetail) {
-    setDetail(next);
-    setFollowUpDraft(dateToLocalDateInput(next.lead.nextFollowUpAt));
-    setOutcomeDraft(next.lead.outcome ?? "");
     setLeads((prev) => {
       const exists = prev.some((lead) => lead.id === next.lead.id);
       return exists
         ? prev.map((lead) => (lead.id === next.lead.id ? next.lead : lead))
         : [next.lead, ...prev];
     });
+    if (selectedIdRef.current !== next.lead.id) return;
+    setDetail(next);
+    setFollowUpDraft(dateToLocalDateInput(next.lead.nextFollowUpAt));
+    setOutcomeDraft(next.lead.outcome ?? "");
   }
 
   async function patchLead(

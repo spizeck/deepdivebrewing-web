@@ -118,6 +118,7 @@ export const TRADE_LEAD_ACTIVITY_TYPES = [
   "follow_up_set",
   "follow_up_changed",
   "follow_up_cleared",
+  "outcome_changed",
   "communication",
 ] as const;
 
@@ -523,6 +524,10 @@ export function buildLeadUpdate(
         : null;
     if (trimmed !== currentOutcome) {
       updates.outcome = trimmed ?? DELETE_FIELD;
+      activities.push({
+        type: "outcome_changed",
+        details: { from: currentOutcome, to: trimmed },
+      });
     }
   }
 
@@ -713,6 +718,10 @@ export function describeTradeLeadActivity(
     }
     case "follow_up_cleared":
       return "Follow-up cleared";
+    case "outcome_changed": {
+      const to = detailStr("to");
+      return to ? `Outcome updated: ${to}` : "Outcome cleared";
+    }
     case "communication": {
       const channel = activity.communication?.channel;
       const direction = activity.communication?.direction;

@@ -217,6 +217,36 @@ describe("buildLeadUpdate", () => {
     );
     assert.ok(result.ok);
     assert.strictEqual(result.plan.updates.outcome, "First order placed");
+    // Outcome is part of the append-only history, not a silent field update.
+    assert.deepStrictEqual(
+      result.plan.activities.map((a) => a.type),
+      ["status_changed", "follow_up_cleared", "outcome_changed"]
+    );
+  });
+
+  it("records outcome changes and clears in the timeline", () => {
+    const closed = { status: "closed", outcome: "No fit" };
+    const changed = buildLeadUpdate(
+      closed,
+      { outcome: "Went with a competitor" },
+      NOW
+    );
+    assert.ok(changed.ok);
+    assert.deepStrictEqual(changed.plan.activities, [
+      {
+        type: "outcome_changed",
+        details: { from: "No fit", to: "Went with a competitor" },
+      },
+    ]);
+    assert.strictEqual(changed.plan.updates.outcome, "Went with a competitor");
+
+    const cleared = buildLeadUpdate(closed, { outcome: null }, NOW);
+    assert.ok(cleared.ok);
+    assert.strictEqual(cleared.plan.updates.outcome, DELETE_FIELD);
+    assert.deepStrictEqual(cleared.plan.activities[0]?.details, {
+      from: "No fit",
+      to: null,
+    });
   });
 
   it("clears closedAt/outcome when a terminal lead reopens", () => {
@@ -428,6 +458,11 @@ describe("describeTradeLeadActivity", () => {
     assert.strictEqual(act("owner_changed", { to: "Chad" }), "Assigned to Chad");
     assert.strictEqual(act("owner_changed", { to: null }), "Owner unassigned");
     assert.strictEqual(act("follow_up_cleared"), "Follow-up cleared");
+    assert.strictEqual(
+      act("outcome_changed", { to: "First order placed" }),
+      "Outcome updated: First order placed"
+    );
+    assert.strictEqual(act("outcome_changed", { to: null }), "Outcome cleared");
     assert.strictEqual(act("note"), "Note");
   });
 
@@ -470,6 +505,9 @@ describe("admin trade-lead wiring", () => {
   it("the prune script removes the activities subcollection with the lead", () => {
     const source = read("scripts/prune-trade-leads.ts");
     assert.ok(source.includes("TRADE_LEAD_ACTIVITIES_SUBCOLLECTION"));
-    assert.ok(source.includes("tx.delete(activity.ref)"));
+    // Activities are batch-deleted after the lead's transaction commits —
+    // a long history must never overflow a single transaction's write limit.
+    assert.ok(source.includes("deleteLeadActivities"));
+    assert.ok(source.includes("batch.delete(doc.ref)"));
   });
 });

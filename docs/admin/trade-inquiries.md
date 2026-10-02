@@ -82,7 +82,7 @@ History is **append-only**: each lead has an `activities` subcollection, and ent
 - Status changed from Contacted to Follow-up.
 - Follow-up moved to Oct 18.
 
-Staff add notes with the **Add a note** box on the lead workspace — a note is the fastest way to log a conversation. The pipeline automatically records: lead created (with source), status changed (from → to), owner changed, and follow-up set/moved/cleared.
+Staff add notes with the **Add a note** box on the lead workspace — a note is the fastest way to log a conversation. The pipeline automatically records: lead created (with source), status changed (from → to), owner changed, follow-up set/moved/cleared, and outcome recorded or cleared on terminal leads.
 
 ### Follow-ups
 
