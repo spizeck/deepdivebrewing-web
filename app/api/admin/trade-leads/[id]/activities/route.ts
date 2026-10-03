@@ -5,15 +5,10 @@ import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId, logInfo } from "@/lib/log";
 import {
   addTradeLeadNote,
-  getTradeLead,
-  listTradeLeadActivities,
+  getTradeLeadDetail,
   tradeLeadActorOf,
 } from "@/lib/trade-leads-admin";
-import {
-  serializeTradeLead,
-  serializeTradeLeadActivity,
-  validateNoteBody,
-} from "@/lib/trade-leads-admin-common";
+import { validateNoteBody } from "@/lib/trade-leads-admin-common";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -45,17 +40,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     await addTradeLeadNote(id, parsed.note, tradeLeadActorOf(actor));
     logInfo("trade_lead.note_added", { leadId: id, requestId });
 
-    const [lead, activities] = await Promise.all([
-      getTradeLead(id),
-      listTradeLeadActivities(id),
-    ]);
-    return NextResponse.json({
-      ok: true,
-      lead: lead ? serializeTradeLead(lead.id, lead.data) : null,
-      activities: activities.map((a) =>
-        serializeTradeLeadActivity(a.id, a.data)
-      ),
-    });
+    const detail = await getTradeLeadDetail(id);
+    return NextResponse.json({ ok: true, ...detail });
   } catch (error) {
     return apiErrorResponse(error, {
       fallback: "Failed to add note.",

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/lib/analytics";
-import { TRADE_VENUE_TYPES } from "@/lib/trade-leads-common";
+import { TRADE_LEAD_ISLANDS, TRADE_VENUE_TYPES } from "@/lib/trade-leads-common";
 
 interface FormData {
   businessName: string;
@@ -11,6 +11,7 @@ interface FormData {
   email: string;
   phoneOrWhatsapp: string;
   venueType: string;
+  island: string;
   message: string;
   website: string;
 }
@@ -21,6 +22,7 @@ const initialFormData: FormData = {
   email: "",
   phoneOrWhatsapp: "",
   venueType: "",
+  island: "",
   message: "",
   website: "",
 };
@@ -177,6 +179,26 @@ export function TradeInquiryForm() {
           {TRADE_VENUE_TYPES.map((type) => (
             <option key={type.value} value={type.value}>
               {type.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="island" className="mb-2 block text-sm font-medium text-ink">
+          Island (optional)
+        </label>
+        <select
+          id="island"
+          name="island"
+          value={formData.island}
+          onChange={handleChange}
+          className="min-h-[44px] w-full rounded-md border border-stone bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-ocean/50"
+        >
+          <option value="">Choose one...</option>
+          {TRADE_LEAD_ISLANDS.map((island) => (
+            <option key={island.value} value={island.value}>
+              {island.label}
             </option>
           ))}
         </select>

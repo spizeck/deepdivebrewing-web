@@ -218,8 +218,18 @@ emits **single-line JSON** so Vercel's log search can filter reliably:
 | `trade_inquiry.persisted` | Inquiry durably written to `tradeLeads` (`leadId`, `venueType`, `requestId`) |
 | `trade_inquiry.persistence_failed` | Firestore write failed — the customer saw an error (`requestId` + error) |
 | `trade_inquiry.notification_sent` | Resend notification delivered after persistence (`leadId`, `requestId`) |
-| `trade_inquiry.notification_failed` | Notification failed/unconfigured **after** the lead was stored — the inquiry is NOT lost; check `TRADE_INQUIRY_TO_EMAIL`/`RESEND_API_KEY` and the `leadId` (`leadId`, `requestId` + error) |
+| `trade_inquiry.notification_failed` | Notification failed/unconfigured **after** the lead was stored — the inquiry is NOT lost; check `TRADE_NOTIFICATION_EMAIL`/`TRADE_INQUIRY_TO_EMAIL`/`RESEND_API_KEY` and the `leadId` (`leadId`, `requestId` + error) |
 | `trade_inquiry.unexpected` | Unhandled error in the inquiry route |
+| `trade_lead.email_sent` | Admin sent customer-facing email from the lead workspace (`leadId`, `communicationId`, `requestId` — never the body or recipient) |
+| `trade_lead.{get,update,note,email_send}_failed` | Unhandled errors in the lead API routes (`leadId`, `requestId` + error) |
+| `trade_lead.updated` / `trade_lead.note_added` | Lead mutations with their recorded activity types (`leadId`, `actions`) |
+| `trade_email.webhook_rejected` | Resend webhook failed signature verification or the secret is unset — request refused |
+| `trade_email.webhook_processing_failed` | Verified webhook event failed processing — Resend retries; check the error |
+| `trade_email.inbound_processed` | `email.received` handled (`outcome`: recorded/duplicate/ignored) |
+| `trade_email.delivery_processed` | Delivery event applied or skipped (`outcome`) |
+| `trade_email.inbound_unmatched` | Inbound event not addressed to a lead routing address |
+| `trade_email.inbound_unknown_token` | Routing token resolved to no lead — mail ignored, nothing created (`emailId`, `routingLocal`) |
+| `trade_email.reply_notification_sent` / `trade_email.reply_notification_{skipped,failed}` | Owner/fallback reply-notification outcomes (`leadId`) |
 | `admin_rebuild.misconfigured` | Deploy-hook env var unset (name only — the URL is never logged) |
 | `admin_rebuild.hook_failed` | Vercel deploy hook returned non-2xx (`upstreamStatus` only — the body could echo the URL) |
 | `admin_rebuild.triggered` | Rebuild triggered successfully (`uid`, `role`) |

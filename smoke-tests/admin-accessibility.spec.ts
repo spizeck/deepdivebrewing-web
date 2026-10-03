@@ -305,13 +305,17 @@ const TRADE_LEAD = {
   contactName: "Sam Keeper",
   email: "sam@harbour.example",
   phoneOrWhatsapp: "+599 555 1234",
+  phoneDisplay: "+599 555 1234",
+  phoneE164: "+5995551234",
   venueType: "bar",
+  island: "saba",
   message: "Interested in carrying the Pilsner.",
   status: "contacted",
   source: "trade_form",
   assignedToName: "Chad",
   assignedToUid: "u-1",
   nextFollowUpAt: "2026-10-18T04:00:00.000Z",
+  inboundAddress: "7K4M2QX9@reply.deepdivebrewing.com",
   createdAt: "2026-10-01T12:00:00.000Z",
   updatedAt: "2026-10-02T12:00:00.000Z",
   lastActivityAt: "2026-10-02T12:00:00.000Z",
@@ -334,6 +338,67 @@ const TRADE_ACTIVITIES = [
     body: "Spoke on WhatsApp. Interested in the Pilsner.",
     createdAt: "2026-10-02T12:00:00.000Z",
   },
+  {
+    id: "a-2",
+    type: "communication",
+    seq: 2,
+    authorUid: "u-1",
+    authorName: "Chad",
+    communication: {
+      channel: "email",
+      direction: "outbound",
+      communicationId: "comm-1",
+      subject: "Wholesale pricing",
+      preview: "Thanks for reaching out —",
+      deliveryState: "sent",
+      threadId: "comm-1",
+    },
+    createdAt: "2026-10-02T14:00:00.000Z",
+  },
+  {
+    id: "a-3",
+    type: "communication",
+    seq: 3,
+    communication: {
+      channel: "email",
+      direction: "inbound",
+      communicationId: "inb_1",
+      subject: "Re: Wholesale pricing",
+      preview: "Looks good —",
+      threadId: "comm-1",
+    },
+    createdAt: "2026-10-02T16:00:00.000Z",
+  },
+];
+
+const TRADE_COMMUNICATIONS = [
+  {
+    id: "comm-1",
+    channel: "email",
+    direction: "outbound",
+    to: ["sam@harbour.example"],
+    subject: "Wholesale pricing",
+    textBody: "Thanks for reaching out — here is the current price list.",
+    providerEmailId: "re_1",
+    messageId: "<comm-1@mail.deepdivebrewing.com>",
+    threadId: "comm-1",
+    sentAt: "2026-10-02T14:00:00.000Z",
+    sentByName: "Chad",
+    deliveryState: "delivered",
+    createdAt: "2026-10-02T14:00:00.000Z",
+  },
+  {
+    id: "inb_1",
+    channel: "email",
+    direction: "inbound",
+    from: "sam@harbour.example",
+    to: ["7K4M2QX9@reply.deepdivebrewing.com"],
+    subject: "Re: Wholesale pricing",
+    textBody: "Looks good — send two cases to start.",
+    threadId: "comm-1",
+    deliveryState: "received",
+    createdAt: "2026-10-02T16:00:00.000Z",
+  },
 ];
 
 function mockTradeApi(page: import("playwright/test").Page) {
@@ -355,10 +420,20 @@ function mockTradeApi(page: import("playwright/test").Page) {
       });
     }
     if (method === "GET" && url.includes("/api/admin/trade-leads/")) {
-      return json({ ok: true, lead: TRADE_LEAD, activities: TRADE_ACTIVITIES });
+      return json({
+        ok: true,
+        lead: TRADE_LEAD,
+        activities: TRADE_ACTIVITIES,
+        communications: TRADE_COMMUNICATIONS,
+      });
     }
     if (method === "PATCH" || method === "POST") {
-      return json({ ok: true, lead: TRADE_LEAD, activities: TRADE_ACTIVITIES });
+      return json({
+        ok: true,
+        lead: TRADE_LEAD,
+        activities: TRADE_ACTIVITIES,
+        communications: TRADE_COMMUNICATIONS,
+      });
     }
     return json({ ok: false, error: "Unexpected fixture request" });
   });
@@ -378,13 +453,27 @@ test("axe: trade-lead pipeline workspace has no serious/critical violations", as
     []
   );
 
-  // Detail workspace with the populated history timeline.
+  // Detail workspace with the populated history timeline (includes
+  // outbound/inbound email entries and the attach-address block).
   await page.getByRole("button", { name: /Fixture Harbour Bar/ }).press("Enter");
   await expect(page.getByText("Spoke on WhatsApp")).toBeVisible();
+  await expect(page.getByText("Email received — Re: Wholesale pricing")).toBeVisible();
+  await expect(
+    page.getByText("7K4M2QX9@reply.deepdivebrewing.com")
+  ).toBeVisible();
   blocking = await scanAxe(page, `${TRADE_FIXTURE} (detail)`);
   expect(
     blocking,
     formatBlocking(`${TRADE_FIXTURE} (detail)`, blocking)
+  ).toEqual([]);
+
+  // The email composer (labeled To/Subject/Message controls).
+  await page.getByRole("button", { name: "Email this lead" }).press("Enter");
+  await expect(page.getByRole("textbox", { name: "Subject" })).toBeVisible();
+  blocking = await scanAxe(page, `${TRADE_FIXTURE} (composer)`);
+  expect(
+    blocking,
+    formatBlocking(`${TRADE_FIXTURE} (composer)`, blocking)
   ).toEqual([]);
 });
 
@@ -401,6 +490,45 @@ test("trade-lead list announces loading and rows expose selected state", async (
   await expect(
     page.getByRole("heading", { name: "Fixture Harbour Bar" })
   ).toBeVisible();
+});
+
+test("trade-lead email composer sends to the lead address and reports success", async ({
+  page,
+}) => {
+  await mockTradeApi(page);
+  // Registered after the generic trade mock so the more specific pattern
+  // wins (Playwright consults routes in reverse registration order).
+  let sentBody: unknown;
+  await page.route(/\/api\/admin\/trade-leads\/lead-1\/messages/, (route) => {
+    sentBody = route.request().postDataJSON();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        lead: TRADE_LEAD,
+        activities: TRADE_ACTIVITIES,
+        communications: TRADE_COMMUNICATIONS,
+      }),
+    });
+  });
+  await page.goto(TRADE_FIXTURE);
+  await page.getByRole("button", { name: /Fixture Harbour Bar/ }).press("Enter");
+  await page.getByRole("button", { name: "Email this lead" }).press("Enter");
+
+  // The recipient is the lead's address, shown read-only — the composer
+  // cannot aim email elsewhere.
+  await expect(
+    page.getByLabel("To", { exact: true })
+  ).toHaveValue("sam@harbour.example");
+
+  await page.getByRole("textbox", { name: "Subject" }).fill("Pricing");
+  await page.getByRole("textbox", { name: "Message" }).fill("Hello there");
+  await page.getByRole("button", { name: "Send email" }).press("Enter");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Email sent." })
+  ).toBeVisible();
+  expect(sentBody).toMatchObject({ subject: "Pricing", body: "Hello there" });
 });
 
 test("trade-lead note entry is labeled and announces its result", async ({

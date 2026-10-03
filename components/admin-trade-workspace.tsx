@@ -8,6 +8,7 @@ import {
   CalendarClock,
   Flag,
   Mail,
+  MapPin,
   MessageSquare,
   Phone,
   Sparkles,
@@ -24,7 +25,16 @@ import {
 } from "@/components/ui/dialog";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
 import type { AdminPanelUser } from "@/components/admin-access";
-import { TRADE_VENUE_TYPES } from "@/lib/trade-leads-common";
+import {
+  normalizePhoneNumber,
+  telHref,
+  whatsappHref,
+} from "@/lib/phone";
+import {
+  tradeLeadIslandLabel,
+  TRADE_LEAD_ISLANDS,
+  TRADE_VENUE_TYPES,
+} from "@/lib/trade-leads-common";
 import {
   classifyFollowUp,
   describeTradeLeadActivity,
@@ -40,6 +50,11 @@ import {
   type TradeLeadStatus,
   type TradeLeadView,
 } from "@/lib/trade-leads-admin-common";
+import {
+  TRADE_EMAIL_BODY_MAX,
+  TRADE_EMAIL_SUBJECT_MAX,
+  type TradeLeadCommunicationView,
+} from "@/lib/trade-leads-email-common";
 
 // Input/select borders use ink at 50% so every form control boundary is
 // visible against the paper background (WCAG 1.4.11 non-text contrast).
@@ -53,11 +68,14 @@ const sectionLabelClass =
 
 type StatusFilter = "all" | TradeLeadStatus;
 type FollowUpFilter = "all" | FollowUpState;
+// "unset" finds leads with no island recorded — pre-#152 records included.
+type IslandFilter = "all" | "unset" | string;
 type SortMode = "newest" | "oldest" | "follow_up";
 
 interface LeadDetail {
   lead: TradeLeadView;
   activities: TradeLeadActivityView[];
+  communications: TradeLeadCommunicationView[];
 }
 
 const EMPTY_LEAD_FORM = {
@@ -66,6 +84,7 @@ const EMPTY_LEAD_FORM = {
   email: "",
   phoneOrWhatsapp: "",
   venueType: "",
+  island: "",
   source: "",
   message: "",
 };
@@ -168,6 +187,7 @@ const ACTIVITY_ICON: Record<
   lead_created: { icon: Sparkles, className: "text-moss" },
   status_changed: { icon: ArrowRightLeft, className: "text-ink" },
   owner_changed: { icon: UserRound, className: "text-ocean" },
+  island_changed: { icon: MapPin, className: "text-ocean" },
   follow_up_set: { icon: CalendarClock, className: "text-amber-700" },
   follow_up_changed: { icon: CalendarClock, className: "text-amber-700" },
   follow_up_cleared: { icon: CalendarClock, className: "text-amber-700" },
@@ -179,9 +199,69 @@ const DEFAULT_ACTIVITY_ICON = {
   className: "text-muted-foreground",
 };
 
-// wa.me accepts digits only; strip formatting from whatever was submitted.
-function whatsappDigits(phone: string): string {
-  return phone.replace(/[^\d]/g, "");
+// Compact island chip for list rows and the detail header. Missing islands
+// (all pre-#152 leads) render a muted "not set" marker rather than being
+// silently filed under an island.
+function IslandBadge({ island }: { island?: string }) {
+  if (!island) {
+    return (
+      <Badge
+        variant="outline"
+        className="border-dashed text-muted-foreground"
+      >
+        No island
+      </Badge>
+    );
+  }
+  return <Badge variant="outline">{tradeLeadIslandLabel(island)}</Badge>;
+}
+
+// Live delivery badge for an outbound email — read from the communication
+// record (provider callbacks update it) rather than the activity snapshot.
+const DELIVERY_BADGE: Record<
+  string,
+  { label: string; className: string }
+> = {
+  queued: { label: "Queued", className: "text-muted-foreground" },
+  sent: { label: "Sent", className: "text-ocean" },
+  delivery_delayed: {
+    label: "Delayed",
+    className: "border-amber-500/40 bg-amber-100/70 text-amber-900",
+  },
+  delivered: {
+    label: "Delivered",
+    className: "border-moss/40 bg-moss/10 text-moss",
+  },
+  bounced: {
+    label: "Bounced",
+    className: "border-ember/40 bg-ember/10 text-ember",
+  },
+  complained: {
+    label: "Complaint",
+    className: "border-ember/40 bg-ember/10 text-ember",
+  },
+  failed: {
+    label: "Failed",
+    className: "border-ember/40 bg-ember/10 text-ember",
+  },
+};
+
+function DeliveryBadge({ state }: { state?: string }) {
+  const entry = state ? DELIVERY_BADGE[state] : undefined;
+  if (!entry) return null;
+  return (
+    <Badge variant="outline" className={entry.className}>
+      {entry.label}
+    </Badge>
+  );
+}
+
+// Pre-fills the composer when replying to an inbound email — keeps an
+// existing Re: prefix rather than stacking another one.
+function replySubject(subject: string | undefined): string {
+  const trimmed = subject?.trim() ?? "";
+  if (!trimmed) return "";
+  return /^re:/i.test(trimmed) ? trimmed : `Re: ${trimmed}`;
 }
 
 export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
@@ -203,6 +283,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [islandFilter, setIslandFilter] = useState<IslandFilter>("all");
   const [followUpFilter, setFollowUpFilter] = useState<FollowUpFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [search, setSearch] = useState("");
@@ -211,6 +292,25 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
   const [noteDraft, setNoteDraft] = useState("");
   const [followUpDraft, setFollowUpDraft] = useState("");
   const [outcomeDraft, setOutcomeDraft] = useState("");
+
+  // Email composer (#152). replyToCommunicationId targets the In-Reply-To/
+  // References headers at the message being answered.
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailReplyToId, setEmailReplyToId] = useState<string | undefined>();
+  const [emailError, setEmailError] = useState("");
+  // Snapshot of the last failed send. Resubmitting an unchanged draft
+  // retries that same communication (same Resend idempotency key), so a
+  // send that failed after the provider accepted it can't become two
+  // customer emails.
+  const [emailRetry, setEmailRetry] = useState<{
+    communicationId: string;
+    subject: string;
+    body: string;
+    replyToCommunicationId?: string;
+  } | null>(null);
+  const [addressCopied, setAddressCopied] = useState(false);
 
   const [newLeadOpen, setNewLeadOpen] = useState(false);
   const [newLeadForm, setNewLeadForm] = useState(EMPTY_LEAD_FORM);
@@ -232,7 +332,13 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
         unknown
       > & { ok?: boolean; error?: string };
       if (!res.ok || data.ok !== true) {
-        throw new Error(data.error ?? "Request failed.");
+        const err = new Error(data.error ?? "Request failed.") as Error & {
+          communicationId?: string;
+        };
+        if (typeof data.communicationId === "string") {
+          err.communicationId = data.communicationId;
+        }
+        throw err;
       }
       return data;
     },
@@ -267,10 +373,14 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
       setNoteDraft("");
       setOutcomeDraft("");
       try {
-        const data = await apiFetch(`/api/admin/trade-leads/${id}`);
+        const data = await apiFetch(
+          `/api/admin/trade-leads/${encodeURIComponent(id)}`
+        );
         const next = {
           lead: data.lead as TradeLeadView,
           activities: (data.activities as TradeLeadActivityView[]) ?? [],
+          communications:
+            (data.communications as TradeLeadCommunicationView[]) ?? [],
         };
         // The list is shared state — always merge the fresh record so a
         // stale panel can't keep showing outdated values later.
@@ -283,6 +393,10 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
         setDetail(next);
         setFollowUpDraft(dateToLocalDateInput(next.lead.nextFollowUpAt));
         setOutcomeDraft(next.lead.outcome ?? "");
+        setComposerOpen(false);
+        setEmailError("");
+        setEmailRetry(null);
+        setAddressCopied(false);
       } catch (error) {
         if (selectedIdRef.current !== id) return;
         console.error(error);
@@ -305,6 +419,18 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
     setDetailLoading(false);
   }
 
+  // Staff notification emails deep-link to /admin/trade?lead=<id>; honor it
+  // once the workspace mounts so the link lands on the open lead.
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandled.current) return;
+    deepLinkHandled.current = true;
+    const id = new URLSearchParams(window.location.search).get("lead");
+    // Only id-shaped values are followed — a crafted ?lead=../x must not
+    // steer the fetch onto another admin route.
+    if (id && /^[A-Za-z0-9_-]{1,128}$/.test(id)) void openLead(id);
+  }, [openLead]);
+
   // Applies the fresh lead + activities a mutation response returns. The
   // list always updates; the detail panel only updates when the mutated
   // lead is still the selected one (a response may land after switching).
@@ -319,6 +445,132 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
     setDetail(next);
     setFollowUpDraft(dateToLocalDateInput(next.lead.nextFollowUpAt));
     setOutcomeDraft(next.lead.outcome ?? "");
+  }
+
+  async function sendEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!detail || !emailSubject.trim() || !emailBody.trim() || saving) return;
+    // An unchanged draft after a send failure retries the same recorded
+    // communication; editing the draft makes it a genuinely new message.
+    const retryId =
+      emailRetry &&
+      emailRetry.subject === emailSubject &&
+      emailRetry.body === emailBody &&
+      emailRetry.replyToCommunicationId === emailReplyToId
+        ? emailRetry.communicationId
+        : undefined;
+    setSaving("email");
+    setEmailError("");
+    setStatusMessage("");
+    try {
+      const data = await apiFetch(
+        `/api/admin/trade-leads/${detail.lead.id}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            subject: emailSubject,
+            body: emailBody,
+            ...(emailReplyToId
+              ? { replyToCommunicationId: emailReplyToId }
+              : {}),
+            ...(retryId ? { retryCommunicationId: retryId } : {}),
+          }),
+        }
+      );
+      applyDetail({
+        lead: data.lead as TradeLeadView,
+        activities: (data.activities as TradeLeadActivityView[]) ?? [],
+        communications:
+          (data.communications as TradeLeadCommunicationView[]) ?? [],
+      });
+      setComposerOpen(false);
+      setEmailSubject("");
+      setEmailBody("");
+      setEmailReplyToId(undefined);
+      setEmailRetry(null);
+      setStatusMessage("Email sent.");
+      setStatusIsError(false);
+    } catch (error) {
+      const failedCommId =
+        error instanceof Error
+          ? (error as { communicationId?: string }).communicationId
+          : undefined;
+      if (failedCommId) {
+        setEmailRetry({
+          communicationId: failedCommId,
+          subject: emailSubject,
+          body: emailBody,
+          replyToCommunicationId: emailReplyToId,
+        });
+      }
+      setEmailError(
+        error instanceof Error ? error.message : "Could not send the email."
+      );
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  // Resend a stuck (queued) or failed outbound message from the timeline.
+  // The stored subject/body are resubmitted so the server can verify the
+  // payload is identical before replaying the same idempotency key.
+  async function retryEmail(comm: TradeLeadCommunicationView) {
+    if (!detail || !comm.subject || !comm.textBody || saving) return;
+    setSaving(`retry-${comm.id}`);
+    setStatusMessage("");
+    try {
+      const data = await apiFetch(
+        `/api/admin/trade-leads/${detail.lead.id}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            subject: comm.subject,
+            body: comm.textBody,
+            retryCommunicationId: comm.id,
+          }),
+        }
+      );
+      applyDetail({
+        lead: data.lead as TradeLeadView,
+        activities: (data.activities as TradeLeadActivityView[]) ?? [],
+        communications:
+          (data.communications as TradeLeadCommunicationView[]) ?? [],
+      });
+      setStatusMessage("Email sent.");
+      setStatusIsError(false);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Could not resend the email."
+      );
+      setStatusIsError(true);
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  // Reply targets an existing communication so the outbound send carries
+  // real In-Reply-To/References headers and stays in its thread.
+  function openComposer(opts?: {
+    subject?: string;
+    replyToCommunicationId?: string;
+  }) {
+    setEmailSubject(opts?.subject ?? "");
+    setEmailBody("");
+    setEmailReplyToId(opts?.replyToCommunicationId);
+    setEmailError("");
+    setEmailRetry(null);
+    setComposerOpen(true);
+  }
+
+  async function copyInboundAddress() {
+    const address = detail?.lead.inboundAddress;
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setAddressCopied(true);
+    } catch {
+      setAddressCopied(false);
+    }
   }
 
   async function patchLead(
@@ -336,6 +588,8 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
       applyDetail({
         lead: data.lead as TradeLeadView,
         activities: (data.activities as TradeLeadActivityView[]) ?? [],
+        communications:
+          (data.communications as TradeLeadCommunicationView[]) ?? [],
       });
       setStatusMessage("Lead updated.");
       setStatusIsError(false);
@@ -362,6 +616,8 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
       applyDetail({
         lead: data.lead as TradeLeadView,
         activities: (data.activities as TradeLeadActivityView[]) ?? [],
+        communications:
+          (data.communications as TradeLeadCommunicationView[]) ?? [],
       });
       setNoteDraft("");
       setStatusMessage("Note added.");
@@ -415,6 +671,13 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
       )
         return false;
       if (typeFilter !== "all" && lead.venueType !== typeFilter) return false;
+      if (islandFilter === "unset" && lead.island) return false;
+      if (
+        islandFilter !== "all" &&
+        islandFilter !== "unset" &&
+        lead.island !== islandFilter
+      )
+        return false;
       if (
         followUpFilter !== "all" &&
         classifyFollowUp(lead.nextFollowUpAt, lead.status) !== followUpFilter
@@ -442,7 +705,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
       return leadMillis(b.createdAt) - leadMillis(a.createdAt);
     });
     return list;
-  }, [leads, statusFilter, ownerFilter, typeFilter, followUpFilter, sortMode, search]);
+  }, [leads, statusFilter, ownerFilter, typeFilter, islandFilter, followUpFilter, sortMode, search]);
 
   const counts = useMemo(() => {
     let fresh = 0;
@@ -485,7 +748,12 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
     [detail]
   );
 
-  const waDigits = detail ? whatsappDigits(detail.lead.phoneOrWhatsapp) : "";
+  const phone = detail
+    ? normalizePhoneNumber(detail.lead.phoneOrWhatsapp)
+    : null;
+  const communicationsById = new Map(
+    (detail?.communications ?? []).map((comm) => [comm.id, comm])
+  );
 
   return (
     <div className="space-y-4">
@@ -583,6 +851,22 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
               </select>
             </label>
             <label className="text-xs">
+              <span className="mb-0.5 block font-medium">Island</span>
+              <select
+                className={filterFieldClass}
+                value={islandFilter}
+                onChange={(e) => setIslandFilter(e.target.value)}
+              >
+                <option value="all">All islands</option>
+                {TRADE_LEAD_ISLANDS.map((i) => (
+                  <option key={i.value} value={i.value}>
+                    {i.label}
+                  </option>
+                ))}
+                <option value="unset">Not set</option>
+              </select>
+            </label>
+            <label className="text-xs">
               <span className="mb-0.5 block font-medium">Follow-up</span>
               <select
                 className={filterFieldClass}
@@ -650,6 +934,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                       Owner: {lead.assignedToName ?? "Unassigned"}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <IslandBadge island={lead.island} />
                       <FollowUpBadge lead={lead} />
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
@@ -701,7 +986,10 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                     {tradeVenueTypeLabel(detail.lead.venueType)}
                   </p>
                 </div>
-                <StatusBadge status={detail.lead.status} />
+                <div className="flex flex-wrap items-center gap-1">
+                  <StatusBadge status={detail.lead.status} />
+                  <IslandBadge island={detail.lead.island} />
+                </div>
               </div>
 
               <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
@@ -720,18 +1008,25 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                         {detail.lead.email}
                       </a>
                     )}
-                    {detail.lead.phoneOrWhatsapp && (
+                    {phone?.display ? (
                       <>
-                        <a
-                          href={`tel:${detail.lead.phoneOrWhatsapp.replace(/[^\d+]/g, "")}`}
-                          className="inline-flex items-center gap-1.5 text-ocean hover:underline"
-                        >
-                          <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                          {detail.lead.phoneOrWhatsapp}
-                        </a>
-                        {waDigits && (
+                        {telHref(phone) ? (
                           <a
-                            href={`https://wa.me/${waDigits}`}
+                            href={telHref(phone)!}
+                            className="inline-flex items-center gap-1.5 text-ocean hover:underline"
+                          >
+                            <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            {phone.display}
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            {phone.display}
+                          </span>
+                        )}
+                        {whatsappHref(phone) && (
+                          <a
+                            href={whatsappHref(phone)!}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 text-ocean hover:underline"
@@ -741,7 +1036,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                           </a>
                         )}
                       </>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <div>
@@ -761,6 +1056,106 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 </div>
               </div>
 
+              <div className="rounded-md border border-stone p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className={sectionLabelClass}>Email</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!detail.lead.email || saving !== null}
+                    onClick={() =>
+                      composerOpen ? setComposerOpen(false) : openComposer()
+                    }
+                  >
+                    {composerOpen ? "Close" : "Email this lead"}
+                  </Button>
+                </div>
+                {!detail.lead.email && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Add an email address to the lead before sending.
+                  </p>
+                )}
+                {detail.lead.inboundAddress && (
+                  <div className="mt-3 border-t border-stone pt-2">
+                    <p className="font-medium">Attach email to this lead</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Forward any email about this customer to the address
+                      below and it appears in this lead&apos;s history.
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <code className="rounded bg-stone/40 px-2 py-1 text-xs break-all">
+                        {detail.lead.inboundAddress}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void copyInboundAddress()}
+                      >
+                        {addressCopied ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {composerOpen && (
+                  <form
+                    onSubmit={sendEmail}
+                    className="mt-3 space-y-2 border-t border-stone pt-3"
+                  >
+                    <label className="block">
+                      <span className="mb-1 block font-medium">To</span>
+                      <input
+                        className={fieldClass}
+                        value={detail.lead.email}
+                        disabled
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block font-medium">Subject</span>
+                      <input
+                        required
+                        className={fieldClass}
+                        value={emailSubject}
+                        onChange={(e) => setEmailSubject(e.target.value)}
+                        maxLength={TRADE_EMAIL_SUBJECT_MAX}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block font-medium">Message</span>
+                      <textarea
+                        required
+                        className={fieldClass}
+                        rows={6}
+                        value={emailBody}
+                        onChange={(e) => setEmailBody(e.target.value)}
+                        maxLength={TRADE_EMAIL_BODY_MAX}
+                      />
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Replies to this email come back into this lead&apos;s
+                      history automatically.
+                    </p>
+                    {emailError && (
+                      <p role="alert" className="text-sm text-ember">
+                        {emailError}
+                      </p>
+                    )}
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={
+                        saving !== null ||
+                        !emailSubject.trim() ||
+                        !emailBody.trim()
+                      }
+                    >
+                      {saving === "email" ? "Sending..." : "Send email"}
+                    </Button>
+                  </form>
+                )}
+              </div>
+
               {detail.lead.message && (
                 <div>
                   <p className={sectionLabelClass}>Original inquiry</p>
@@ -772,7 +1167,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
 
               <div className="rounded-md border border-stone p-3">
                 <p className={sectionLabelClass}>Manage</p>
-                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div className="mt-2 grid gap-3 sm:grid-cols-3">
                   <label className="text-sm">
                     <span className="mb-1 block font-medium">Status</span>
                     <select
@@ -807,6 +1202,27 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                       {ownerOptions.map((a) => (
                         <option key={a.uid} value={a.uid}>
                           {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium">Island</span>
+                    <select
+                      className={fieldClass}
+                      value={detail.lead.island ?? ""}
+                      disabled={saving !== null}
+                      onChange={(e) =>
+                        void patchLead(
+                          { island: e.target.value || null },
+                          "island"
+                        )
+                      }
+                    >
+                      <option value="">Not set</option>
+                      {TRADE_LEAD_ISLANDS.map((i) => (
+                        <option key={i.value} value={i.value}>
+                          {i.label}
                         </option>
                       ))}
                     </select>
@@ -920,6 +1336,10 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                         ACTIVITY_ICON[activity.type] ?? DEFAULT_ACTIVITY_ICON;
                       const ActivityIcon = iconMeta.icon;
                       const isNote = activity.type === "note";
+                      const commId = activity.communication?.communicationId;
+                      const comm = commId
+                        ? communicationsById.get(commId)
+                        : undefined;
                       return (
                         <li key={activity.id} className="flex gap-2.5 text-sm">
                           <ActivityIcon
@@ -933,15 +1353,76 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                                 ? ` · ${activity.authorName}`
                                 : ""}
                             </p>
-                            <p
-                              className={`mt-0.5 whitespace-pre-wrap ${
-                                isNote ? "" : "text-muted-foreground"
-                              }`}
-                            >
-                              {isNote
-                                ? activity.body
-                                : describeTradeLeadActivity(activity)}
-                            </p>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                              <p
+                                className={`whitespace-pre-wrap ${
+                                  isNote ? "" : "text-muted-foreground"
+                                }`}
+                              >
+                                {isNote
+                                  ? activity.body
+                                  : describeTradeLeadActivity(activity)}
+                              </p>
+                              {comm?.direction === "outbound" && (
+                                <DeliveryBadge state={comm.deliveryState} />
+                              )}
+                              {comm?.direction === "outbound" &&
+                                (comm.deliveryState === "queued" ||
+                                  comm.deliveryState === "failed") &&
+                                comm.subject &&
+                                comm.textBody && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs"
+                                    disabled={saving === `retry-${comm.id}`}
+                                    onClick={() => retryEmail(comm)}
+                                  >
+                                    {saving === `retry-${comm.id}`
+                                      ? "Resending…"
+                                      : "Resend"}
+                                  </Button>
+                                )}
+                              {comm?.direction === "inbound" &&
+                                detail.lead.email && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() =>
+                                      openComposer({
+                                        subject: replySubject(comm.subject),
+                                        replyToCommunicationId: comm.id,
+                                      })
+                                    }
+                                  >
+                                    Reply
+                                  </Button>
+                                )}
+                            </div>
+                            {comm && (
+                              <div className="mt-1 rounded-md border border-stone bg-stone/10 p-2 text-muted-foreground">
+                                <p className="text-xs">
+                                  {comm.direction === "inbound"
+                                    ? `From ${comm.from ?? "unknown sender"}`
+                                    : `To ${comm.to.join(", ") || "unknown"}`}
+                                  {comm.attachments &&
+                                  comm.attachments.length > 0
+                                    ? ` · ${comm.attachments.length} attachment${
+                                        comm.attachments.length === 1 ? "" : "s"
+                                      } (not stored)`
+                                    : ""}
+                                </p>
+                                {comm.textBody && (
+                                  <p className="mt-1 whitespace-pre-wrap text-xs">
+                                    {comm.textBody}
+                                    {comm.truncated ? " …" : ""}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                             {!isNote && activity.body && (
                               <p className="mt-0.5 whitespace-pre-wrap">
                                 {activity.body}
@@ -1059,6 +1540,23 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                 {TRADE_VENUE_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
                     {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block font-medium">Island</span>
+              <select
+                className={fieldClass}
+                value={newLeadForm.island}
+                onChange={(e) =>
+                  setNewLeadForm((p) => ({ ...p, island: e.target.value }))
+                }
+              >
+                <option value="">Not set</option>
+                {TRADE_LEAD_ISLANDS.map((i) => (
+                  <option key={i.value} value={i.value}>
+                    {i.label}
                   </option>
                 ))}
               </select>
