@@ -390,7 +390,7 @@ not used at icon sizes.
 | `brand/email-mark-{black,white}.png` | Same mark, 600×503 | Site UI (`components/brand-mark.tsx`), outbound trade email header (black variant) |
 | `brand/avatar-{light,dark}-512.png` | Circular badge on solid bg | App-icon source (apple-touch-icon, android-chrome) |
 | `brand/avatar-transparent-{black,white}-512.png` | Circular badge, transparent | Small admin/UI badges (trade timeline outbound avatar) |
-| `favicon.ico`, `favicon-{16,32,48}x48*.png`, `favicon.svg` | Circular badge raster set | Browser favicons — the SVG adapts to dark browser chrome via `prefers-color-scheme` |
+| `favicon.ico`, `favicon-{16x16,32x32}{,-dark}.png`, `favicon-48x48.png`, `favicon.svg` | Circular badge raster set | Browser favicons — the SVG adapts to dark browser chrome via `prefers-color-scheme` |
 
 ### Rules
 

@@ -78,6 +78,9 @@ interface PreparedSend {
   threadId: string;
   subject: string;
   textBody: string;
+  // Rendered at compose time and stored on the communication so a resend
+  // replays the identical provider payload under the same idempotency key.
+  htmlBody: string;
   // The stored communication already carries a provider id — a previous
   // attempt reached Resend, so the retry must not dispatch a second copy.
   alreadySent: boolean;
@@ -144,6 +147,11 @@ async function prepareOutboundEmail(
       .doc();
     const now = new Date();
     const messageId = outboundMessageId(commRef.id, senderDomain(from));
+    const htmlBody = buildTradeLeadOutboundHtml({
+      bodyHtml: plainTextToHtml(message.body),
+      markUrl: `${siteUrl}${TRADE_EMAIL_MARK_PATH}`,
+      siteUrl,
+    });
 
     // Reply threading: resolve the referenced communication and seed
     // In-Reply-To/References + threadId from it. Any other message starts a
@@ -187,6 +195,7 @@ async function prepareOutboundEmail(
       to: [to],
       subject: message.subject,
       textBody: message.body,
+      htmlBody,
       provider: "resend",
       messageId,
       ...(inReplyTo ? { inReplyTo } : {}),
@@ -244,6 +253,7 @@ async function prepareOutboundEmail(
       threadId,
       subject: message.subject,
       textBody: message.body,
+      htmlBody,
       alreadySent: false,
     };
   });
@@ -280,6 +290,13 @@ async function prepareRetrySend(
   const to = asStringArray(comm.to)[0] ?? "";
   const priorSubject = typeof comm.subject === "string" ? comm.subject : "";
   const priorBody = typeof comm.textBody === "string" ? comm.textBody : "";
+  // The resend must replay the exact payload first bound to the
+  // idempotency key: reuse the stored render when present, and fall back
+  // to the legacy unbranded HTML for pre-branding records.
+  const priorHtmlBody =
+    typeof comm.htmlBody === "string" && comm.htmlBody
+      ? comm.htmlBody
+      : plainTextToHtml(priorBody);
   const priorProviderId =
     typeof comm.providerEmailId === "string" ? comm.providerEmailId : "";
   const priorMessageId =
@@ -301,6 +318,7 @@ async function prepareRetrySend(
       threadId: priorThreadId,
       subject: priorSubject,
       textBody: priorBody,
+      htmlBody: priorHtmlBody,
       alreadySent: true,
     };
   }
@@ -370,6 +388,7 @@ async function prepareRetrySend(
     threadId: priorThreadId,
     subject: priorSubject,
     textBody: priorBody,
+    htmlBody: priorHtmlBody,
     alreadySent: false,
   };
 }
@@ -417,11 +436,7 @@ export async function sendLeadEmail(
         replyTo: prepared.replyTo,
         subject: prepared.subject,
         text: prepared.textBody,
-        html: buildTradeLeadOutboundHtml({
-          bodyHtml: plainTextToHtml(prepared.textBody),
-          markUrl: `${siteUrl}${TRADE_EMAIL_MARK_PATH}`,
-          siteUrl,
-        }),
+        html: prepared.htmlBody,
         headers: prepared.headers,
       },
       { idempotencyKey: prepared.communicationId }

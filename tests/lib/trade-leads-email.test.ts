@@ -531,6 +531,22 @@ describe("splitQuotedEmailText", () => {
     assert.ok(fresh.includes("From: $20"));
   });
 
+  it("splits a reply above a bare '>' quoted tail", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Done.\n\n> original question\n> second line"
+    );
+    assert.strictEqual(fresh, "Done.");
+    assert.ok(quoted?.includes("> original question"));
+  });
+
+  it("keeps an interleaved reply expanded — post-quote text is new content", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Hi\n> Can you ship Monday?\nPlease ship Tuesday instead"
+    );
+    assert.strictEqual(quoted, null);
+    assert.ok(fresh.includes("Please ship Tuesday instead"));
+  });
+
   it("never hides the whole message — marker on line 0 keeps everything", () => {
     const { fresh, quoted } = splitQuotedEmailText(
       "> forwarded content only"

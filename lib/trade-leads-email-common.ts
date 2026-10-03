@@ -362,9 +362,15 @@ export function splitQuotedEmailText(text: string): {
 } {
   const lines = text.split("\n");
   let cut = -1;
+  let cutByAngleLine = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (QUOTED_LINE.test(line) || QUOTED_WROTE.test(line.trim()) || QUOTED_SEPARATOR.test(line.trim())) {
+    if (QUOTED_LINE.test(line)) {
+      cut = i;
+      cutByAngleLine = true;
+      break;
+    }
+    if (QUOTED_WROTE.test(line.trim()) || QUOTED_SEPARATOR.test(line.trim())) {
       cut = i;
       break;
     }
@@ -379,6 +385,15 @@ export function splitQuotedEmailText(text: string): {
     }
   }
   if (cut <= 0) return { fresh: text, quoted: null };
+  // `>` quoting is line-scoped: when plain text resumes after the quoted
+  // run the reply is interleaved ("Hi\n> quote\nnew instructions"). Leave
+  // the message expanded rather than fold post-quote content into history.
+  if (
+    cutByAngleLine &&
+    lines.slice(cut + 1).some((l) => l.trim().length > 0 && !QUOTED_LINE.test(l))
+  ) {
+    return { fresh: text, quoted: null };
+  }
   const fresh = lines.slice(0, cut).join("\n").replace(/\s+$/, "");
   if (!fresh) return { fresh: text, quoted: null };
   return { fresh, quoted: lines.slice(cut).join("\n") };
@@ -421,6 +436,11 @@ export interface TradeLeadCommunicationRecord {
   cc?: string[];
   subject: string;
   textBody: string;
+  // Rendered HTML part, persisted at compose time so a resend replays the
+  // identical provider payload under the same idempotency key. Absent on
+  // records written before branded outbound mail — those resend with the
+  // legacy plain-text-derived HTML to keep the payload stable.
+  htmlBody?: string;
   truncated?: boolean;
   attachments?: TradeLeadAttachmentMeta[];
   provider: "resend";
