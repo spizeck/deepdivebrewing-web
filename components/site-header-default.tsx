@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandMark } from "@/components/brand-mark";
 import { MobileMenu } from "@/components/mobile-menu";
 
 const navLinks = [
@@ -15,8 +16,9 @@ export function SiteHeaderDefault() {
       <div className="mx-auto flex max-w-300 items-center justify-between px-6 py-4">
         <Link
           href="/"
-          className="rounded-sm text-xl font-semibold tracking-tight text-ink"
+          className="flex items-center gap-2.5 rounded-sm text-xl font-semibold tracking-tight text-ink"
         >
+          <BrandMark tone="black" size={30} decorative />
           Deep Dive Brewing Co
         </Link>
         <nav aria-label="Main" className="hidden items-center gap-8 md:flex">

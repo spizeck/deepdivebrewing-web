@@ -19,6 +19,7 @@ import {
   TradeLeadNotFoundError,
 } from "@/lib/trade-leads-admin-common";
 import {
+  buildTradeLeadOutboundHtml,
   deliveryStateForEvent,
   emailPreview,
   escapeHtml,
@@ -35,6 +36,7 @@ import {
   retryWithinIdempotencyWindow,
   senderDomain,
   shouldAdvanceDeliveryState,
+  TRADE_EMAIL_MARK_PATH,
   TRADE_EMAIL_MAX_ATTACHMENTS,
   TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION,
   truncateEmailBody,
@@ -415,7 +417,11 @@ export async function sendLeadEmail(
         replyTo: prepared.replyTo,
         subject: prepared.subject,
         text: prepared.textBody,
-        html: plainTextToHtml(prepared.textBody),
+        html: buildTradeLeadOutboundHtml({
+          bodyHtml: plainTextToHtml(prepared.textBody),
+          markUrl: `${siteUrl}${TRADE_EMAIL_MARK_PATH}`,
+          siteUrl,
+        }),
         headers: prepared.headers,
       },
       { idempotencyKey: prepared.communicationId }

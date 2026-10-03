@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandMark } from "@/components/brand-mark";
 import { ConsentSettingsLink } from "@/components/consent-settings-link";
 import { SOCIAL_URLS } from "@/lib/site";
 
@@ -8,7 +9,10 @@ export function SiteFooter() {
       <div className="mx-auto max-w-300 px-6 py-12 md:py-16">
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <p className="font-semibold text-ink">Deep Dive Brewing Co</p>
+            <p className="flex items-center gap-2.5 font-semibold text-ink">
+              <BrandMark tone="black" size={32} decorative />
+              Deep Dive Brewing Co
+            </p>
             <p className="mt-2 text-sm text-muted-foreground">
               Craft beer, brewed on Saba.
             </p>

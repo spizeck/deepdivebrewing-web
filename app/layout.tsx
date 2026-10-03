@@ -105,8 +105,35 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      // SVG first — the circular badge mark adapts to light/dark browser
+      // chrome internally via prefers-color-scheme. PNG fallbacks below
+      // carry explicit media hints for browsers that ignore the SVG.
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      {
+        url: "/favicon-16x16.png",
+        sizes: "16x16",
+        type: "image/png",
+        media: "(prefers-color-scheme: light)",
+      },
+      {
+        url: "/favicon-16x16-dark.png",
+        sizes: "16x16",
+        type: "image/png",
+        media: "(prefers-color-scheme: dark)",
+      },
+      {
+        url: "/favicon-32x32.png",
+        sizes: "32x32",
+        type: "image/png",
+        media: "(prefers-color-scheme: light)",
+      },
+      {
+        url: "/favicon-32x32-dark.png",
+        sizes: "32x32",
+        type: "image/png",
+        media: "(prefers-color-scheme: dark)",
+      },
+      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
       { url: "/favicon.ico" },
     ],
     apple: "/apple-touch-icon.png",
