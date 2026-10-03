@@ -242,6 +242,15 @@ emits **single-line JSON** so Vercel's log search can filter reliably:
 | `admin_invitation.{accept_rollback,accept,resend}_failed` | Invitation lifecycle failures |
 | `admin_invitation_email.{misconfigured,send_rejected,send_exception}` | Invitation email send-path failures (`missing` names the unset var) |
 | `admin_bootstrap.failed` / `admin_me.unexpected` | Bootstrap and identity-probe failures |
+| `payment.created` | Internal payment record + Stripe Checkout Session created (`paymentId`, `amountMinor` — no customer data) |
+| `payment.canceled` / `payment.refreshed` | Staff canceled an unpaid payment, or a manual status refresh applied a state change |
+| `payment.{create,get,cancel,refresh,qr}_failed` / `payments.list_failed` | Unhandled errors in the payments API routes |
+| `payment.enrichment_failed` | Paid-payment receipt/card-brand enrichment from Stripe failed — the payment stays `paid`; only display metadata is missing (warn) |
+| `payment.refresh_id_mismatch` | A Stripe session retrieved during refresh had the wrong `paymentId` — treated as a defensive anomaly, not an update (warn) |
+| `stripe_webhook.processed` | Signed Stripe event applied to a payment (`eventType`, `paymentId`) |
+| `stripe_webhook.unknown_payment` | Signed event referenced a `paymentId` with no record — acked 200 so Stripe does not retry it forever (warn) |
+| `stripe_webhook.bad_signature` | Signature verification failed — rejected 400 (warn, security-relevant) |
+| `stripe_webhook.processing_failed` | Unhandled webhook error — 500 returned so Stripe retries delivery |
 
 Routine validation and authorization denials (missing bearer token, bad
 input, rate limits, honeypot hits) are **not logged** — they are expected

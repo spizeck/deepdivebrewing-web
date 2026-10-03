@@ -16,6 +16,9 @@ const entrypoints = {
   "firebase-admin/app": ["initializeApp", "cert", "getApps"],
   "firebase-admin/auth": ["getAuth"],
   "firebase-admin/firestore": ["getFirestore"],
+  // stripe (payments, #155): the class export is what lib/stripe.ts
+  // instantiates — a CJS/ESM packaging break would only surface at runtime.
+  stripe: ["default"],
 };
 
 // firebase-admin's exports map does not expose ./package.json, so locate

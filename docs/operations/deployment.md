@@ -30,6 +30,7 @@ https://deepdivebrewing-<random>-<team>.vercel.app
 - Preview deployments use the same Firebase project as production if the environment variables point to it.
 - Preview domains must be added to **Firebase Authentication > Settings > Authorized domains** if you need to test Google sign-in on a preview URL.
 - The `frame-src` Content-Security-Policy is built at deploy time using the value of `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`. If that environment variable is not set for the preview, the fallback domain is used.
+- Payments work in preview deployments when `STRIPE_SECRET_KEY` (test mode) is set for the Preview scope. Webhook delivery needs a Stripe webhook endpoint registered for that preview URL — previews are ephemeral, so register a `stripe listen --forward-to` target or a dedicated staging webhook rather than relying on the production endpoint. Payment creation, QR/copy links, and manual **Refresh status** still work without a webhook, because refresh reconciles directly with Stripe.
 
 ## Production deployment
 
@@ -74,6 +75,8 @@ Examples:
 - `FIREBASE_ADMIN_PRIVATE_KEY`
 - `ADMIN_REBUILD_COOLDOWN_MS`
 - `SUPER_ADMIN_EMAIL` — the verified Google account that receives the initial superadmin role
+- `STRIPE_SECRET_KEY` — Stripe secret key for the admin payments feature; use the `sk_test_*` key in Development/Preview and `sk_live_*` in Production
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret for `POST /api/webhooks/stripe` (one signing secret per registered endpoint)
 
 ## How to verify a preview with populated Firebase data
 

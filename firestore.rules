@@ -81,6 +81,25 @@ service cloud.firestore {
       }
     }
 
+    // Payment records (#155) carry customer PII and Stripe identifiers and
+    // are read/written exclusively server-side — /api/admin/payments* behind
+    // requireAdminActor and /api/webhooks/stripe behind signature
+    // verification, all via the Admin SDK. No client may read or write.
+    match /payments/{paymentId} {
+      allow read, write: if false;
+
+      // Per-payment audit trail (creation, state transitions, cancellations).
+      match /events/{eventId} {
+        allow read, write: if false;
+      }
+    }
+
+    // Stripe webhook dedupe markers — written and read only inside Admin SDK
+    // transactions in the webhook handler.
+    match /stripeEvents/{eventId} {
+      allow read, write: if false;
+    }
+
     match /meta/{docId} {
       allow read, write: if hasActiveAdmin();
     }

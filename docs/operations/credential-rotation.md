@@ -19,6 +19,7 @@ credential rotation unless a procedure below explicitly says so.
 | `FIREBASE_ADMIN_*` | Firebase console → Project settings → Service accounts (key pair lives in Google Cloud IAM) |
 | `VERCEL_DEPLOY_HOOK_URL` | Vercel project → Settings → Git → Deploy Hooks |
 | `SUPER_ADMIN_EMAIL`, cooldowns, `TRADE_NOTIFICATION_EMAIL`, `TRADE_INQUIRY_TO_EMAIL`, `TRADE_REPLY_DOMAIN` | Vercel environment variables (no external issuer) |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Stripe Dashboard → Developers (API keys; webhook signing secrets) |
 | `NEXT_PUBLIC_*` | Firebase console → web app config; GTM admin for `NEXT_PUBLIC_GTM_ID` |
 
 - **Vercel environment variables** (Project → Settings → Environment
@@ -268,8 +269,12 @@ shell history, or committed files.
    not require rotation solely because it was visible — it is public by
    design. Actual secrets and capability URLs — `RESEND_API_KEY`,
    `FIREBASE_ADMIN_PRIVATE_KEY`, `FIREBASE_ADMIN_CLIENT_EMAIL`,
-   `VERCEL_DEPLOY_HOOK_URL`/`VERCEL_REBUILD_DEPLOY_HOOK_URL` — should be
-   rotated whenever disclosure risk is credible.
+   `VERCEL_DEPLOY_HOOK_URL`/`VERCEL_REBUILD_DEPLOY_HOOK_URL`,
+   `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — should be
+   rotated whenever disclosure risk is credible. **Exposure of a
+   `sk_live_*` key is a payments incident — rotate immediately and
+   contact the owner; Stripe support can also restrict the key's
+   permissions.**
 3. **Create the replacement** per sections A–C above.
 4. **Update consumers** — Vercel env vars (all needed scopes),
    `.env.local` files, any other store holding the value.
@@ -285,6 +290,8 @@ shell history, or committed files.
    - Resend dashboard/logs for unexpected sends (`RESEND_API_KEY`).
    - `adminAuditLogs` and Firebase Auth users for unexpected admin
      activity (Admin SDK credentials).
+   - Stripe Dashboard → Payments and Events for unexpected charges or
+     API calls (Stripe key exposure).
 9. **Write a brief incident note** — what was exposed, when, where, and
    what was rotated. Keep it outside the repository if it contains
    sensitive details.
@@ -301,6 +308,32 @@ shell history, or committed files.
 | `VERCEL_DEPLOY_HOOK_URL` (+ `VERCEL_REBUILD_DEPLOY_HOOK_URL`) | Admin rebuild triggers a new Vercel production deployment; old hook deleted |
 | `SUPER_ADMIN_EMAIL` | New account bootstraps to superadmin; protected-account checks follow the new email; at least one active superadmin remains |
 | `NEXT_PUBLIC_*` (only if values actually changed) | Google sign-in works; public pages render Firestore data; Storage images load; no CSP/`frame-src` errors for the Auth domain |
+| `STRIPE_SECRET_KEY` | Admin creates a test payment at `/admin/payments`; Stripe Dashboard shows the Checkout Session; no `payment.*_failed` logs |
+| `STRIPE_WEBHOOK_SECRET` | Test payment reaches `Paid` via the webhook (or resend a recent event in the Dashboard); no `stripe_webhook.bad_signature` warnings |
+
+---
+
+## H. Stripe credentials (`STRIPE_*`)
+
+`STRIPE_SECRET_KEY` powers the admin payments feature
+(`/admin/payments` — Checkout Session create/retrieve/expire). `STRIPE_WEBHOOK_SECRET` verifies signatures on `POST /api/webhooks/stripe`. Both are server-only; there is deliberately **no** publishable key — card entry happens only on Stripe's hosted Checkout page.
+
+**Test vs live:** `sk_test_*`/`sk_live_*` keys and their corresponding `whsec_*` webhook secrets are independent. Development/Preview should use test credentials; Production uses live. Payments record Stripe's `livemode` flag, and the UI badges test-mode payments — a mismatch between key mode and deployment is visible, not silent.
+
+### Steps — secret key
+
+1. Stripe Dashboard → **Developers → API keys** → create/roll the secret key (choose the right mode — test and live have separate keys).
+2. Update `STRIPE_SECRET_KEY` in Vercel (per scope: test key for Preview/Development, live for Production) and `.env.local`.
+3. Redeploy.
+4. Verify: sign in as an admin, create a small payment at `/admin/payments`, and confirm the Checkout Session appears in the Stripe Dashboard (Payments → Checkout Sessions) for the matching mode.
+5. Revoke the old key in the Stripe Dashboard.
+
+### Steps — webhook signing secret
+
+1. The signing secret belongs to a specific registered webhook endpoint. To rotate it: Stripe Dashboard → **Developers → Webhooks** → select the endpoint → **Roll secret**.
+2. Update `STRIPE_WEBHOOK_SECRET` for that endpoint's deployment scope and redeploy.
+3. There is a delivery gap between rolling the secret and redeploying — Stripe retries failed deliveries for days, so briefly-failed events are not lost; resend any still-failing events from the Dashboard after the redeploy verifies.
+4. Verify: complete a test payment and confirm it flips to **Paid** via `stripe_webhook.processed` logs, or use the Dashboard's "Resend" on a recent event and confirm no `stripe_webhook.bad_signature` warnings.
 
 ## Related documents
 

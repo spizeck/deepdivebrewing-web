@@ -322,6 +322,47 @@ in code are listed.
   enforcement.
 - **Visibility:** admin-only (rules deny public access).
 
+### `payments`
+
+- **Purpose:** internal record for one-off card charges taken in the admin
+  payments workspace (`/admin/payments`, issue #155) — brewery tours and
+  other charges that do not fit the B2B beer-sales workflow. Stripe is the
+  payment processor; this collection is the operational record.
+- **Key fields (`PaymentRecord` in `lib/payments-common.ts`):** the document
+  id is the client-generated `clientRequestId` (UUID) — it is also the
+  Stripe idempotency key, so a retried create can never double-charge.
+  `purpose` (`brewery_tour | brewery_tour_tasting | additional_guests |
+  private_tour | other`), `description`, `amountMinor` (integer USD cents —
+  never a float), `currency` (`"usd"` — fixed), `customerName`,
+  optional `customerEmail`/`tourDate` (`YYYY-MM-DD` calendar string)/
+  `attendeeCount`/`internalNote`, `status` (`created | awaiting_payment |
+  processing | paid | failed | expired | canceled`), `livemode`, `eventCount`,
+  `createdByUid`/`createdByName`, `createdAt`/`updatedAt`, Stripe
+  identifiers (`stripeCheckoutSessionId`, `stripeSessionUrl`,
+  `stripePaymentIntentId`, `stripeChargeId`, `stripeCustomerId`,
+  `sessionExpiresAt`), `receiptUrl`, safe card display metadata
+  (`paymentMethodBrand`/`paymentMethodLast4`), and lifecycle timestamps
+  (`paidAt`/`failedAt`/`expiredAt`/`canceledAt`). **Never stored:** PAN,
+  CVC, or raw Stripe payloads — card entry happens only on Stripe's hosted
+  page.
+- **History:** `payments/{id}/events` subcollection — append-only
+  (`type`, `seq`, `actorUid`/`actorName` for staff actions, `details`,
+  `createdAt`); `eventCount` is the next `seq`, same pattern as lead
+  `activities`.
+- **Writes:** server-only — `lib/payments-admin.ts` via the Admin SDK,
+  called by `/api/admin/payments*` (behind `requireAdminActor`) and
+  `/api/webhooks/stripe` (behind Stripe signature verification).
+- **Visibility:** **no client access at all** — `read, write: if false` on
+  `payments/{paymentId}` and `events/{eventId}`.
+
+### `stripeEvents`
+
+- **Purpose:** webhook dedupe markers — one document per processed Stripe
+  event id (`type`, `paymentId`, `result`, `processedAt`). The webhook
+  transaction creates the marker and applies the payment update atomically,
+  so a replayed delivery exits before touching the record.
+- **Visibility:** deny-all (`read, write: if false`); Admin SDK only.
+
 ### Firebase Authentication
 
 Not a Firestore collection, but part of the data model: each admin is an Auth
@@ -686,6 +727,51 @@ Email is a channel on the lead, not a separate inbox:
 - **Logging** — operational logs carry ids and event names only; email
   bodies, recipients, and customer addresses are never logged.
 
+### Admin payments (`/admin/payments`, issue #155)
+
+One-off card charges (tours, ad-hoc) flow through **Stripe Checkout** —
+Stripe's hosted payment page — chosen over Payment Element because the card
+entry surface lives entirely on Stripe: no `NEXT_PUBLIC_` publishable key,
+no Stripe.js in the bundle, no CSP change, and the session `url` doubles as
+a shareable customer link (copy/QR/open) covering both counter and remote
+collection. The Stripe client is built lazily via `getStripeClient()`
+(`lib/stripe.ts`), so `next build` needs no Stripe values; `stripe` is
+listed in `serverExternalPackages` alongside `firebase-admin`.
+
+1. **Create:** `POST /api/admin/payments` validates input
+   (`parsePaymentCreateBody` — required `clientRequestId` UUID, purpose
+   enum, integer-minor-unit amount bounded by `PAYMENT_MAX_AMOUNT_MINOR`,
+   optional email/tour-date/attendees/note bounds), then writes the
+   `payments/{clientRequestId}` record + `payment_created` event in a
+   transaction (existing doc → replay/recovery, never overwrite), creates
+   the Checkout Session with `idempotencyKey: paymentId` and
+   `metadata.paymentId` + `client_reference_id` (no PII in metadata), and
+   records the session id/url + `livemode` + `checkout_session_created`
+   event. Session params are built from the **stored** record
+   (`buildCheckoutSessionSpec`), so a browser can never tamper with the
+   charged amount. Success/cancel URLs are the static, noindex
+   `/pay/complete` and `/pay/cancelled` pages — they carry no state.
+2. **Collect:** the workspace (`components/admin-payments-workspace.tsx`
+   behind `AdminAuthGate`) shows the session URL with copy, QR
+   (`GET /api/admin/payments/[id]/qr` renders it server-side via `qrcode`),
+   and open-link actions, and polls the refresh route while unresolved.
+   Quick-pick tour purposes derive suggestions from the canonical
+   `TOUR_PRODUCTS` prices; amounts are always staff-editable.
+3. **Reconcile:** `POST /api/webhooks/stripe` verifies the signature
+   (`STRIPE_WEBHOOK_SECRET`, raw body) → `resolveStripeEventOutcome` maps
+   `checkout.session.{completed,expired,async_payment_succeeded,
+   async_payment_failed}` to `paid|processing|failed|expired` →
+   `processStripeEvent` runs the dedupe-marker + transition inside one
+   Firestore transaction (`planStripeEventApply` is the pure state machine;
+   Stripe-terminal statuses never regress, `canceled` outranks a late
+   `expired`). `paid` additionally enriches from the PaymentIntent's latest
+   charge (`receiptUrl`, brand/last4 — best-effort). Manual
+   `POST .../[id]/refresh` reconciles through the same planner, and
+   `POST .../[id]/cancel` expires the session on Stripe then marks
+   `canceled` (unpaid statuses only).
+4. **Mode:** `livemode` from the Stripe object is stored per payment; the
+   UI badges test-mode payments. No analytics events carry payment data.
+
 ## 12. Analytics and observability
 
 - **GA4 via GTM:** `app/layout.tsx` renders `components/gtm-bootstrap.tsx`
@@ -785,6 +871,8 @@ Names only — never commit values. Source of truth for names:
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | Admin SDK credential | Yes for all `/api/admin/*` |
 | `FIREBASE_ADMIN_PRIVATE_KEY` | Admin SDK credential (PEM; stored with `\n` escapes) | Yes for all `/api/admin/*` |
 | `SUPER_ADMIN_EMAIL` | Bootstrap allowlist — the only email `admin/bootstrap` will promote | Yes for bootstrap |
+| `STRIPE_SECRET_KEY` | Stripe secret key for the admin payments feature — Checkout Session create/expire/retrieve and PaymentIntent retrieve via lazy `getStripeClient()` (`sk_test_*` selects test mode) | Runtime only — required for `/api/admin/payments*` to function; build-safe otherwise |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_*`) for `/api/webhooks/stripe` signature verification | Runtime only — required for webhook processing; the route 500s without it rather than accept unsigned events |
 | `NEXT_PUBLIC_SENTRY_DSN` | Error-monitoring ingest DSN for the server + browser SDKs (`lib/monitoring-shared.ts`); inlined into the client bundle by design — not a credential | Optional — reporting is enabled only when this is set **and** the environment is Vercel Production (`VERCEL_ENV` server-side / `NEXT_PUBLIC_VERCEL_ENV` client-side); preview/dev/CI never emit events |
 | `SENTRY_ORG` | Sentry org slug for source-map upload (`withSentryConfig`) | Build time, Production scope — absent everywhere else |
 | `SENTRY_PROJECT` | Sentry project slug for source-map upload | Build time, Production scope |
