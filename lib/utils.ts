@@ -12,13 +12,16 @@ export function cn(...inputs: ClassValue[]) {
  * Buttons; keep the two in sync (see THEME_AND_BRANDING.md — Interactive
  * feedback).
  *
- * `transition-all` covers the color/opacity hovers these surfaces already
- * use, so adopting it never silences an existing hover fade. The press
- * scale is gated by `motion-safe:`: reduced-motion sessions keep the
- * instant color/border acknowledgement without any movement.
+ * The transition list is explicit — the cheap paint properties the
+ * existing hovers already use (color, background, border, opacity,
+ * shadow) plus the press transform. `transition-all` is avoided on
+ * purpose: it would also animate layout-affecting properties, e.g. the
+ * width change when a submit label swaps to its loading text.
+ * The press scale is gated by `motion-safe:`: reduced-motion sessions
+ * keep the instant color/border acknowledgement without any movement.
  */
 export const pressableClasses =
-  "transition-all duration-150 motion-safe:active:scale-[0.98]";
+  "transition-[color,background-color,border-color,box-shadow,opacity,transform,translate,scale,rotate] duration-150 motion-safe:active:scale-[0.98]";
 
 /** Build a Firebase Storage download URL from a bucket name and object path. */
 export function storageDownloadUrl(bucket: string, objectPath: string): string {
