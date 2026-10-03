@@ -52,7 +52,7 @@ import {
 // customer addresses are PII-adjacent and never logged — ids only.
 
 export class TradeLeadEmailSendError extends TradeLeadError {
-  constructor() {
+  constructor(public readonly communicationId?: string) {
     super("The email could not be sent.", 502);
   }
 }
@@ -70,12 +70,20 @@ interface PreparedSend {
   headers: Record<string, string>;
   communicationId: string;
   threadId: string;
-  messageId: string;
+  subject: string;
+  textBody: string;
+  // The stored communication already carries a provider id — a previous
+  // attempt reached Resend, so the retry must not dispatch a second copy.
+  alreadySent: boolean;
 }
 
 // Stage 1: validate + persist the outbound communication and its timeline
 // entry in one transaction (the history record must exist before the send
-// is attempted so a provider failure is still recorded honestly).
+// is attempted so a provider failure is still recorded honestly). When the
+// message carries `retryCommunicationId`, the previously recorded send is
+// reused instead — the stored subject/body must match the draft exactly so
+// the Resend idempotency key (the communication doc id) is replayed with an
+// identical payload and no duplicate customer email can go out.
 async function prepareOutboundEmail(
   leadId: string,
   message: ParsedOutboundMessage,
@@ -85,19 +93,32 @@ async function prepareOutboundEmail(
 ): Promise<PreparedSend> {
   const db = getFirebaseAdminDb();
   const leadRef = db.collection(TRADE_LEADS_COLLECTION).doc(leadId);
-  const commRef = leadRef
-    .collection(TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION)
-    .doc();
-  const activityRef = leadRef
-    .collection(TRADE_LEAD_ACTIVITIES_SUBCOLLECTION)
-    .doc();
-  const now = new Date();
-  const messageId = outboundMessageId(commRef.id, senderDomain(from));
 
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(leadRef);
     if (!snap.exists) throw new TradeLeadNotFoundError();
     const lead = snap.data() ?? {};
+
+    // Backfill the routing token on pre-#152 leads inside the same write so
+    // the outbound Reply-To and the displayed attach address agree.
+    let token = lead.replyToken;
+    const leadUpdates: Record<string, unknown> = {};
+    if (!isReplyToken(token)) {
+      token = generateReplyToken();
+      leadUpdates.replyToken = token;
+    }
+
+    if (message.retryCommunicationId) {
+      return prepareRetrySend(
+        tx,
+        leadRef,
+        message.retryCommunicationId,
+        message,
+        leadUpdates,
+        token as string,
+        replyDomain
+      );
+    }
 
     // Mail-relay containment: the only permitted recipient is the lead's own
     // contact address — no caller-supplied `to` is ever accepted.
@@ -109,14 +130,14 @@ async function prepareOutboundEmail(
       );
     }
 
-    // Backfill the routing token on pre-#152 leads inside the same write so
-    // the outbound Reply-To and the displayed attach address agree.
-    let token = lead.replyToken;
-    const leadUpdates: Record<string, unknown> = {};
-    if (!isReplyToken(token)) {
-      token = generateReplyToken();
-      leadUpdates.replyToken = token;
-    }
+    const commRef = leadRef
+      .collection(TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION)
+      .doc();
+    const activityRef = leadRef
+      .collection(TRADE_LEAD_ACTIVITIES_SUBCOLLECTION)
+      .doc();
+    const now = new Date();
+    const messageId = outboundMessageId(commRef.id, senderDomain(from));
 
     // Reply threading: resolve the referenced communication and seed
     // In-Reply-To/References + threadId from it. Any other message starts a
@@ -214,14 +235,121 @@ async function prepareOutboundEmail(
       headers,
       communicationId: commRef.id,
       threadId,
-      messageId,
+      subject: message.subject,
+      textBody: message.body,
+      alreadySent: false,
     };
   });
 }
 
+// Retry branch of prepareOutboundEmail: the earlier attempt already wrote
+// its communication + timeline entry, so nothing new is persisted — the
+// stored record supplies the identical payload and the doc id stays the
+// Resend idempotency key. Runs inside the same transaction callback.
+async function prepareRetrySend(
+  tx: FirebaseFirestore.Transaction,
+  leadRef: FirebaseFirestore.DocumentReference,
+  retryCommunicationId: string,
+  message: ParsedOutboundMessage,
+  leadUpdates: Record<string, unknown>,
+  token: string,
+  replyDomain: string
+): Promise<PreparedSend> {
+  const commRef = leadRef
+    .collection(TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION)
+    .doc(retryCommunicationId);
+  const commSnap = await tx.get(commRef);
+  if (!commSnap.exists) {
+    throw new TradeLeadError(
+      "The message being resent no longer exists.",
+      404
+    );
+  }
+  const comm = commSnap.data() ?? {};
+  if (comm.direction !== "outbound") {
+    throw new TradeLeadError("Only an unsent outgoing message can be resent.", 400);
+  }
+
+  const to = asStringArray(comm.to)[0] ?? "";
+  const priorSubject = typeof comm.subject === "string" ? comm.subject : "";
+  const priorBody = typeof comm.textBody === "string" ? comm.textBody : "";
+  const priorProviderId =
+    typeof comm.providerEmailId === "string" ? comm.providerEmailId : "";
+  const priorMessageId =
+    typeof comm.messageId === "string" ? comm.messageId : "";
+  const priorThreadId =
+    typeof comm.threadId === "string" && comm.threadId ? comm.threadId : commRef.id;
+  const priorInReplyTo =
+    typeof comm.inReplyTo === "string" ? comm.inReplyTo : undefined;
+  const priorReferences = asStringArray(comm.references);
+
+  if (priorProviderId) {
+    // Resend already accepted this send; the client saw an error because a
+    // later write failed. Report success without dispatching again.
+    return {
+      to,
+      replyTo: replyAddressForToken(token, replyDomain),
+      headers: {},
+      communicationId: commRef.id,
+      threadId: priorThreadId,
+      subject: priorSubject,
+      textBody: priorBody,
+      alreadySent: true,
+    };
+  }
+
+  // Only pre-delivery states are resendable. A record in a later state
+  // without a provider id is inconsistent — refuse rather than guess.
+  const state = comm.deliveryState;
+  if (state !== "queued" && state !== "failed") {
+    throw new TradeLeadError("This message can no longer be resent.", 409);
+  }
+  if (!to) {
+    throw new TradeLeadError("The recorded message has no recipient.", 409);
+  }
+
+  // Resend's idempotency guarantee requires an identical payload on replay,
+  // so the draft must still match the recorded message exactly.
+  if (priorSubject !== message.subject || priorBody !== message.body) {
+    throw new TradeLeadError(
+      "The draft changed since the failed send — send it as a new message.",
+      409
+    );
+  }
+
+  // Mark the retry as in-flight again so the timeline doesn't keep showing
+  // a stale failure while the provider call runs.
+  tx.update(commRef, {
+    deliveryState: "queued",
+    deliveryStateAt: FieldValue.serverTimestamp(),
+  });
+  if (leadUpdates.replyToken) tx.update(leadRef, leadUpdates);
+
+  const headers: Record<string, string> = { "Message-ID": priorMessageId };
+  if (priorInReplyTo) headers["In-Reply-To"] = priorInReplyTo;
+  if (priorReferences.length) {
+    headers["References"] = priorReferences.join(" ");
+  }
+
+  return {
+    to,
+    replyTo: replyAddressForToken(token, replyDomain),
+    headers,
+    communicationId: commRef.id,
+    threadId: priorThreadId,
+    subject: priorSubject,
+    textBody: priorBody,
+    alreadySent: false,
+  };
+}
+
 // Sends an admin-composed email to the lead's contact address via Resend and
 // records it in the pipeline. Failures mark the communication "failed" — the
-// timeline shows the real outcome rather than a false success.
+// timeline shows the real outcome rather than a false success. The persisted
+// communication id doubles as the Resend idempotency key: a retry of the
+// same send replays the identical payload under the same key, so a request
+// that failed after Resend accepted it can be retried without mailing the
+// customer twice.
 export async function sendLeadEmail(
   leadId: string,
   message: ParsedOutboundMessage,
@@ -237,21 +365,31 @@ export async function sendLeadEmail(
     replyDomain
   );
 
+  if (prepared.alreadySent) {
+    return {
+      communicationId: prepared.communicationId,
+      threadId: prepared.threadId,
+    };
+  }
+
   const commRef = getFirebaseAdminDb()
     .collection(TRADE_LEADS_COLLECTION)
     .doc(leadId)
     .collection(TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION)
     .doc(prepared.communicationId);
 
-  const { data, error } = await getResendClient().emails.send({
-    from,
-    to: prepared.to,
-    replyTo: prepared.replyTo,
-    subject: message.subject,
-    text: message.body,
-    html: plainTextToHtml(message.body),
-    headers: prepared.headers,
-  });
+  const { data, error } = await getResendClient().emails.send(
+    {
+      from,
+      to: prepared.to,
+      replyTo: prepared.replyTo,
+      subject: prepared.subject,
+      text: prepared.textBody,
+      html: plainTextToHtml(prepared.textBody),
+      headers: prepared.headers,
+    },
+    { idempotencyKey: prepared.communicationId }
+  );
 
   if (error || !data?.id) {
     await commRef
@@ -260,7 +398,7 @@ export async function sendLeadEmail(
         deliveryStateAt: FieldValue.serverTimestamp(),
       })
       .catch(() => {});
-    throw new TradeLeadEmailSendError();
+    throw new TradeLeadEmailSendError(prepared.communicationId);
   }
 
   await commRef.update({

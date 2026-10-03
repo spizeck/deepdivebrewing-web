@@ -129,7 +129,7 @@ System notifications are separate from the customer-facing conversation:
 - an `activities` subcollection holding the append-only history,
 - a `communications` subcollection holding the full email records (bodies, threading headers, provider IDs, delivery state) that `communication` history entries reference.
 
-The collection is **not readable by the website or admin dashboard client code** — Firestore rules deny all client access to `tradeLeads` and its `activities`/`communications` subcollections. Every read and write flows through authenticated `/api/admin/*` routes that verify the Firebase ID token, the admin custom claims, **and** an active `adminUsers` record (`requireAdminActor`). Server-side code (Admin SDK) is the only data path.
+The collection is **not readable by the website or admin dashboard client code** — Firestore rules deny all client access to `tradeLeads` and its `activities`/`communications` subcollections. Admin reads and writes flow through authenticated `/api/admin/*` routes that verify the Firebase ID token, the admin custom claims, **and** an active `adminUsers` record (`requireAdminActor`). Resend webhook events use the separate, signature-verified `/api/webhooks/resend` write path. Server-side code (Admin SDK) is the only data path.
 
 The email to `TRADE_NOTIFICATION_EMAIL` is a **notification**, not the only copy — if the email fails, the inquiry is still stored.
 
@@ -170,7 +170,7 @@ If submission fails:
 ## How administrators should respond
 
 1. Watch the **Trade leads** summary on the admin dashboard (or the `TRADE_NOTIFICATION_EMAIL` inbox) for new inquiries.
-2. Open the lead in `/admin/trade` and reply with the built-in **Email** composer — replies come back into the same lead automatically. **Call** (`tel:`) and **WhatsApp** (`wa.me`) links remain available for non-email contact.
+2. Open the lead in `/admin/trade` and reply with the built-in **Email** composer — replies come back into the same lead automatically. **Call** (`tel:`) and **WhatsApp** (`wa.me`) links remain available for non-email contact. If a send fails (the timeline entry shows *Failed* or stays *Queued*), the **Resend** button on the entry replays the exact same message — it is idempotent, so a retry can never send the customer a duplicate.
 3. If the customer emailed you directly, forward that email to the lead's **Attach email** address instead of copying it into a note.
 4. Log anything else with **Add a note**, set a **next follow-up** date when a next step is needed, and move the status forward.
 5. Keep business and contact details confidential; do not forward inquiry details to unauthorized recipients.

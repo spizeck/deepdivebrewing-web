@@ -629,11 +629,18 @@ Email is a channel on the lead, not a separate inbox:
   subject/body (`parseOutboundMessageBody`), persists the communication +
   timeline entry in one transaction *before* calling Resend (a provider
   failure is recorded as `deliveryState: "failed"`, never a false success),
-  then sends via `getResendClient().emails.send`. The recipient is always
-  the lead's stored `email` — the endpoint is not a mail relay. `Reply-To`
-  is the lead's inbound address and the send carries a deterministic RFC
+  then sends via `getResendClient().emails.send` with the communication doc
+  id as the Resend `idempotencyKey`. The recipient is always the lead's
+  stored `email` — the endpoint is not a mail relay. `Reply-To` is the
+  lead's inbound address and the send carries a deterministic RFC
   `Message-ID` (`<commId@<sender domain>>`) plus `In-Reply-To`/`References`
-  when replying to a stored message.
+  when replying to a stored message. A `retryCommunicationId` in the request
+  resends an existing queued/failed communication instead of writing a new
+  one: the stored subject/body must match the submitted draft (Resend
+  replays an identical payload under the same key, so a send that was
+  accepted before its Firestore update failed cannot mail the customer
+  twice), and a communication that already carries `providerEmailId` short-
+  circuits without another provider call.
 - **Inbound routing** — each lead owns `replyToken`, an 8-char token from an
   unambiguous alphabet, forming `<token>@<TRADE_REPLY_DOMAIN>` (default
   `reply.deepdivebrewing.com`). Replies to app-sent mail and staff-forwarded

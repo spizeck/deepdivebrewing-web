@@ -14,6 +14,7 @@ import {
 import {
   parseOutboundMessageBody,
   sendLeadEmail,
+  TradeLeadEmailSendError,
 } from "@/lib/trade-leads-email";
 
 interface RouteParams {
@@ -38,9 +39,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return badRequestResponse("Invalid JSON body.");
   }
 
+  const { id } = await params;
+
   try {
     const actor = await requireAdminActor(idToken);
-    const { id } = await params;
 
     const parsed = parseOutboundMessageBody(body);
     if (!parsed.ok) return badRequestResponse(parsed.error);
@@ -59,6 +61,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const detail = await getTradeLeadDetail(id);
     return NextResponse.json({ ok: true, ...detail });
   } catch (error) {
+    if (error instanceof TradeLeadEmailSendError) {
+      // The communication id lets the client retry this exact send — the
+      // server replays the stored payload under the same Resend idempotency
+      // key, so a provider-accepted attempt can't turn into two emails.
+      logInfo("trade_lead.email_send_failed", {
+        leadId: id,
+        communicationId: error.communicationId,
+        requestId,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: error.message,
+          communicationId: error.communicationId,
+        },
+        { status: error.status }
+      );
+    }
     return apiErrorResponse(error, {
       fallback: "Failed to send the email.",
       event: "trade_lead.email_send_failed",

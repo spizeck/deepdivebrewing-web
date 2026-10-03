@@ -300,6 +300,16 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
   const [emailBody, setEmailBody] = useState("");
   const [emailReplyToId, setEmailReplyToId] = useState<string | undefined>();
   const [emailError, setEmailError] = useState("");
+  // Snapshot of the last failed send. Resubmitting an unchanged draft
+  // retries that same communication (same Resend idempotency key), so a
+  // send that failed after the provider accepted it can't become two
+  // customer emails.
+  const [emailRetry, setEmailRetry] = useState<{
+    communicationId: string;
+    subject: string;
+    body: string;
+    replyToCommunicationId?: string;
+  } | null>(null);
   const [addressCopied, setAddressCopied] = useState(false);
 
   const [newLeadOpen, setNewLeadOpen] = useState(false);
@@ -322,7 +332,13 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
         unknown
       > & { ok?: boolean; error?: string };
       if (!res.ok || data.ok !== true) {
-        throw new Error(data.error ?? "Request failed.");
+        const err = new Error(data.error ?? "Request failed.") as Error & {
+          communicationId?: string;
+        };
+        if (typeof data.communicationId === "string") {
+          err.communicationId = data.communicationId;
+        }
+        throw err;
       }
       return data;
     },
@@ -379,6 +395,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
         setOutcomeDraft(next.lead.outcome ?? "");
         setComposerOpen(false);
         setEmailError("");
+        setEmailRetry(null);
         setAddressCopied(false);
       } catch (error) {
         if (selectedIdRef.current !== id) return;
@@ -433,6 +450,15 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
   async function sendEmail(e: React.FormEvent) {
     e.preventDefault();
     if (!detail || !emailSubject.trim() || !emailBody.trim() || saving) return;
+    // An unchanged draft after a send failure retries the same recorded
+    // communication; editing the draft makes it a genuinely new message.
+    const retryId =
+      emailRetry &&
+      emailRetry.subject === emailSubject &&
+      emailRetry.body === emailBody &&
+      emailRetry.replyToCommunicationId === emailReplyToId
+        ? emailRetry.communicationId
+        : undefined;
     setSaving("email");
     setEmailError("");
     setStatusMessage("");
@@ -447,6 +473,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
             ...(emailReplyToId
               ? { replyToCommunicationId: emailReplyToId }
               : {}),
+            ...(retryId ? { retryCommunicationId: retryId } : {}),
           }),
         }
       );
@@ -460,12 +487,62 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
       setEmailSubject("");
       setEmailBody("");
       setEmailReplyToId(undefined);
+      setEmailRetry(null);
       setStatusMessage("Email sent.");
       setStatusIsError(false);
     } catch (error) {
+      const failedCommId =
+        error instanceof Error
+          ? (error as { communicationId?: string }).communicationId
+          : undefined;
+      if (failedCommId) {
+        setEmailRetry({
+          communicationId: failedCommId,
+          subject: emailSubject,
+          body: emailBody,
+          replyToCommunicationId: emailReplyToId,
+        });
+      }
       setEmailError(
         error instanceof Error ? error.message : "Could not send the email."
       );
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  // Resend a stuck (queued) or failed outbound message from the timeline.
+  // The stored subject/body are resubmitted so the server can verify the
+  // payload is identical before replaying the same idempotency key.
+  async function retryEmail(comm: TradeLeadCommunicationView) {
+    if (!detail || !comm.subject || !comm.textBody || saving) return;
+    setSaving(`retry-${comm.id}`);
+    setStatusMessage("");
+    try {
+      const data = await apiFetch(
+        `/api/admin/trade-leads/${detail.lead.id}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            subject: comm.subject,
+            body: comm.textBody,
+            retryCommunicationId: comm.id,
+          }),
+        }
+      );
+      applyDetail({
+        lead: data.lead as TradeLeadView,
+        activities: (data.activities as TradeLeadActivityView[]) ?? [],
+        communications:
+          (data.communications as TradeLeadCommunicationView[]) ?? [],
+      });
+      setStatusMessage("Email sent.");
+      setStatusIsError(false);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Could not resend the email."
+      );
+      setStatusIsError(true);
     } finally {
       setSaving(null);
     }
@@ -481,6 +558,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
     setEmailBody("");
     setEmailReplyToId(opts?.replyToCommunicationId);
     setEmailError("");
+    setEmailRetry(null);
     setComposerOpen(true);
   }
 
@@ -1288,6 +1366,24 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                               {comm?.direction === "outbound" && (
                                 <DeliveryBadge state={comm.deliveryState} />
                               )}
+                              {comm?.direction === "outbound" &&
+                                (comm.deliveryState === "queued" ||
+                                  comm.deliveryState === "failed") &&
+                                comm.subject &&
+                                comm.textBody && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs"
+                                    disabled={saving === `retry-${comm.id}`}
+                                    onClick={() => retryEmail(comm)}
+                                  >
+                                    {saving === `retry-${comm.id}`
+                                      ? "Resending…"
+                                      : "Resend"}
+                                  </Button>
+                                )}
                               {comm?.direction === "inbound" &&
                                 detail.lead.email && (
                                   <Button

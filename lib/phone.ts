@@ -130,8 +130,10 @@ export function normalizePhoneNumber(
 // numbers that don't normalize still deserve a call link.
 export function telHref(phone: NormalizedPhone): string | null {
   if (phone.e164) return `tel:${phone.e164}`;
-  const raw = phone.display.replace(/[^\d]/g, "");
-  return raw.length >= 3 ? `tel:${raw}` : null;
+  // Unparsed input: dial the raw digits (keeping any leading "+") without
+  // guessing a country code — the handset sorts it out.
+  const raw = phone.display.replace(/[^\d+]/g, "");
+  return /\d{3,}/.test(raw) ? `tel:${raw}` : null;
 }
 
 // `wa.me` deep link. wa.me requires the full international number, so this

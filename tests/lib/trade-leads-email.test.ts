@@ -184,6 +184,20 @@ describe("parseOutboundMessageBody", () => {
     assert.strictEqual(result.message.replyToCommunicationId, "comm-1");
   });
 
+  it("passes retryCommunicationId through for idempotent resends", () => {
+    const result = parseOutboundMessageBody({
+      subject: "Hi",
+      body: "hello",
+      retryCommunicationId: " comm-9 ",
+    });
+    assert.ok(result.ok);
+    assert.strictEqual(result.message.retryCommunicationId, "comm-9");
+    // Absent on a fresh send.
+    const fresh = parseOutboundMessageBody({ subject: "Hi", body: "hello" });
+    assert.ok(fresh.ok);
+    assert.strictEqual(fresh.message.retryCommunicationId, undefined);
+  });
+
   it("caps subject and body length", () => {
     assert.strictEqual(
       parseOutboundMessageBody({

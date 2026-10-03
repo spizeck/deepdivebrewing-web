@@ -150,6 +150,11 @@ export interface ParsedOutboundMessage {
   // Optional: the communications doc id this message replies to — drives
   // In-Reply-To/References headers and thread grouping.
   replyToCommunicationId?: string;
+  // Optional: retries the send of an existing queued/failed outbound
+  // communication instead of recording a new one. The submitted subject and
+  // body must match the stored record exactly so the Resend idempotency key
+  // and payload stay stable across attempts.
+  retryCommunicationId?: string;
 }
 
 // Header-injection guard: CR/LF must never survive into a value that lands
@@ -187,9 +192,15 @@ export function parseOutboundMessageBody(
       ? raw.replyToCommunicationId.trim()
       : undefined;
 
+  const retryCommunicationId =
+    typeof raw.retryCommunicationId === "string" &&
+    raw.retryCommunicationId.trim()
+      ? raw.retryCommunicationId.trim()
+      : undefined;
+
   return {
     ok: true,
-    message: { subject, body: text, replyToCommunicationId },
+    message: { subject, body: text, replyToCommunicationId, retryCommunicationId },
   };
 }
 
