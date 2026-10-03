@@ -871,7 +871,7 @@ Names only — never commit values. Source of truth for names:
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | Admin SDK credential | Yes for all `/api/admin/*` |
 | `FIREBASE_ADMIN_PRIVATE_KEY` | Admin SDK credential (PEM; stored with `\n` escapes) | Yes for all `/api/admin/*` |
 | `SUPER_ADMIN_EMAIL` | Bootstrap allowlist — the only email `admin/bootstrap` will promote | Yes for bootstrap |
-| `STRIPE_SECRET_KEY` | Stripe secret key for the admin payments feature — Checkout Session create/expire/retrieve and PaymentIntent retrieve via lazy `getStripeClient()` (`sk_test_*` selects test mode) | Runtime only — required for `/api/admin/payments*` to function; build-safe otherwise |
+| `STRIPE_SECRET_KEY` | Stripe secret key for the admin payments feature — Checkout Session create/expire/retrieve and PaymentIntent retrieve via lazy `getStripeClient()` (`sk_test_*` selects test mode) | Runtime only — required when an operation calls `getStripeClient()`; build-safe otherwise |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_*`) for `/api/webhooks/stripe` signature verification | Runtime only — required for webhook processing; the route 500s without it rather than accept unsigned events |
 | `NEXT_PUBLIC_SENTRY_DSN` | Error-monitoring ingest DSN for the server + browser SDKs (`lib/monitoring-shared.ts`); inlined into the client bundle by design — not a credential | Optional — reporting is enabled only when this is set **and** the environment is Vercel Production (`VERCEL_ENV` server-side / `NEXT_PUBLIC_VERCEL_ENV` client-side); preview/dev/CI never emit events |
 | `SENTRY_ORG` | Sentry org slug for source-map upload (`withSentryConfig`) | Build time, Production scope — absent everywhere else |

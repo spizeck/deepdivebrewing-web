@@ -550,6 +550,7 @@ export interface CheckoutSessionSpec {
   payment_intent_data: {
     metadata: Record<string, string>;
     description: string;
+    receipt_email?: string;
   };
   success_url: string;
   cancel_url: string;
@@ -586,6 +587,9 @@ export function buildCheckoutSessionSpec(args: {
     payment_intent_data: {
       metadata: { paymentId: args.paymentId, purpose: args.purpose },
       description: args.description,
+      // Guarantees Stripe emails the receipt — `customer_email` alone only
+      // prefills the checkout form and does not promise delivery.
+      ...(args.customerEmail ? { receipt_email: args.customerEmail } : {}),
     },
     success_url: args.successUrl,
     cancel_url: args.cancelUrl,
@@ -762,7 +766,10 @@ export function planStripeEventApply(
       "expired",
       "canceled",
     ]),
-    processing: new Set<PaymentStatus>(["created", "awaiting_payment", "failed"]),
+    // `failed` is not a source for `processing`: an async payment that
+    // failed left its Checkout Session complete+unpaid and cannot be
+    // retried — a failed record must never regress to pending.
+    processing: new Set<PaymentStatus>(["created", "awaiting_payment"]),
     failed: new Set<PaymentStatus>([
       "created",
       "awaiting_payment",

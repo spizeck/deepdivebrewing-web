@@ -162,6 +162,27 @@ export async function createAdminPayment(
   });
 
   if (seed.existed) {
+    // The stored record is authoritative for the charge. A replayed
+    // clientRequestId carrying *different* details (staff edited the
+    // amount after a lost response) must not silently charge the stored
+    // amount — surface a conflict so staff start a fresh payment.
+    const stored = seed.data;
+    const mismatch =
+      stored.purpose !== input.purpose ||
+      stored.description !== input.description ||
+      stored.amountMinor !== input.amountMinor ||
+      stored.customerName !== input.customerName ||
+      stored.customerEmail !== input.customerEmail ||
+      stored.tourDate !== input.tourDate ||
+      stored.attendeeCount !== input.attendeeCount ||
+      stored.internalNote !== input.internalNote;
+    if (mismatch) {
+      throw new PaymentError(
+        "A payment with this reference already exists with different details. Start a new payment instead.",
+        409
+      );
+    }
+
     const status = normalizePaymentStatus(seed.data.status);
     if (status !== "created") {
       // Replay: the earlier request already issued a session (or the payment
@@ -412,7 +433,28 @@ export async function refreshAdminPayment(id: string): Promise<void> {
     transition === "paid" && outcome.paymentIntentId
       ? await fetchPaidEnrichment(outcome.paymentIntentId)
       : {};
-  await applyOutcome(id, outcome, "manual_refresh", extra);
+  const applied = await applyOutcome(id, outcome, "manual_refresh", extra);
+
+  // paid→paid is a no-op for the planner, so a paid record whose
+  // enrichment lookup failed at webhook time backfills here.
+  if (!applied && data.status === "paid" && !data.receiptUrl) {
+    const intentId =
+      outcome.paymentIntentId ??
+      (typeof data.stripePaymentIntentId === "string"
+        ? data.stripePaymentIntentId
+        : null);
+    const enrich =
+      Object.keys(extra).length > 0
+        ? extra
+        : intentId
+          ? await fetchPaidEnrichment(intentId)
+          : {};
+    if (Object.keys(enrich).length > 0) {
+      await getPaymentsCollection()
+        .doc(id)
+        .update({ ...enrich, updatedAt: FieldValue.serverTimestamp() });
+    }
+  }
 }
 
 // --- Stripe webhook ---

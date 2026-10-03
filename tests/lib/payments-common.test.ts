@@ -98,16 +98,19 @@ describe("parsePaymentCreateBody", () => {
   });
 
   it("accepts the full field set", () => {
+    // Derived from the current year — a hardcoded year goes stale once it
+    // falls outside TOUR_DATE_MAX_YEARS_AWAY.
+    const tourDate = `${new Date().getFullYear() + 1}-10-15`;
     const result = parsePaymentCreateBody({
       ...baseBody,
       customerEmail: "jane@example.com",
-      tourDate: "2026-10-15",
+      tourDate,
       attendeeCount: 4,
       internalNote: "Cruise group",
     });
     assert.strictEqual(result.ok, true);
     if (result.ok) {
-      assert.strictEqual(result.input.tourDate, "2026-10-15");
+      assert.strictEqual(result.input.tourDate, tourDate);
       assert.strictEqual(result.input.attendeeCount, 4);
     }
   });
@@ -207,6 +210,26 @@ describe("buildCheckoutSessionSpec", () => {
     }
     // Receipt email goes to the dedicated Stripe field, not metadata.
     assert.strictEqual(spec.customer_email, "jane@example.com");
+  });
+
+  it("sets receipt_email so Stripe emails the receipt automatically", () => {
+    // customer_email only prefills the form — receipt_email is what
+    // guarantees Stripe sends the customer a receipt on success.
+    assert.strictEqual(
+      spec.payment_intent_data.receipt_email,
+      "jane@example.com"
+    );
+
+    const noEmail = buildCheckoutSessionSpec({
+      paymentId: VALID_ID,
+      purpose: "other",
+      description: "Ad hoc charge",
+      amountMinor: 500,
+      successUrl: "https://deepdivebrewing.com/pay/complete",
+      cancelUrl: "https://deepdivebrewing.com/pay/cancelled",
+    });
+    assert.strictEqual(noEmail.payment_intent_data.receipt_email, undefined);
+    assert.strictEqual(noEmail.customer_email, undefined);
   });
 });
 
@@ -358,6 +381,19 @@ describe("planStripeEventApply", () => {
       planStripeEventApply(record("canceled"), outcome("paid"), "webhook", NOW).apply,
       true
     );
+  });
+
+  it("never sends a failed record back to processing", () => {
+    // A Checkout Session that async-failed is complete+unpaid and cannot
+    // be retried — neither a late webhook nor a manual refresh (which maps
+    // that session state to "processing") may resurrect it to pending.
+    for (const source of ["webhook", "manual_refresh"] as const) {
+      assert.strictEqual(
+        planStripeEventApply(record("failed"), outcome("processing"), source, NOW).apply,
+        false,
+        `failed must not regress to processing via ${source}`
+      );
+    }
   });
 
   it("is a no-op when the transition does not advance the record", () => {
