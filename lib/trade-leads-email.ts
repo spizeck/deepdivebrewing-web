@@ -32,6 +32,7 @@ import {
   replyAddressForToken,
   replyNotificationRecipient,
   resolveInboundThreadId,
+  retryWithinIdempotencyWindow,
   senderDomain,
   shouldAdvanceDeliveryState,
   TRADE_EMAIL_MAX_ATTACHMENTS,
@@ -52,8 +53,11 @@ import {
 // customer addresses are PII-adjacent and never logged — ids only.
 
 export class TradeLeadEmailSendError extends TradeLeadError {
-  constructor(public readonly communicationId?: string) {
-    super("The email could not be sent.", 502);
+  constructor(
+    public readonly communicationId?: string,
+    message = "The email could not be sent."
+  ) {
+    super(message, 502);
   }
 }
 
@@ -187,6 +191,7 @@ async function prepareOutboundEmail(
       ...(references ? { references } : {}),
       threadId,
       sentAt: Timestamp.fromDate(now),
+      sendAttemptAt: Timestamp.fromDate(now),
       sentByUid: actor.uid,
       sentByName: actor.name,
       deliveryState: "queued",
@@ -308,6 +313,27 @@ async function prepareRetrySend(
     throw new TradeLeadError("The recorded message has no recipient.", 409);
   }
 
+  // Resend dedupes on the idempotency key for 24h only. A `failed` record
+  // means the provider explicitly rejected the send — nothing was
+  // dispatched — so it stays safe to retry at any age. A `queued` record
+  // may have been accepted before its update failed; past the window a
+  // retry could send a second copy, so it must be refused. Two concurrent
+  // retries inside the window still collapse to one send on the shared key.
+  if (state === "queued") {
+    const attemptAt =
+      comm.sendAttemptAt instanceof Timestamp
+        ? comm.sendAttemptAt.toDate()
+        : comm.sentAt instanceof Timestamp
+          ? comm.sentAt.toDate()
+          : null;
+    if (!retryWithinIdempotencyWindow(attemptAt, new Date())) {
+      throw new TradeLeadError(
+        "Too much time has passed to safely resend this message — it may already have been sent. Send a new message instead.",
+        409
+      );
+    }
+  }
+
   // Resend's idempotency guarantee requires an identical payload on replay,
   // so the draft must still match the recorded message exactly.
   if (priorSubject !== message.subject || priorBody !== message.body) {
@@ -318,10 +344,13 @@ async function prepareRetrySend(
   }
 
   // Mark the retry as in-flight again so the timeline doesn't keep showing
-  // a stale failure while the provider call runs.
+  // a stale failure while the provider call runs — and stamp the attempt,
+  // which is what the idempotency-window check measures the next retry
+  // against.
   tx.update(commRef, {
     deliveryState: "queued",
     deliveryStateAt: FieldValue.serverTimestamp(),
+    sendAttemptAt: FieldValue.serverTimestamp(),
   });
   if (leadUpdates.replyToken) tx.update(leadRef, leadUpdates);
 
@@ -378,18 +407,27 @@ export async function sendLeadEmail(
     .collection(TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION)
     .doc(prepared.communicationId);
 
-  const { data, error } = await getResendClient().emails.send(
-    {
-      from,
-      to: prepared.to,
-      replyTo: prepared.replyTo,
-      subject: prepared.subject,
-      text: prepared.textBody,
-      html: plainTextToHtml(prepared.textBody),
-      headers: prepared.headers,
-    },
-    { idempotencyKey: prepared.communicationId }
-  );
+  const sendResult = await getResendClient()
+    .emails.send(
+      {
+        from,
+        to: prepared.to,
+        replyTo: prepared.replyTo,
+        subject: prepared.subject,
+        text: prepared.textBody,
+        html: plainTextToHtml(prepared.textBody),
+        headers: prepared.headers,
+      },
+      { idempotencyKey: prepared.communicationId }
+    )
+    .catch(() => null);
+  if (!sendResult) {
+    // Transport-level failure — whether Resend received the request is
+    // unknown, so the record stays `queued` (uncertain, not "failed") and
+    // the id carries through for an idempotent retry within the window.
+    throw new TradeLeadEmailSendError(prepared.communicationId);
+  }
+  const { data, error } = sendResult;
 
   if (error || !data?.id) {
     await commRef
@@ -401,11 +439,22 @@ export async function sendLeadEmail(
     throw new TradeLeadEmailSendError(prepared.communicationId);
   }
 
-  await commRef.update({
-    providerEmailId: data.id,
-    deliveryState: "sent",
-    deliveryStateAt: FieldValue.serverTimestamp(),
-  });
+  try {
+    await commRef.update({
+      providerEmailId: data.id,
+      deliveryState: "sent",
+      deliveryStateAt: FieldValue.serverTimestamp(),
+    });
+  } catch {
+    // Resend accepted the send but recording it failed — the email may be
+    // on its way. The communication id must reach the client so its retry
+    // replays this send (same idempotency key) instead of composing a new
+    // one that would mail the customer twice.
+    throw new TradeLeadEmailSendError(
+      prepared.communicationId,
+      "The email may have been sent but the result could not be saved — resend the same message to confirm."
+    );
+  }
 
   return {
     communicationId: prepared.communicationId,

@@ -204,6 +204,26 @@ export function parseOutboundMessageBody(
   };
 }
 
+// --- Resend window ---
+//
+// Resend retains idempotency keys for 24 hours. A communication stuck
+// `queued` may already have been accepted by the provider (the send
+// succeeded but its record update failed), so replaying its key after the
+// window could dispatch a second copy of the email. Retries are only safe
+// inside the window, with margin for clock skew and request latency.
+export const TRADE_EMAIL_RESEND_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+// True when a resend attempt is still inside the provider idempotency
+// window — i.e. the previous attempt is provably deduplicated or was never
+// made. `attemptAt` is the comm's stored `sendAttemptAt`.
+export function retryWithinIdempotencyWindow(
+  attemptAt: Date | null,
+  now: Date
+): boolean {
+  if (!attemptAt) return true;
+  return now.getTime() - attemptAt.getTime() <= TRADE_EMAIL_RESEND_WINDOW_MS;
+}
+
 // --- Inbound body normalization ---
 
 // Stored-text cap: comfortably under Firestore's 1 MiB document limit while
@@ -311,6 +331,10 @@ export interface TradeLeadCommunicationRecord {
   references?: string[];
   threadId: string;
   sentAt?: unknown;
+  // Timestamp of the most recent provider dispatch attempt — the resend
+  // window is measured from this, so a stuck `queued` record past the
+  // provider's idempotency horizon is refused rather than duplicated.
+  sendAttemptAt?: unknown;
   receivedAt?: unknown;
   sentByUid?: string;
   sentByName?: string;

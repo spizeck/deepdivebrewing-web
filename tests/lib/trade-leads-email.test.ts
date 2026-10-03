@@ -14,11 +14,13 @@ import {
   replyAddressForToken,
   replyNotificationRecipient,
   resolveInboundThreadId,
+  retryWithinIdempotencyWindow,
   senderDomain,
   serializeTradeLeadCommunication,
   shouldAdvanceDeliveryState,
   TRADE_EMAIL_BODY_MAX,
   TRADE_EMAIL_PREVIEW_LENGTH,
+  TRADE_EMAIL_RESEND_WINDOW_MS,
   TRADE_EMAIL_STORED_BODY_MAX,
   TRADE_EMAIL_SUBJECT_MAX,
   TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION,
@@ -223,6 +225,30 @@ describe("parseOutboundMessageBody", () => {
     assert.ok(result.ok);
     assert.strictEqual(result.message.subject, "Hi BCC: victim@example.com");
     assert.doesNotMatch(result.message.subject, /[\r\n]/);
+  });
+});
+
+describe("retryWithinIdempotencyWindow", () => {
+  const now = new Date("2026-01-01T12:00:00Z");
+
+  it("allows a resend when no attempt was ever made", () => {
+    assert.strictEqual(retryWithinIdempotencyWindow(null, now), true);
+  });
+
+  it("allows a resend inside the provider idempotency window", () => {
+    const recent = new Date(now.getTime() - 60_000);
+    const edge = new Date(now.getTime() - TRADE_EMAIL_RESEND_WINDOW_MS);
+    assert.strictEqual(retryWithinIdempotencyWindow(recent, now), true);
+    assert.strictEqual(retryWithinIdempotencyWindow(edge, now), true);
+  });
+
+  it("refuses a resend once the key may have expired", () => {
+    const stale = new Date(
+      now.getTime() - TRADE_EMAIL_RESEND_WINDOW_MS - 60_000
+    );
+    assert.strictEqual(retryWithinIdempotencyWindow(stale, now), false);
+    // And the constant stays inside Resend's 24h key retention.
+    assert.ok(TRADE_EMAIL_RESEND_WINDOW_MS < 24 * 60 * 60 * 1000);
   });
 });
 

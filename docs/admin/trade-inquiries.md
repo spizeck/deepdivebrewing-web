@@ -170,7 +170,7 @@ If submission fails:
 ## How administrators should respond
 
 1. Watch the **Trade leads** summary on the admin dashboard (or the `TRADE_NOTIFICATION_EMAIL` inbox) for new inquiries.
-2. Open the lead in `/admin/trade` and reply with the built-in **Email** composer — replies come back into the same lead automatically. **Call** (`tel:`) and **WhatsApp** (`wa.me`) links remain available for non-email contact. If a send fails (the timeline entry shows *Failed* or stays *Queued*), the **Resend** button on the entry replays the exact same message — it is idempotent, so a retry can never send the customer a duplicate.
+2. Open the lead in `/admin/trade` and reply with the built-in **Email** composer — replies come back into the same lead automatically. **Call** (`tel:`) and **WhatsApp** (`wa.me`) links remain available for non-email contact. If a send fails (the timeline entry shows *Failed* or stays *Queued*), the **Resend** button on the entry replays the exact same message — it is idempotent, so a retry can never send the customer a duplicate. A *Queued* entry can only be resent within roughly a day of the attempt; after that the system cannot prove the customer did not already receive it, so compose a new message instead.
 3. If the customer emailed you directly, forward that email to the lead's **Attach email** address instead of copying it into a note.
 4. Log anything else with **Add a note**, set a **next follow-up** date when a next step is needed, and move the status forward.
 5. Keep business and contact details confidential; do not forward inquiry details to unauthorized recipients.

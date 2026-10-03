@@ -640,7 +640,12 @@ Email is a channel on the lead, not a separate inbox:
   replays an identical payload under the same key, so a send that was
   accepted before its Firestore update failed cannot mail the customer
   twice), and a communication that already carries `providerEmailId` short-
-  circuits without another provider call.
+  circuits without another provider call. Resend retains idempotency keys
+  for 24h, so each dispatch stamps `sendAttemptAt` and a `queued` resend is
+  refused once the previous attempt is past the window (a `failed` send —
+  provider-rejected, never dispatched — stays resendable). A post-send
+  Firestore failure returns the communication id so the client retries the
+  same recorded send rather than composing a duplicate.
 - **Inbound routing** — each lead owns `replyToken`, an 8-char token from an
   unambiguous alphabet, forming `<token>@<TRADE_REPLY_DOMAIN>` (default
   `reply.deepdivebrewing.com`). Replies to app-sent mail and staff-forwarded
