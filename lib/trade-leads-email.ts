@@ -151,6 +151,7 @@ async function prepareOutboundEmail(
       bodyHtml: plainTextToHtml(message.body),
       markUrl: `${siteUrl}${TRADE_EMAIL_MARK_PATH}`,
       siteUrl,
+      senderName: actor.name,
     });
 
     // Reply threading: resolve the referenced communication and seed

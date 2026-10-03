@@ -476,14 +476,53 @@ describe("buildTradeLeadOutboundHtml", () => {
     assert.ok(html.includes('alt="Deep Dive Brewing Co"'));
   });
 
+  it("renders the mark centered at the enlarged brand size", () => {
+    assert.ok(html.includes('width="92"'));
+    // Centered presentation: the cell aligns center and the image
+    // carries an auto-margin fallback for clients that need it.
+    assert.ok(html.includes("margin:0 auto"));
+  });
+
   it("carries the staff body inside the card unchanged", () => {
     assert.ok(html.includes("<p>Thanks for reaching out.</p>"));
     assert.ok(html.includes("<p>Price list attached.</p>"));
   });
 
   it("has a brand footer with the site link", () => {
-    assert.ok(html.includes("Deep Dive Brewing Co &middot; Saba"));
+    assert.ok(html.includes("Deep Dive Brewing Co"));
+    assert.ok(html.includes("Saba, Dutch Caribbean"));
     assert.ok(html.includes('href="https://deepdivebrewing.com"'));
+    // No sender name passed — the footer falls back to the bare brand line.
+    assert.ok(!html.includes("&middot; Deep Dive Brewing Co"));
+  });
+
+  it("credits the sending admin when a sender name is supplied", () => {
+    const withSender = buildTradeLeadOutboundHtml({
+      bodyHtml: "<p>hi</p>",
+      markUrl: `https://deepdivebrewing.com${TRADE_EMAIL_MARK_PATH}`,
+      siteUrl: "https://deepdivebrewing.com",
+      senderName: "Chad",
+    });
+    assert.ok(withSender.includes("Chad &middot; Deep Dive Brewing Co"));
+    // Blank or absent names fall back to the bare brand line.
+    const blank = buildTradeLeadOutboundHtml({
+      bodyHtml: "<p>hi</p>",
+      markUrl: `https://deepdivebrewing.com${TRADE_EMAIL_MARK_PATH}`,
+      siteUrl: "https://deepdivebrewing.com",
+      senderName: "   ",
+    });
+    assert.ok(!blank.includes("&middot;"));
+  });
+
+  it("escapes the sender name — it cannot inject markup", () => {
+    const evil = buildTradeLeadOutboundHtml({
+      bodyHtml: "<p>hi</p>",
+      markUrl: `https://deepdivebrewing.com${TRADE_EMAIL_MARK_PATH}`,
+      siteUrl: "https://deepdivebrewing.com",
+      senderName: 'Chad <img src=x onerror="alert(1)">',
+    });
+    assert.ok(!evil.includes("<img src=x"));
+    assert.ok(evil.includes("Chad &lt;img"));
   });
 
   it("escapes the mark URL and keeps email-safe markup", () => {

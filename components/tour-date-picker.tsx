@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, pressableClasses } from "@/lib/utils";
 import {
   addCalendarDays,
   compareCalendarDates,
@@ -180,7 +180,10 @@ export function TourDatePicker({
                     : { year: v.year, month: v.month - 1 }
                 )
               }
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink/70 transition-colors hover:bg-stone disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50"
+              className={cn(
+                "inline-flex h-8 w-8 items-center justify-center rounded-md text-ink/70 hover:bg-stone disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50",
+                pressableClasses
+              )}
             >
               <ChevronLeft className="size-5" aria-hidden="true" />
             </button>
@@ -200,7 +203,10 @@ export function TourDatePicker({
                     : { year: v.year, month: v.month + 1 }
                 )
               }
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink/70 transition-colors hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50"
+              className={cn(
+                "inline-flex h-8 w-8 items-center justify-center rounded-md text-ink/70 hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50",
+                pressableClasses
+              )}
             >
               <ChevronRight className="size-5" aria-hidden="true" />
             </button>
@@ -245,7 +251,10 @@ export function TourDatePicker({
                         tabIndex={toIsoDate(day) === focusedIso ? 0 : -1}
                         onClick={() => select(day)}
                         onKeyDown={(e) => handleDayKeyDown(e, day)}
-                        className="mx-auto flex h-8 w-full max-w-8 items-center justify-center rounded-full text-sm text-ink transition-colors hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50 aria-[disabled=true]:text-ink/30 aria-[disabled=true]:hover:bg-transparent data-[selected=true]:bg-ink data-[selected=true]:text-paper"
+                        className={cn(
+                          "mx-auto flex h-8 w-full max-w-8 items-center justify-center rounded-full text-sm text-ink hover:bg-stone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50 aria-[disabled=true]:text-ink/30 aria-[disabled=true]:hover:bg-transparent data-[selected=true]:bg-ink data-[selected=true]:text-paper",
+                          pressableClasses
+                        )}
                       >
                         {day.day}
                       </button>

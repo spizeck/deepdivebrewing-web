@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { beerImageUrl } from "@/lib/utils";
+import { beerImageUrl, cn, pressableClasses } from "@/lib/utils";
 import type { Beer } from "@/lib/types";
 
 interface BeerCardProps {
@@ -15,7 +15,10 @@ export function BeerCard({ beer, imageUrl, priority }: BeerCardProps) {
   return (
     <Link
       href={`/beers/${beer.slug}`}
-      className="group block rounded-lg border border-stone bg-paper transition-opacity duration-200 hover:opacity-85"
+      className={cn(
+        "group block rounded-lg border border-stone bg-paper hover:opacity-85",
+        pressableClasses
+      )}
     >
       <div className="relative aspect-4/5 w-full overflow-hidden rounded-t-lg">
         <Image

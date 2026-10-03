@@ -4,7 +4,7 @@ import * as React from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { X } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn, pressableClasses } from "@/lib/utils";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -33,7 +33,10 @@ function DialogContent({
         {children}
         <DialogPrimitive.Close
           aria-label="Close"
-          className="absolute right-3 top-3 inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-ink/70 transition-colors hover:bg-stone hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50"
+          className={cn(
+            "absolute right-3 top-3 inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-ink/70 hover:bg-stone hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50",
+            pressableClasses
+          )}
         >
           <X className="size-5" aria-hidden="true" />
         </DialogPrimitive.Close>

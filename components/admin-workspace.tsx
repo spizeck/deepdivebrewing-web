@@ -1,6 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
+import { cn, pressableClasses } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -236,9 +237,13 @@ export function AdminWorkspace({
                       type="button"
                       aria-current={selectedBeerSlug === beer.slug}
                       onClick={() => onSelectBeer(beer.slug)}
-                      className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${
-                        selectedBeerSlug === beer.slug ? "bg-stone/40" : "hover:bg-stone/20"
-                      }`}
+                      className={cn(
+                        "w-full rounded-md px-2 py-1.5 text-left text-sm",
+                        selectedBeerSlug === beer.slug
+                          ? "bg-stone/40"
+                          : "hover:bg-stone/20",
+                        pressableClasses
+                      )}
                     >
                       {beer.name}
                     </button>
@@ -352,9 +357,13 @@ export function AdminWorkspace({
                       type="button"
                       aria-current={selectedVenueSlug === venue.slug}
                       onClick={() => onSelectVenue(venue.slug)}
-                      className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${
-                        selectedVenueSlug === venue.slug ? "bg-stone/40" : "hover:bg-stone/20"
-                      }`}
+                      className={cn(
+                        "w-full rounded-md px-2 py-1.5 text-left text-sm",
+                        selectedVenueSlug === venue.slug
+                          ? "bg-stone/40"
+                          : "hover:bg-stone/20",
+                        pressableClasses
+                      )}
                     >
                       {venue.name}
                     </button>
@@ -414,7 +423,7 @@ export function AdminWorkspace({
 
               <div className="mt-4 grid gap-4 sm:grid-cols-3">
                 <details className="text-sm">
-                  <summary className="cursor-pointer rounded-md border border-ink/50 px-3 py-2 font-medium">
+                  <summary className={cn("cursor-pointer rounded-md border border-ink/50 px-3 py-2 font-medium hover:bg-stone/20", pressableClasses)}>
                     Carries Beers
                   </summary>
                   <p className="mt-2 text-xs text-muted-foreground">
@@ -441,7 +450,7 @@ export function AdminWorkspace({
                 </details>
 
                 <details className="text-sm">
-                  <summary className="cursor-pointer rounded-md border border-ink/50 px-3 py-2 font-medium">
+                  <summary className={cn("cursor-pointer rounded-md border border-ink/50 px-3 py-2 font-medium hover:bg-stone/20", pressableClasses)}>
                     On Tap
                   </summary>
                   <p className="mt-2 text-xs text-muted-foreground">
@@ -468,7 +477,7 @@ export function AdminWorkspace({
                 </details>
 
                 <details className="text-sm">
-                  <summary className="cursor-pointer rounded-md border border-ink/50 px-3 py-2 font-medium">
+                  <summary className={cn("cursor-pointer rounded-md border border-ink/50 px-3 py-2 font-medium hover:bg-stone/20", pressableClasses)}>
                     In Can
                   </summary>
                   <p className="mt-2 text-xs text-muted-foreground">

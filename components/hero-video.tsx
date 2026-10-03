@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { cn, pressableClasses } from "@/lib/utils";
 
 // Issue #135: the brewery still replaces the grain hero photo so the static
 // experience looks intentional instead of duplicating the hero above it.
@@ -145,7 +146,10 @@ export function HeroVideo() {
         <div className="mt-8">
           <Link
             href="/about"
-            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-paper/30 bg-transparent px-6 text-sm font-medium text-paper transition-colors hover:bg-paper/10 focus-visible:ring-2 focus-visible:ring-paper/50"
+            className={cn(
+              "inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-paper/30 bg-transparent px-6 text-sm font-medium text-paper hover:bg-paper/10 focus-visible:ring-2 focus-visible:ring-paper/50",
+              pressableClasses
+            )}
           >
             Learn More
           </Link>

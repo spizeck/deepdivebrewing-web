@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
+import { cn, pressableClasses } from "@/lib/utils";
 import type { AdminPanelUser } from "@/components/admin-access";
 import {
   normalizePhoneNumber,
@@ -916,11 +917,13 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                     type="button"
                     aria-current={selectedId === lead.id}
                     onClick={() => void openLead(lead.id)}
-                    className={`w-full rounded-md border px-2.5 py-2 text-left text-sm ${
+                    className={cn(
+                      "w-full rounded-md border px-2.5 py-2 text-left text-sm",
                       selectedId === lead.id
                         ? "border-ocean/60 bg-ocean/[0.07]"
-                        : "border-transparent hover:border-stone hover:bg-stone/25"
-                    }`}
+                        : "border-transparent hover:border-stone hover:bg-stone/25",
+                      pressableClasses
+                    )}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate font-medium">

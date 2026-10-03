@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import Link from "next/link";
+import { cn, pressableClasses } from "@/lib/utils";
 
 const navLinks = [
   { href: "/beers", label: "Beers" },
@@ -42,7 +43,10 @@ export function MobileMenu({ variant = "dark" }: MobileMenuProps) {
     <div className="md:hidden">
       <button
         onClick={() => setOpen(!open)}
-        className={`flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md ${iconColor} focus-visible:ring-2 ${focusRing}`}
+        className={cn(
+          `flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-md ${iconColor} focus-visible:ring-2 ${focusRing}`,
+          pressableClasses
+        )}
         aria-label={open ? "Close menu" : "Open menu"}
         aria-expanded={open}
         aria-controls={menuId}

@@ -10,6 +10,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { trackEvent } from "@/lib/analytics";
+import { cn, pressableClasses } from "@/lib/utils";
 import { TourDatePicker } from "@/components/tour-date-picker";
 import { toIsoDate } from "@/lib/calendar";
 import {
@@ -157,7 +158,10 @@ export function TourInquiryCta({
                     return (
                       <label
                         key={key}
-                        className="cursor-pointer rounded-md border border-stone bg-paper px-3 py-1.5 transition-colors has-checked:border-ink has-checked:bg-stone/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ocean/50"
+                        className={cn(
+                          "cursor-pointer rounded-md border border-stone bg-paper px-3 py-1.5 has-checked:border-ink has-checked:bg-stone/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ocean/50",
+                          pressableClasses
+                        )}
                       >
                         <input
                           type="radio"

@@ -3,6 +3,7 @@
 import useEmblaCarousel from "embla-carousel-react";
 import { useCallback } from "react";
 import { BeerCard } from "@/components/beer-card";
+import { cn, pressableClasses } from "@/lib/utils";
 import type { Beer } from "@/lib/types";
 
 interface BeerCarouselProps {
@@ -60,7 +61,10 @@ export function BeerCarousel({ beers, imageUrls }: BeerCarouselProps) {
       <button
         onClick={scrollPrev}
         aria-label="Previous beer"
-        className="absolute -left-4 top-1/3 z-10 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-stone bg-paper shadow-sm transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-ocean/50"
+        className={cn(
+          "absolute -left-4 top-1/3 z-10 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-stone bg-paper shadow-sm hover:opacity-75 focus-visible:ring-2 focus-visible:ring-ocean/50",
+          pressableClasses
+        )}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -69,7 +73,10 @@ export function BeerCarousel({ beers, imageUrls }: BeerCarouselProps) {
       <button
         onClick={scrollNext}
         aria-label="Next beer"
-        className="absolute -right-4 top-1/3 z-10 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-stone bg-paper shadow-sm transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-ocean/50"
+        className={cn(
+          "absolute -right-4 top-1/3 z-10 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-stone bg-paper shadow-sm hover:opacity-75 focus-visible:ring-2 focus-visible:ring-ocean/50",
+          pressableClasses
+        )}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M9 18l6-6-6-6" />

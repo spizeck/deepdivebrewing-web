@@ -5,6 +5,21 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Shared tactile feedback for interactive controls that are not `Button`
+ * instances — record rows, lead cards, filter chips, disclosure controls,
+ * icon buttons. `buttonVariants` carries the same press scale for shadcn
+ * Buttons; keep the two in sync (see THEME_AND_BRANDING.md — Interactive
+ * feedback).
+ *
+ * `transition-all` covers the color/opacity hovers these surfaces already
+ * use, so adopting it never silences an existing hover fade. The press
+ * scale is gated by `motion-safe:`: reduced-motion sessions keep the
+ * instant color/border acknowledgement without any movement.
+ */
+export const pressableClasses =
+  "transition-all duration-150 motion-safe:active:scale-[0.98]";
+
 /** Build a Firebase Storage download URL from a bucket name and object path. */
 export function storageDownloadUrl(bucket: string, objectPath: string): string {
   const encoded = encodeURIComponent(objectPath);

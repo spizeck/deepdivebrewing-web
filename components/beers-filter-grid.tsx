@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { cn, pressableClasses } from "@/lib/utils";
 import { trackEvent } from "@/lib/analytics";
 import { BeerCard } from "@/components/beer-card";
 import type { Beer } from "@/lib/types";
@@ -42,7 +43,10 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
                 cta_location: "beers_page",
               });
             }}
-            className="min-h-[44px] min-w-[44px] cursor-pointer rounded-md focus-visible:ring-2 focus-visible:ring-ocean/50"
+            className={cn(
+              "min-h-[44px] min-w-[44px] cursor-pointer rounded-md hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ocean/50",
+              pressableClasses
+            )}
             aria-pressed={activeFilter === option.value}
           >
             <Badge

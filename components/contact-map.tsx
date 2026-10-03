@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { MapPin } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, pressableClasses } from "@/lib/utils";
 import { BUSINESS_ADDRESS } from "@/lib/site";
 
 // Contextual consent boundary (Issue #77): the Google Maps embed is never
@@ -57,7 +57,10 @@ export function ContactMap({ className }: ContactMapProps) {
           <button
             type="button"
             onClick={() => setMapRequested(true)}
-            className="mt-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-opacity duration-200 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50"
+            className={cn(
+              "mt-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50",
+              pressableClasses
+            )}
           >
             Load map
           </button>
