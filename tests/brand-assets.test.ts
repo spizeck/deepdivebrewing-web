@@ -61,7 +61,13 @@ describe("favicon + app icon wiring", () => {
         `manifest icon missing: ${icon.src}`
       );
       assert.strictEqual(icon.type, "image/png");
-      assert.ok(icon.purpose, `manifest icon ${icon.src} lacks a purpose`);
+      // The badge art is not maskable safe-zone guaranteed — the manifest
+      // must keep declaring "any", never "maskable".
+      assert.strictEqual(
+        icon.purpose,
+        "any",
+        `manifest icon ${icon.src} must declare purpose "any"`
+      );
       sizes.add(icon.sizes);
     }
     assert.ok(sizes.has("192x192") && sizes.has("512x512"));
