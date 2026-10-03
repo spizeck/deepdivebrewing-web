@@ -51,6 +51,7 @@ import {
   type TradeLeadView,
 } from "@/lib/trade-leads-admin-common";
 import {
+  splitQuotedEmailText,
   TRADE_EMAIL_BODY_MAX,
   TRADE_EMAIL_SUBJECT_MAX,
   type TradeLeadCommunicationView,
@@ -1340,12 +1341,28 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                       const comm = commId
                         ? communicationsById.get(commId)
                         : undefined;
+                      const isOutboundEmail =
+                        comm?.direction === "outbound";
                       return (
                         <li key={activity.id} className="flex gap-2.5 text-sm">
-                          <ActivityIcon
-                            className={`mt-0.5 h-4 w-4 shrink-0 ${iconMeta.className}`}
-                            aria-hidden="true"
-                          />
+                          {isOutboundEmail ? (
+                            // Outbound DDB mail gets the brand avatar so it
+                            // reads as "from us" at a glance; inbound +
+                            // system activity keep the generic icons.
+                            // eslint-disable-next-line @next/next/no-img-element -- static 16px mark; Image adds no benefit here
+                            <img
+                              src="/brand/avatar-transparent-black-512.png"
+                              alt=""
+                              width={16}
+                              height={16}
+                              className="mt-0.5 h-4 w-4 shrink-0"
+                            />
+                          ) : (
+                            <ActivityIcon
+                              className={`mt-0.5 h-4 w-4 shrink-0 ${iconMeta.className}`}
+                              aria-hidden="true"
+                            />
+                          )}
                           <div className="min-w-0">
                             <p className="text-xs text-muted-foreground">
                               {formatAdminDateTime(activity.createdAt)}
@@ -1366,45 +1383,15 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                               {comm?.direction === "outbound" && (
                                 <DeliveryBadge state={comm.deliveryState} />
                               )}
-                              {comm?.direction === "outbound" &&
-                                (comm.deliveryState === "queued" ||
-                                  comm.deliveryState === "failed") &&
-                                comm.subject &&
-                                comm.textBody && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-xs"
-                                    disabled={saving === `retry-${comm.id}`}
-                                    onClick={() => retryEmail(comm)}
-                                  >
-                                    {saving === `retry-${comm.id}`
-                                      ? "Resending…"
-                                      : "Resend"}
-                                  </Button>
-                                )}
-                              {comm?.direction === "inbound" &&
-                                detail.lead.email && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-xs"
-                                    onClick={() =>
-                                      openComposer({
-                                        subject: replySubject(comm.subject),
-                                        replyToCommunicationId: comm.id,
-                                      })
-                                    }
-                                  >
-                                    Reply
-                                  </Button>
-                                )}
                             </div>
                             {comm && (
                               <div className="mt-1 rounded-md border border-stone bg-stone/10 p-2 text-muted-foreground">
-                                <p className="text-xs">
+                                {comm.subject && (
+                                  <p className="text-xs font-medium text-ink">
+                                    {comm.subject}
+                                  </p>
+                                )}
+                                <p className="mt-0.5 text-xs">
                                   {comm.direction === "inbound"
                                     ? `From ${comm.from ?? "unknown sender"}`
                                     : `To ${comm.to.join(", ") || "unknown"}`}
@@ -1415,12 +1402,83 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                                       } (not stored)`
                                     : ""}
                                 </p>
-                                {comm.textBody && (
-                                  <p className="mt-1 whitespace-pre-wrap text-xs">
-                                    {comm.textBody}
-                                    {comm.truncated ? " …" : ""}
-                                  </p>
-                                )}
+                                {comm.textBody &&
+                                  (() => {
+                                    // Inbound mail usually quotes our
+                                    // earlier message — the reply text stays
+                                    // primary while the quote collapses.
+                                    const body =
+                                      comm.direction === "inbound"
+                                        ? splitQuotedEmailText(comm.textBody)
+                                        : { fresh: comm.textBody, quoted: null };
+                                    return (
+                                      <>
+                                        <p className="mt-1 whitespace-pre-wrap text-xs">
+                                          {body.fresh}
+                                          {comm.truncated ? " …" : ""}
+                                        </p>
+                                        {body.quoted && (
+                                          <details className="mt-1">
+                                            <summary className="cursor-pointer text-[11px] text-muted-foreground/80 hover:text-muted-foreground">
+                                              Quoted history
+                                            </summary>
+                                            <p className="mt-1 whitespace-pre-wrap border-l-2 border-stone pl-2 text-[11px] text-muted-foreground/80">
+                                              {body.quoted}
+                                            </p>
+                                          </details>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                {(comm.direction === "outbound" &&
+                                  (comm.deliveryState === "queued" ||
+                                    comm.deliveryState === "failed") &&
+                                  comm.subject &&
+                                  comm.textBody) ||
+                                (comm.direction === "inbound" &&
+                                  detail.lead.email) ? (
+                                  <div className="mt-2 flex gap-1 border-t border-stone/60 pt-2">
+                                    {comm.direction === "outbound" &&
+                                      (comm.deliveryState === "queued" ||
+                                        comm.deliveryState === "failed") &&
+                                      comm.subject &&
+                                      comm.textBody && (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 px-2 text-xs"
+                                          disabled={
+                                            saving === `retry-${comm.id}`
+                                          }
+                                          onClick={() => retryEmail(comm)}
+                                        >
+                                          {saving === `retry-${comm.id}`
+                                            ? "Resending…"
+                                            : "Resend"}
+                                        </Button>
+                                      )}
+                                    {comm.direction === "inbound" &&
+                                      detail.lead.email && (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 px-2 text-xs"
+                                          onClick={() =>
+                                            openComposer({
+                                              subject: replySubject(
+                                                comm.subject
+                                              ),
+                                              replyToCommunicationId: comm.id,
+                                            })
+                                          }
+                                        >
+                                          Reply
+                                        </Button>
+                                      )}
+                                  </div>
+                                ) : null}
                               </div>
                             )}
                             {!isNote && activity.body && (

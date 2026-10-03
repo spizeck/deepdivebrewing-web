@@ -376,6 +376,40 @@ colors: {
 
 ---
 
+## Brand Marks
+
+The brewery's primary brand mark is the **hoppy turtle** — a monochrome
+line-art anchor/turtle/hop mark. The stacked wordmark is secondary and is
+not used at icon sizes.
+
+### Mark inventory (`public/`)
+
+| File | Artwork | Used for |
+| --- | --- | --- |
+| `brand/hoppy-turtle-{black,white}-1600.png` | Full mark, 1600px master | Large placements only — never icons or email headers |
+| `brand/email-mark-{black,white}.png` | Same mark, 600×503 | Site UI (`components/brand-mark.tsx`), outbound trade email header (black variant) |
+| `brand/avatar-{light,dark}-512.png` | Circular badge on solid bg | App-icon source (apple-touch-icon, android-chrome) |
+| `brand/avatar-transparent-{black,white}-512.png` | Circular badge, transparent | Small admin/UI badges (trade timeline outbound avatar) |
+| `favicon.ico`, `favicon-{16x16,32x32}{,-dark}.png`, `favicon-48x48.png`, `favicon.svg` | Circular badge raster set | Browser favicons — the SVG adapts to dark browser chrome via `prefers-color-scheme` |
+
+### Rules
+
+* **Monochrome only.** Black artwork on light surfaces, white artwork on
+  dark surfaces. Never recolor, invert with CSS filters, or place color
+  variants.
+* **Tiny contexts use the circular badge** (`avatar-*`, `favicon-*`),
+  never the full mark or wordmark — the linework collapses below ~32px.
+* Site UI uses `components/brand-mark.tsx` (`tone="black"|"white"`,
+  `decorative` when adjacent text already names the brand).
+* Email uses absolute URLs on the canonical site origin — relative paths
+  never resolve inside a mail client.
+* App icons are `purpose: "any"`; no maskable assets exist yet (the badge
+  ring would clip in the safe zone) — a dedicated maskable asset is a
+  possible follow-up.
+* BIMI (the turtle in the inbox sender column) is a future
+  email-infrastructure task — it needs a VMC + DNS work and is not
+  implemented.
+
 ## Success Criteria
 The theme is correct when:
 * The site is calm and readable

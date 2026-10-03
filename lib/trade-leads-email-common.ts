@@ -285,6 +285,120 @@ export function plainTextToHtml(text: string): string {
     .join("");
 }
 
+// --- Outbound branding ---
+//
+// Customer-facing mail is wrapped in a light branded shell: the hoppy
+// turtle mark (the primary brand mark), a clean white card for the
+// staff-written body, and a compact footer. Table-based layout and inline
+// styles only — no external fonts, background images, or scripts — so it
+// renders consistently across Gmail, Outlook, and mobile clients.
+//
+// The mark is served from the public site origin (`lib/site.ts` siteUrl) —
+// email clients need absolute URLs; relative paths never resolve outside
+// the browser. `/brand/email-mark-black.png` is the light-background
+// variant; the white variant exists for dark surfaces only if a future
+// template needs it.
+export const TRADE_EMAIL_MARK_PATH = "/brand/email-mark-black.png";
+
+export function buildTradeLeadOutboundHtml(options: {
+  // Escaped/paragraph-wrapped body produced by plainTextToHtml — the
+  // staff-composed message is never altered, only presented.
+  bodyHtml: string;
+  // Absolute URL of the brand mark image (site origin + TRADE_EMAIL_MARK_PATH).
+  markUrl: string;
+  // Absolute site URL for the footer link.
+  siteUrl: string;
+}): string {
+  const { bodyHtml, markUrl, siteUrl } = options;
+  const home = escapeHtml(siteUrl.replace(/^https?:\/\//, ""));
+  return `<div style="margin:0;padding:24px 16px;background-color:#fafaf8;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:100%;">
+          <tr>
+            <td style="padding:0 0 16px 4px;">
+              <img src="${escapeHtml(markUrl)}" width="64" height="54" alt="Deep Dive Brewing Co" style="display:block;border:0;outline:none;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#ffffff;border:1px solid #e6e7e3;border-radius:8px;padding:24px;font-size:15px;line-height:1.6;color:#0b0f14;">
+              ${bodyHtml}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 4px 0;font-size:12px;line-height:1.5;color:#737373;">
+              Deep Dive Brewing Co &middot; Saba, Dutch Caribbean<br />
+              <a href="${escapeHtml(siteUrl)}" style="color:#334e68;">${home}</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>`;
+}
+
+// --- Quoted-reply display split ---
+//
+// Inbound mail is stored as plain text and frequently carries the quoted
+// thread below the new content ("On … wrote:", `>` lines, Outlook's
+// "From:/Sent:" header block, or an "Original Message" separator). For the
+// admin timeline we split that off so the quoted history renders
+// de-emphasized instead of dominating the card. Conservative: a marker on
+// line 0, or one that leaves no fresh text, disables the split entirely so
+// real message content is never hidden.
+const QUOTED_LINE = /^>/;
+const QUOTED_WROTE = /^On\s.{1,200}wrote:\s*$/i;
+const QUOTED_SEPARATOR =
+  /^[-–—=]{2,}\s*(Original Message|Forwarded message|Forwarded)\s*[-–—=]*\s*$/i;
+// Outlook-style header block: a "From:" line whose next non-empty line is
+// Sent:/Date:/To:/Subject:.
+const QUOTED_HEADER_BLOCK = /^From:\s+\S/;
+
+export function splitQuotedEmailText(text: string): {
+  fresh: string;
+  quoted: string | null;
+} {
+  const lines = text.split("\n");
+  let cut = -1;
+  let cutByAngleLine = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (QUOTED_LINE.test(line)) {
+      cut = i;
+      cutByAngleLine = true;
+      break;
+    }
+    if (QUOTED_WROTE.test(line.trim()) || QUOTED_SEPARATOR.test(line.trim())) {
+      cut = i;
+      break;
+    }
+    if (QUOTED_HEADER_BLOCK.test(line.trim())) {
+      const nextNonEmpty = lines
+        .slice(i + 1, i + 4)
+        .find((l) => l.trim().length > 0);
+      if (nextNonEmpty && /^(Sent|Date|To|Subject):/i.test(nextNonEmpty.trim())) {
+        cut = i;
+        break;
+      }
+    }
+  }
+  if (cut <= 0) return { fresh: text, quoted: null };
+  // `>` quoting is line-scoped: when plain text resumes after the quoted
+  // run the reply is interleaved ("Hi\n> quote\nnew instructions"). Leave
+  // the message expanded rather than fold post-quote content into history.
+  if (
+    cutByAngleLine &&
+    lines.slice(cut + 1).some((l) => l.trim().length > 0 && !QUOTED_LINE.test(l))
+  ) {
+    return { fresh: text, quoted: null };
+  }
+  const fresh = lines.slice(0, cut).join("\n").replace(/\s+$/, "");
+  if (!fresh) return { fresh: text, quoted: null };
+  return { fresh, quoted: lines.slice(cut).join("\n") };
+}
+
 export function escapeHtml(input: string): string {
   return input
     .replaceAll("&", "&amp;")
@@ -322,6 +436,11 @@ export interface TradeLeadCommunicationRecord {
   cc?: string[];
   subject: string;
   textBody: string;
+  // Rendered HTML part, persisted at compose time so a resend replays the
+  // identical provider payload under the same idempotency key. Absent on
+  // records written before branded outbound mail — those resend with the
+  // legacy plain-text-derived HTML to keep the payload stable.
+  htmlBody?: string;
   truncated?: boolean;
   attachments?: TradeLeadAttachmentMeta[];
   provider: "resend";

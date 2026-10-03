@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
+  buildTradeLeadOutboundHtml,
   deliveryStateForEvent,
   emailPreview,
   escapeHtml,
@@ -18,6 +19,8 @@ import {
   senderDomain,
   serializeTradeLeadCommunication,
   shouldAdvanceDeliveryState,
+  splitQuotedEmailText,
+  TRADE_EMAIL_MARK_PATH,
   TRADE_EMAIL_BODY_MAX,
   TRADE_EMAIL_PREVIEW_LENGTH,
   TRADE_EMAIL_RESEND_WINDOW_MS,
@@ -455,5 +458,108 @@ describe("subcollection naming", () => {
       TRADE_LEAD_COMMUNICATIONS_SUBCOLLECTION,
       "communications"
     );
+  });
+});
+
+describe("buildTradeLeadOutboundHtml", () => {
+  const html = buildTradeLeadOutboundHtml({
+    bodyHtml: plainTextToHtml("Thanks for reaching out.\n\nPrice list attached."),
+    markUrl: `https://deepdivebrewing.com${TRADE_EMAIL_MARK_PATH}`,
+    siteUrl: "https://deepdivebrewing.com",
+  });
+
+  it("embeds the absolute brand-mark URL", () => {
+    assert.ok(
+      html.includes(`src="https://deepdivebrewing.com${TRADE_EMAIL_MARK_PATH}"`),
+      "expected the hoppy turtle mark as an absolute URL"
+    );
+    assert.ok(html.includes('alt="Deep Dive Brewing Co"'));
+  });
+
+  it("carries the staff body inside the card unchanged", () => {
+    assert.ok(html.includes("<p>Thanks for reaching out.</p>"));
+    assert.ok(html.includes("<p>Price list attached.</p>"));
+  });
+
+  it("has a brand footer with the site link", () => {
+    assert.ok(html.includes("Deep Dive Brewing Co &middot; Saba"));
+    assert.ok(html.includes('href="https://deepdivebrewing.com"'));
+  });
+
+  it("escapes the mark URL and keeps email-safe markup", () => {
+    const evil = buildTradeLeadOutboundHtml({
+      bodyHtml: "<p>x</p>",
+      markUrl: 'https://x.test/"><script>alert(1)</script>',
+      siteUrl: "https://deepdivebrewing.com",
+    });
+    assert.ok(!evil.includes("<script"));
+    // Inline styles + tables only — no external fonts or scripts.
+    assert.ok(!html.includes("@import") && !html.includes("<link"));
+  });
+});
+
+describe("splitQuotedEmailText", () => {
+  it("splits a reply above a '>' quoted block", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Yes, two cases works.\n\nOn Mon, Oct 6, Chad wrote:\n> here is the price list"
+    );
+    assert.strictEqual(fresh, "Yes, two cases works.");
+    assert.ok(quoted?.includes("> here is the price list"));
+  });
+
+  it("splits an 'Original Message' separator", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Confirmed.\n\n-----Original Message-----\nFrom: Chad\nSent: Monday"
+    );
+    assert.strictEqual(fresh, "Confirmed.");
+    assert.ok(quoted?.includes("Original Message"));
+  });
+
+  it("splits an Outlook From:/Sent: header block", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Sounds good.\n\nFrom: chad@deepdivebrewing.com\nSent: Monday\nTo: sam@harbour.example"
+    );
+    assert.strictEqual(fresh, "Sounds good.");
+    assert.ok(quoted?.startsWith("From:"));
+  });
+
+  it("does not split a bare From: line that is not a header block", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Prices start From: $20 per case\n\nLet me know."
+    );
+    assert.strictEqual(quoted, null);
+    assert.ok(fresh.includes("From: $20"));
+  });
+
+  it("splits a reply above a bare '>' quoted tail", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Done.\n\n> original question\n> second line"
+    );
+    assert.strictEqual(fresh, "Done.");
+    assert.ok(quoted?.includes("> original question"));
+  });
+
+  it("keeps an interleaved reply expanded — post-quote text is new content", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Hi\n> Can you ship Monday?\nPlease ship Tuesday instead"
+    );
+    assert.strictEqual(quoted, null);
+    assert.ok(fresh.includes("Please ship Tuesday instead"));
+  });
+
+  it("never hides the whole message — marker on line 0 keeps everything", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "> forwarded content only"
+    );
+    assert.strictEqual(quoted, null);
+    assert.ok(fresh.includes("forwarded content only"));
+  });
+
+  it("returns the full body when nothing is quoted", () => {
+    const { fresh, quoted } = splitQuotedEmailText(
+      "Hello\n\nNo quotes here."
+    );
+    assert.strictEqual(quoted, null);
+    assert.strictEqual(fresh, "Hello\n\nNo quotes here.");
   });
 });

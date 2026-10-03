@@ -645,7 +645,16 @@ Email is a channel on the lead, not a separate inbox:
   refused once the previous attempt is past the window (a `failed` send —
   provider-rejected, never dispatched — stays resendable). A post-send
   Firestore failure returns the communication id so the client retries the
-  same recorded send rather than composing a duplicate.
+  same recorded send rather than composing a duplicate. The HTML part is a
+  branded shell (`buildTradeLeadOutboundHtml` in
+  `lib/trade-leads-email-common.ts`): hoppy-turtle mark + white card around
+  the staff-written body + a compact footer — table layout and inline
+  styles only. The mark resolves to an absolute URL on `siteUrl`
+  (`/brand/email-mark-black.png`); the plain-text part is sent unchanged.
+  The rendered HTML is persisted on the communication (`htmlBody`) so a
+  resend replays the identical provider payload under the same idempotency
+  key; records written before branded mail fall back to the legacy
+  plain-text-derived HTML.
 - **Inbound routing** — each lead owns `replyToken`, an 8-char token from an
   unambiguous alphabet, forming `<token>@<TRADE_REPLY_DOMAIN>` (default
   `reply.deepdivebrewing.com`). Replies to app-sent mail and staff-forwarded
