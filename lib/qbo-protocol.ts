@@ -436,10 +436,13 @@ export interface QboCompanyInfo {
 }
 
 // GET companyinfo — proves the connection works and records which company
-// the admin actually authorized.
+// the admin actually authorized. The returned company identity must be the
+// realm the request was made against: a missing, empty, or mismatched Id is
+// a provider-boundary violation, never silently absorbed into the requested
+// realm — that would let a wrong-company response pass as the expected one.
 export function canonicalizeCompanyInfo(
   payload: unknown,
-  fallbackRealmId: string
+  expectedRealmId: string
 ): QboCompanyInfo {
   const info =
     typeof payload === "object" && payload !== null
@@ -449,8 +452,13 @@ export function canonicalizeCompanyInfo(
     typeof info === "object" && info !== null
       ? (info as Record<string, unknown>)
       : {};
-  const realmId =
-    typeof record.Id === "string" && record.Id ? record.Id : fallbackRealmId;
+  const realmId = typeof record.Id === "string" ? record.Id : "";
+  if (!realmId || realmId !== expectedRealmId) {
+    throw new QboError(
+      "QuickBooks returned an unexpected company identity.",
+      "unexpected"
+    );
+  }
   const companyName =
     typeof record.CompanyName === "string" && record.CompanyName
       ? record.CompanyName

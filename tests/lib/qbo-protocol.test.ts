@@ -430,7 +430,7 @@ describe("qboWebhookDedupeKey", () => {
 });
 
 describe("canonicalizeCompanyInfo", () => {
-  it("extracts the safe company identity", () => {
+  it("extracts the safe company identity when the realm matches", () => {
     const info = canonicalizeCompanyInfo(
       {
         CompanyInfo: {
@@ -440,7 +440,7 @@ describe("canonicalizeCompanyInfo", () => {
           Email: { Address: "internal@example.com" },
         },
       },
-      "fallback"
+      "934145475"
     );
     assert.deepStrictEqual(info, {
       realmId: "934145475",
@@ -449,12 +449,44 @@ describe("canonicalizeCompanyInfo", () => {
     });
   });
 
-  it("falls back gracefully on unexpected payloads", () => {
-    assert.deepStrictEqual(canonicalizeCompanyInfo(null, "r1"), {
-      realmId: "r1",
-      companyName: "Unknown company",
-      country: undefined,
-    });
+  it("rejects missing, empty, non-string, and mismatched company ids", () => {
+    const badPayloads: unknown[] = [
+      null,
+      {},
+      { CompanyInfo: null },
+      { CompanyInfo: {} },
+      { CompanyInfo: { Id: "" } },
+      { CompanyInfo: { Id: 934145475 } },
+      { CompanyInfo: { Id: "other-realm", CompanyName: "Wrong Co" } },
+    ];
+    for (const payload of badPayloads) {
+      try {
+        canonicalizeCompanyInfo(payload, "realm-1");
+        assert.fail(`expected rejection for ${JSON.stringify(payload)}`);
+      } catch (error) {
+        assert.ok(error instanceof QboError);
+        assert.strictEqual(error.kind, "unexpected");
+        assert.strictEqual(error.clientSafe, true);
+      }
+    }
+  });
+
+  it("never substitutes the requested realm for a missing or foreign id", () => {
+    // A provider answer for another company must not be absorbed into the
+    // requested realm — and the rejection must not echo provider data.
+    for (const payload of [
+      {},
+      { CompanyInfo: { Id: "other-realm", CompanyName: "Wrong Co" } },
+    ]) {
+      try {
+        canonicalizeCompanyInfo(payload, "realm-1");
+        assert.fail("expected rejection");
+      } catch (error) {
+        assert.ok(error instanceof QboError);
+        assert.ok(!error.message.includes("other-realm"));
+        assert.ok(!error.message.includes("Wrong Co"));
+      }
+    }
   });
 });
 
