@@ -171,7 +171,8 @@ entries, no journals.**
 | Element | Decision |
 | --- | --- |
 | QBO entity per payment | `SalesReceipt` |
-| Amount | **Gross** (`amountMinor`); Stripe fee is never netted out by us |
+| Amount | **Gross** in QBO decimal currency units — `amountMinor` is integer **cents**, so the boundary must convert (`amountMinor / 100`, e.g. `10000` → `100.0`). The same conversion applies to RefundReceipts |
+| Transaction date | `TxnDate` = the payment's **`paidAt`** settlement date (refund's `refundedAt` for RefundReceipts) — never the worker's processing date, so delayed retries and backfills land in the correct accounting period |
 | Cash target | `DepositToAccountRef` = mapped **Stripe clearing account** — *not* a bank account, *not* Undeposited Funds unless inspection says UF is how the existing feed clears |
 | Income split | Line `ItemRef` by `purpose` → mapped income item |
 | Customer | One generic customer (mapped fallback) — see §6 |
@@ -300,6 +301,14 @@ Stripe fees            ──existing path──► Fee expense account
   without a `TaxCodeRef` (QBO treats lines per company tax settings;
   for an untaxed service this is typically correct as "out of scope /
   non-taxable").
+- **Non-US transactions must set `GlobalTaxCalculation` explicitly** —
+  QBO requires the field on sales transactions for non-US companies.
+  The intended value is `NotApplicable` (no tax regime applies to the
+  line), but the exact accepted value depends on the company's tax
+  configuration and must be confirmed in the pre-flight tax check
+  (§2 item 6) — for a company with a configured tax regime the correct
+  treatment may differ. This is a required payload field, not an
+  optional nicety.
 - `taxCodeId` stays **optional and unset** until the accountant confirms
   whether tour/tasting revenue carries Curaçao turnover tax (OB) and
   which TaxCode the company uses. The mapping field exists so that a
