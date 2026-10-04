@@ -6,6 +6,7 @@ import {
   isStripeTestMode,
   resolveCheckoutReturnBaseUrl,
 } from "@/lib/stripe-config";
+import { siteUrl } from "@/lib/site";
 
 const KEYS = [
   "STRIPE_SECRET_KEY",
@@ -83,16 +84,17 @@ describe("resolveCheckoutReturnBaseUrl", () => {
   const saved = snapshot();
   afterEach(() => restore(saved));
 
-  it("production always returns the canonical https origin", () => {
+  it("production always returns the canonical site origin", () => {
     setEnv("VERCEL_ENV", "production");
     setEnv("NODE_ENV", "production");
     setEnv("VERCEL_URL", "ddb-abc123.vercel.app");
     setEnv("VERCEL_BRANCH_URL", "ddb-branch.vercel.app");
     setEnv("NEXT_PUBLIC_SITE_URL", undefined);
-    assert.strictEqual(
-      resolveCheckoutReturnBaseUrl(),
-      "https://deepdivebrewing.com"
-    );
+    // `siteUrl` is resolved once at module load, so assert the contract
+    // (production returns the canonical site origin), not a recomputation
+    // of the env var the module already froze.
+    assert.strictEqual(resolveCheckoutReturnBaseUrl(), siteUrl);
+    assert.ok(siteUrl.startsWith("https://"));
   });
 
   it("preview deployments return to their own host, branch alias preferred", () => {
