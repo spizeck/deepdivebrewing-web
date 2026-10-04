@@ -18,9 +18,13 @@ import { getFirebaseAuth } from "@/lib/firebase";
 // without admin claims is pointed there rather than duplicating that flow.
 export function AdminAuthGate({
   heading,
+  description,
   children,
 }: {
   heading: string;
+  // Surface-specific sign-in prompt — each admin sub-page names what the
+  // authorized account manages (trade leads, payments, QuickBooks, …).
+  description: string;
   children: (user: User) => ReactNode;
 }) {
   const [user, setUser] = useState<User | null>(null);
@@ -109,9 +113,7 @@ export function AdminAuthGate({
     return (
       <div className="rounded-lg border border-stone bg-paper p-6">
         <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Sign in with an authorized Google account to manage trade leads.
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
         <Button onClick={handleGoogleSignIn} className="mt-4">
           Sign in with Google
         </Button>

@@ -9,6 +9,7 @@ import {
   type AdminPanelUser,
 } from "@/components/admin-access";
 import { AdminPaymentsSummary } from "@/components/admin-payments-summary";
+import { AdminQuickbooksSummary } from "@/components/admin-quickbooks-summary";
 import { AdminTradeSummary } from "@/components/admin-trade-summary";
 import type { Beer, Venue } from "@/lib/types";
 import { VENUE_ISLAND_OPTIONS, type VenueIsland } from "@/lib/venue-islands";
@@ -201,6 +202,8 @@ export function AdminWorkspace({
       <AdminTradeSummary user={accessUser} />
 
       <AdminPaymentsSummary user={accessUser} />
+
+      <AdminQuickbooksSummary user={accessUser} />
 
       <Tabs defaultValue="beers">
         <div className="flex flex-wrap items-center gap-2">

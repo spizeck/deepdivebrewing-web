@@ -91,6 +91,27 @@ export const test = base.extend({
       })
     );
 
+    // Same for the QuickBooks summary card (#161): default to a
+    // not-configured status so unrelated specs stay hermetic.
+    await page.route(/\/api\/admin\/quickbooks\//, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          connection: {
+            configured: false,
+            environment: "sandbox",
+            environmentLabel: "Sandbox",
+            status: "not_configured",
+            health: "unknown",
+            mappingConfigured: false,
+          },
+          mapping: { configured: false },
+        }),
+      })
+    );
+
     page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
     page.on("console", (msg) => {
       if (

@@ -5,7 +5,10 @@ import { AdminPaymentsWorkspace } from "@/components/admin-payments-workspace";
 
 export function AdminPaymentsPage() {
   return (
-    <AdminAuthGate heading="Payments">
+    <AdminAuthGate
+      heading="Payments"
+      description="Sign in with an authorized Google account to manage payments."
+    >
       {(user) => <AdminPaymentsWorkspace user={user} />}
     </AdminAuthGate>
   );

@@ -69,6 +69,7 @@ Examples:
 - `TRADE_NOTIFICATION_EMAIL` — staff mailbox for trade alerts (legacy name `TRADE_INQUIRY_TO_EMAIL` still works as a fallback)
 - `TRADE_REPLY_DOMAIN` — optional; inbound domain for per-lead reply addresses (default `reply.deepdivebrewing.com`, requires Resend inbound/MX setup)
 - `RESEND_WEBHOOK_SECRET` — svix signing secret for `POST /api/webhooks/resend`; required for inbound email and delivery callbacks
+- `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_ENVIRONMENT`, `QBO_REDIRECT_URI`, `QBO_WEBHOOK_VERIFIER_TOKEN`, `QBO_TOKEN_ENCRYPTION_KEY` — QuickBooks Online integration; Development credentials + sandbox belong to Preview, Production credentials belong to Production — see `docs/operations/quickbooks.md`
 - `VERCEL_DEPLOY_HOOK_URL`
 - `FIREBASE_ADMIN_PROJECT_ID`
 - `FIREBASE_ADMIN_CLIENT_EMAIL`
