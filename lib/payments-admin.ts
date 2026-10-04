@@ -2,8 +2,10 @@ import "server-only";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { getStripeClient } from "@/lib/stripe";
-import { getStripeWebhookSecret } from "@/lib/stripe-config";
-import { siteUrl } from "@/lib/site";
+import {
+  getStripeWebhookSecret,
+  resolveCheckoutReturnBaseUrl,
+} from "@/lib/stripe-config";
 import { logInfo, logWarn } from "@/lib/log";
 import {
   assertCheckoutSessionUrl,
@@ -193,6 +195,9 @@ export async function createAdminPayment(
   }
 
   const stored = seed.data;
+  // Return/cancel URLs go to the *deployment's* origin — a preview
+  // deployment's /pay/* routes exist only on the preview host.
+  const returnBase = resolveCheckoutReturnBaseUrl();
   const spec = buildCheckoutSessionSpec({
     paymentId: ref.id,
     purpose: String(stored.purpose ?? input.purpose),
@@ -202,8 +207,8 @@ export async function createAdminPayment(
       typeof stored.customerEmail === "string"
         ? stored.customerEmail
         : undefined,
-    successUrl: `${siteUrl}/pay/complete`,
-    cancelUrl: `${siteUrl}/pay/cancelled`,
+    successUrl: `${returnBase}/pay/complete`,
+    cancelUrl: `${returnBase}/pay/cancelled`,
   });
 
   // Idempotency key = payment id: a Stripe retry of this call returns the

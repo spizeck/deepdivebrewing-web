@@ -4,9 +4,18 @@ import {
   getStripeSecretKey,
   getStripeWebhookSecret,
   isStripeTestMode,
+  resolveCheckoutReturnBaseUrl,
 } from "@/lib/stripe-config";
 
-const KEYS = ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "VERCEL_ENV", "NODE_ENV"] as const;
+const KEYS = [
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "VERCEL_ENV",
+  "VERCEL_URL",
+  "VERCEL_BRANCH_URL",
+  "NODE_ENV",
+  "NEXT_PUBLIC_SITE_URL",
+] as const;
 
 function snapshot() {
   return Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -67,5 +76,83 @@ describe("stripe-config", () => {
     assert.strictEqual(isStripeTestMode("sk_" + "test_x"), true);
     assert.strictEqual(isStripeTestMode("rk_" + "test_x"), true);
     assert.strictEqual(isStripeTestMode("sk_" + "live_x"), false);
+  });
+});
+
+describe("resolveCheckoutReturnBaseUrl", () => {
+  const saved = snapshot();
+  afterEach(() => restore(saved));
+
+  it("production always returns the canonical https origin", () => {
+    setEnv("VERCEL_ENV", "production");
+    setEnv("NODE_ENV", "production");
+    setEnv("VERCEL_URL", "ddb-abc123.vercel.app");
+    setEnv("VERCEL_BRANCH_URL", "ddb-branch.vercel.app");
+    setEnv("NEXT_PUBLIC_SITE_URL", undefined);
+    assert.strictEqual(
+      resolveCheckoutReturnBaseUrl(),
+      "https://deepdivebrewing.com"
+    );
+  });
+
+  it("preview deployments return to their own host, branch alias preferred", () => {
+    setEnv("VERCEL_ENV", "preview");
+    setEnv("NODE_ENV", "production");
+    setEnv("VERCEL_URL", "ddb-abc123.vercel.app");
+    setEnv(
+      "VERCEL_BRANCH_URL",
+      "deepdivebrewing-web-git-feat-155-x.vercel.app"
+    );
+    assert.strictEqual(
+      resolveCheckoutReturnBaseUrl(),
+      "https://deepdivebrewing-web-git-feat-155-x.vercel.app"
+    );
+
+    // Falls back to the per-deployment host when no branch alias exists.
+    setEnv("VERCEL_BRANCH_URL", undefined);
+    assert.strictEqual(
+      resolveCheckoutReturnBaseUrl(),
+      "https://ddb-abc123.vercel.app"
+    );
+  });
+
+  it("preview return URLs are always https and never user-supplied", () => {
+    setEnv("VERCEL_ENV", "preview");
+    setEnv("VERCEL_BRANCH_URL", "evil.example.com");
+    // The host itself comes from Vercel-provided env (trusted deployment
+    // config, not request input) and always gets the https scheme.
+    const url = resolveCheckoutReturnBaseUrl();
+    assert.ok(url.startsWith("https://"));
+    assert.ok(!url.startsWith("http://"));
+  });
+
+  it("local dev defaults to the dev server origin", () => {
+    setEnv("VERCEL_ENV", undefined);
+    setEnv("NODE_ENV", "development");
+    setEnv("NEXT_PUBLIC_SITE_URL", undefined);
+    assert.strictEqual(
+      resolveCheckoutReturnBaseUrl(),
+      "http://localhost:3000"
+    );
+  });
+
+  it("local dev honors a deliberately configured https site URL (e.g. a tunnel)", () => {
+    setEnv("VERCEL_ENV", undefined);
+    setEnv("NODE_ENV", "development");
+    setEnv("NEXT_PUBLIC_SITE_URL", "https://ddb-tunnel.example.com");
+    assert.strictEqual(
+      resolveCheckoutReturnBaseUrl(),
+      "https://ddb-tunnel.example.com"
+    );
+  });
+
+  it("a non-localhost http override is ignored in dev", () => {
+    setEnv("VERCEL_ENV", undefined);
+    setEnv("NODE_ENV", "development");
+    setEnv("NEXT_PUBLIC_SITE_URL", "http://insecure.example.com");
+    assert.strictEqual(
+      resolveCheckoutReturnBaseUrl(),
+      "http://localhost:3000"
+    );
   });
 });

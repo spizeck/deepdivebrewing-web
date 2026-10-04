@@ -606,6 +606,12 @@ export interface CheckoutSessionSpec {
   mode: "payment";
   client_reference_id: string;
   customer_email?: string;
+  // Card-only, intentionally: this is a counter tool that must answer
+  // "paid now?" — async/delayed methods (bank debits, BNPL) settle days
+  // later and would leave a charge looking unpaid while the customer
+  // walks out. The async_payment_* webhook handlers stay wired
+  // defensively in case account settings ever broaden this.
+  payment_method_types: ["card"];
   line_items: {
     quantity: number;
     price_data: {
@@ -640,6 +646,7 @@ export function buildCheckoutSessionSpec(args: {
   return {
     mode: "payment",
     client_reference_id: args.paymentId,
+    payment_method_types: ["card"],
     ...(args.customerEmail ? { customer_email: args.customerEmail } : {}),
     line_items: [
       {

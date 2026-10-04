@@ -747,13 +747,21 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    optional email/tour-date/attendees/note bounds), then writes the
    `payments/{clientRequestId}` record + `payment_created` event in a
    transaction (existing doc → replay/recovery, never overwrite), creates
-   the Checkout Session with `idempotencyKey: paymentId` and
+   the Checkout Session with `idempotencyKey: paymentId`,
+   `payment_method_types: ["card"]` (counter charges must settle
+   immediately — async/delayed methods are deliberately not offered; the
+   async_payment_* webhook handlers stay wired defensively), and
    `metadata.paymentId` + `client_reference_id` (no PII in metadata), and
    records the session id/url + `livemode` + `checkout_session_created`
    event. Session params are built from the **stored** record
    (`buildCheckoutSessionSpec`), so a browser can never tamper with the
-   charged amount. Success/cancel URLs are the static, noindex
-   `/pay/complete` and `/pay/cancelled` pages — they carry no state.
+   charged amount. Success/cancel URLs point at the static, noindex
+   `/pay/complete` and `/pay/cancelled` pages — they carry no state — on
+   the origin returned by `resolveCheckoutReturnBaseUrl`
+   (`lib/stripe-config.ts`): the Vercel preview host on preview
+   deployments (`VERCEL_BRANCH_URL ?? VERCEL_URL`), the canonical site
+   origin in production, localhost in dev. Server-derived only — no
+   caller-supplied return origin.
 2. **Collect:** the workspace (`components/admin-payments-workspace.tsx`
    behind `AdminAuthGate`) shows the session URL with copy, QR
    (`GET /api/admin/payments/[id]/qr` renders it server-side via `qrcode`),

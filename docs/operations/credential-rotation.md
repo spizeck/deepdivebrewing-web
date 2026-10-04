@@ -318,7 +318,22 @@ shell history, or committed files.
 `STRIPE_SECRET_KEY` powers the admin payments feature
 (`/admin/payments` — Checkout Session create/retrieve/expire). `STRIPE_WEBHOOK_SECRET` verifies signatures on `POST /api/webhooks/stripe`. Both are server-only; there is deliberately **no** publishable key — card entry happens only on Stripe's hosted Checkout page.
 
-**Test vs live:** `sk_test_*`/`sk_live_*` keys and their corresponding `whsec_*` webhook secrets are independent. Development/Preview should use test credentials; Production uses live. Payments record Stripe's `livemode` flag, and the UI badges test-mode payments — a mismatch between key mode and deployment is visible, not silent.
+**Test vs live:** `sk_test_*`/`sk_live_*` keys and their corresponding `whsec_*` webhook secrets are independent. Development/Preview **must** use test credentials — the server refuses live keys outside production (`getStripeSecretKey` throws in dev/preview). Production uses live. Payments record Stripe's `livemode` flag, and the UI badges test-mode payments — a mismatch between key mode and deployment is visible, not silent.
+
+**Preview webhook endpoints:** Stripe cannot reach a Vercel preview
+deployment while Deployment Protection is on — deliveries return `401
+Protected by Vercel Authentication` before reaching the app. To test the
+webhook on a preview branch, register a *separate* Stripe webhook endpoint
+(test mode) pointing at the preview/branch alias URL
+(`https://<branch-alias>.vercel.app/api/webhooks/stripe`) and add a narrow
+protection exception for that path (Vercel → Deployment Protection →
+protection bypass or trusted path), never disable protection globally. The
+endpoint itself stays protected by Stripe signature verification — it
+rejects unsigned or badly-signed POSTs with 400 regardless. Verify a
+delivery in Stripe Dashboard → Webhooks → the endpoint's deliveries list;
+a `200` with `result` of `applied`/`duplicate` means the event was durably
+recorded. Checkout return/cancel URLs on previews already point back at
+the preview host automatically (`resolveCheckoutReturnBaseUrl`).
 
 ### Steps — secret key
 

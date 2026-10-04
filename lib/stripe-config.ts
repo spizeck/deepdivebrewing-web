@@ -3,6 +3,7 @@
 // dependency chain. Only server modules (lib/stripe.ts, the payments API
 // routes, the webhook route) import these; the secret key must never reach
 // a client component or a NEXT_PUBLIC_* variable.
+import { resolveSiteUrl, siteUrl } from "@/lib/site";
 
 const LIVE_KEY_PREFIXES = ["sk_live_", "rk_live_"];
 
@@ -48,4 +49,45 @@ export function isStripeTestMode(
   secretKey: string = getStripeSecretKey()
 ): boolean {
   return secretKey.startsWith("sk_test_") || secretKey.startsWith("rk_test_");
+}
+
+// The origin Stripe-hosted Checkout returns the customer's browser to
+// after paying or cancelling. Server-derived from deployment env only —
+// never caller-supplied — so a crafted request can never turn the
+// return/cancel links into an open redirect.
+//
+// - Vercel preview: the deployment's own host (VERCEL_BRANCH_URL prefers
+//   the stable branch alias, VERCEL_URL the per-deployment host). The
+//   canonical host's /pay/* routes belong to production; a preview
+//   Checkout must return to the preview deployment being tested.
+// - Local dev (`next dev` or `vercel dev`): the configured site URL when
+//   deliberately set (e.g. a tunnel for end-to-end webhook testing),
+//   otherwise the dev server origin — the only place http is permitted.
+// - Everything else (production, `next start`, non-Vercel): the canonical
+//   site origin, which is always HTTPS.
+export function resolveCheckoutReturnBaseUrl(): string {
+  if (process.env.VERCEL_ENV === "preview") {
+    const host = process.env.VERCEL_BRANCH_URL || process.env.VERCEL_URL;
+    if (host) return `https://${host}`;
+    // A preview without a Vercel host is impossible in practice — fall
+    // through to the canonical origin rather than emit a malformed URL.
+  }
+  if (
+    process.env.VERCEL_ENV === "development" ||
+    process.env.NODE_ENV === "development"
+  ) {
+    if (process.env.NEXT_PUBLIC_SITE_URL) {
+      // Re-resolve at call time — the module-level `siteUrl` constant is
+      // frozen at import and cannot see per-process overrides.
+      const configured = resolveSiteUrl();
+      if (
+        configured.startsWith("https://") ||
+        configured.startsWith("http://localhost")
+      ) {
+        return configured;
+      }
+    }
+    return "http://localhost:3000";
+  }
+  return siteUrl;
 }

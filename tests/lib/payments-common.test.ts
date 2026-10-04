@@ -207,6 +207,10 @@ describe("buildCheckoutSessionSpec", () => {
     assert.strictEqual(spec.line_items[0].quantity, 1);
   });
 
+  it("offers card payments only — async/delayed methods are not wired", () => {
+    assert.deepStrictEqual(spec.payment_method_types, ["card"]);
+  });
+
   it("correlates by internal payment id without PII in metadata", () => {
     assert.strictEqual(spec.client_reference_id, VALID_ID);
     assert.strictEqual(spec.metadata.paymentId, VALID_ID);

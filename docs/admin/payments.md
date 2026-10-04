@@ -54,7 +54,7 @@ The **Receipt email** field pre-fills the customer's email on the Stripe Checkou
 
 ## Payment detail
 
-Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the Stripe identifiers, receipt link, and an append-only **History** (created, link issued, succeeded/failed/expired, canceled, flagged-for-review).
+Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the Stripe identifiers, receipt link, and an append-only **History** (created, link issued, succeeded/failed/expired, canceled, flagged-for-review). History entries marked "(manual refresh)" were applied by a staff refresh; unmarked status changes came from Stripe's webhook.
 
 ## Test mode
 
