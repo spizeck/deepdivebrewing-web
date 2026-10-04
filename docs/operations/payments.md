@@ -10,7 +10,9 @@ code.
 ## Payment-method policy
 
 Stripe Checkout is restricted to the card payment rail
-(`payment_method_types: ["card"]` in `buildCheckoutSessionSpec`). The policy:
+(`payment_method_types: ["card"]` — see
+[Admin payments](../TECHNICAL.md#admin-payments-adminpayments-issue-155)
+in the technical reference for how the session is built). The policy:
 
 - **Accepted:** immediate card-based methods Stripe presents through the
   card rail — normal card entry, plus eligible accelerated card methods
@@ -40,8 +42,11 @@ decision treats them identically to other Checkout events either way.
 - The app passes the customer's email to Stripe (`customer_email` +
   `payment_intent_data.receipt_email`) and stores Stripe's hosted
   `receipt_url` once the payment settles. Staff see a **View receipt**
-  link on a paid payment's detail view — this is the reliable fallback
-  and works regardless of email settings.
+  link on a paid payment's detail view — the fallback that works
+  regardless of email settings. Enrichment is best-effort, so if a paid
+  payment shows no receipt link, open the charge's hosted receipt from
+  the Stripe Dashboard instead (and check for `payment.enrichment_failed`
+  warnings — see [observability.md](./observability.md)).
 - **Automatic receipt emails depend on the Stripe account's email
   settings**, not just the app. For customers to receive a receipt email
   in production, enable it in Stripe Dashboard → Settings → Emails →
@@ -102,26 +107,26 @@ correct behavior, not a missed delivery.
 
 ## Stripe API versions
 
-Two versions coexist deliberately — do not read a dashboard "Latest API
-version" banner as a prompt to change either:
-
-- **Webhook endpoint** (Stripe Dashboard → Developers → Webhooks): pinned
-  to `2023-10-16`. Event payloads arrive serialized under that version.
-- **SDK calls** (`getStripeClient()`): pinned by the installed `stripe`
-  package (`2026-08-26.dahlia` at stripe v22) — this is why most
-  Dashboard request logs show the newer version.
-
-This is safe by design: the webhook reads only the event id/type and the
-Checkout Session id from the payload — fields stable across versions —
-then **re-fetches the canonical session** through the SDK, so every
-financial fact is read under the SDK's own version. Do not casually
-upgrade the webhook endpoint's API version; if it is ever changed, verify
-`readStripeEventRefs` fields still exist in the new payload shape.
+Two API versions coexist deliberately — the webhook endpoint is pinned to
+`2023-10-16` while the installed `stripe` SDK pins its own version for
+outbound calls; the mechanism and current values are in
+[Admin payments](../TECHNICAL.md#admin-payments-adminpayments-issue-155).
+A Dashboard "Latest API version" banner — and request logs showing the
+newer version — are expected, not a prompt to change anything. Do not
+casually upgrade the webhook endpoint's API version; if it is ever
+changed, verify the fields `readStripeEventRefs` reads still exist in the
+new payload shape.
 
 ## Production activation checklist
 
 One-time, manual steps to take the feature live. All of it is Stripe
 Dashboard + Vercel configuration — no code change.
+
+**Prerequisite:** the full flow — Checkout completion, webhook-driven
+**Paid**, receipt link, manual refresh fallback, and webhook resend →
+`duplicate` — must already be verified in **test mode** on a preview
+deployment (see "Verifying webhook delivery end-to-end" above). Live keys
+are the last step, not the way to prove the flow works.
 
 ### Vercel (Production scope)
 

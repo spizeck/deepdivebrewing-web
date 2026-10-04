@@ -52,7 +52,7 @@ While a payment is **Awaiting payment** (or still setting up), use **Cancel paym
 
 ## Receipts
 
-The **Receipt email** field pre-fills the customer's email on the Stripe Checkout page and associates it with the payment. Stripe emails a receipt automatically when the payment succeeds **if** automatic receipts for successful payments are enabled in the Stripe Dashboard (Dashboard → Settings → Emails → "Email customers about successful payments"). Stripe never sends email in test mode, so use **View receipt** when checking a test payment. After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page — the reliable fallback regardless of email settings — plus the card brand and last four digits, the only card details ever stored, and only as display metadata.
+The **Receipt email** field pre-fills the customer's email on the Stripe Checkout page and associates it with the payment. Stripe emails a receipt automatically when the payment succeeds **if** automatic receipts for successful payments are enabled in the Stripe Dashboard (Dashboard → Settings → Emails → "Email customers about successful payments"). Stripe never sends email in test mode, so use **View receipt** when checking a test payment. After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page — the fallback regardless of email settings (if it is ever missing on a paid payment, find the charge's receipt in the Stripe Dashboard) — plus the card brand and last four digits, the only card details ever stored, and only as display metadata.
 
 ## Payment detail
 

@@ -748,13 +748,13 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    `payments/{clientRequestId}` record + `payment_created` event in a
    transaction (existing doc → replay/recovery, never overwrite), creates
    the Checkout Session with `idempotencyKey: paymentId`,
-   `payment_method_types: ["card"]` — Checkout stays on the card payment
-   rail so charges settle immediately (accelerated card methods such as
-   Link, Apple Pay, and Google Pay ride this rail and may appear by
-   customer device/account eligibility; delayed/BNPL/bank methods are
-   deliberately not offered, and an explicit `payment_method_types` list
-   overrides Dashboard dynamic payment-method settings so none can leak
-   in). The async_payment_* webhook handlers stay wired defensively, and
+   `payment_method_types: ["card"]` — Checkout is restricted to the card
+   payment rail so counter charges settle immediately; an explicit
+   `payment_method_types` list also overrides Dashboard dynamic
+   payment-method settings, so nothing else can leak in. The full
+   policy — including which accelerated card methods may still appear —
+   is in [operations/payments.md](operations/payments.md#payment-method-policy).
+   The async_payment_* webhook handlers stay wired defensively, and
    `metadata.paymentId` + `client_reference_id` (no PII in metadata), and
    records the session id/url + `livemode` + `checkout_session_created`
    event. Session params are built from the **stored** record
@@ -803,11 +803,11 @@ endpoint is pinned to `2023-10-16` (payloads arrive under it) while the
 installed `stripe` SDK pins its own version for outbound calls
 (`2026-08-26.dahlia` at stripe v22). This is safe because the payload
 contributes only ids — every financial fact is re-fetched canonically
-under the SDK version. Receipt emails are governed by the Stripe
-account's email settings (test mode never sends mail); the stored hosted
-`receiptUrl` is the staff-visible fallback. Operational setup —
-payment-method policy, webhook-verification procedure, branding, and the
-production activation checklist — lives in
+under the SDK version. Receipt behavior (account email settings, the
+best-effort `receiptUrl` fallback) is covered in
+[operations/payments.md](operations/payments.md#receipts). Operational
+setup — payment-method policy, webhook-verification procedure, branding,
+and the production activation checklist — lives in
 [docs/operations/payments.md](operations/payments.md).
 
 ## 12. Analytics and observability
