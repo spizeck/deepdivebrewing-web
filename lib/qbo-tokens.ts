@@ -114,7 +114,12 @@ export async function requestQboTokens(
 type TokenDecision =
   | { action: "use"; accessToken: string; realmId: string }
   | { action: "wait" }
-  | { action: "refresh"; refreshToken: string; realmId: string };
+  | {
+      action: "refresh";
+      refreshToken: string;
+      realmId: string;
+      leaseUntilMs: number;
+    };
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -165,15 +170,15 @@ export async function getQuickBooksAccessToken(): Promise<{
         };
       }
       if (action === "wait") return { action };
-      tx.update(ref, {
-        refreshLeaseUntil: Timestamp.fromMillis(
-          Date.now() + QBO_REFRESH_LEASE_MS
-        ),
-      });
+      const leaseUntil = Timestamp.fromMillis(
+        Date.now() + QBO_REFRESH_LEASE_MS
+      );
+      tx.update(ref, { refreshLeaseUntil: leaseUntil });
       return {
         action,
         refreshToken: decryptQboSecret(record.refreshTokenEnc, key),
         realmId,
+        leaseUntilMs: leaseUntil.toMillis(),
       };
     });
 
@@ -201,11 +206,14 @@ export async function getQuickBooksAccessToken(): Promise<{
       );
       const nowMs = Date.now();
       await db.runTransaction(async (tx) => {
-        // Re-verify inside the commit: a disconnect or a different
-        // company's reconnect during the Intuit round-trip must not be
-        // overwritten, and an expired lease means another caller may have
-        // taken over the refresh. The rotated tokens are dropped — the
-        // stored grant stays usable per Intuit's post-rotation grace.
+        // Re-verify inside the commit: a disconnect or a reconnect during
+        // the Intuit round-trip must not be overwritten, and only the
+        // current lease holder may commit. The stored lease must still be
+        // the exact lease this refresh acquired — an expired lease that
+        // was re-acquired by another caller, or one deleted by a
+        // disconnect/reconnect/commit, no longer matches. The rotated
+        // tokens are then dropped — the stored grant stays usable per
+        // Intuit's post-rotation grace.
         const snap = await tx.get(ref);
         const current = usableQboConnection(snap.data(), config.environment);
         if (
@@ -213,7 +221,7 @@ export async function getQuickBooksAccessToken(): Promise<{
           current.status !== "connected" ||
           current.realmId !== decision.realmId ||
           !current.refreshTokenEnc ||
-          (current.refreshLeaseUntil?.toMillis() ?? 0) <= nowMs
+          current.refreshLeaseUntil?.toMillis() !== decision.leaseUntilMs
         ) {
           throw new QboError(
             "The QuickBooks connection changed during token refresh — try again.",
@@ -241,12 +249,33 @@ export async function getQuickBooksAccessToken(): Promise<{
     } catch (error) {
       const isRevoked =
         error instanceof QboError && error.kind === "authorization_expired";
-      const cleanup: Record<string, unknown> = {
-        refreshLeaseUntil: FieldValue.delete(),
-        updatedAt: Timestamp.now(),
-      };
-      if (isRevoked) cleanup.status = "reauthorization_required";
-      await ref.update(cleanup).catch(() => {});
+      // Best-effort cleanup under the same identity check as the commit:
+      // release the lease (and flag a revoked grant) only while the record
+      // still belongs to this refresh — never stomp a disconnect, a
+      // reconnect, or a successor lease holder's work.
+      await db
+        .runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          const current = usableQboConnection(
+            snap.data(),
+            config.environment
+          );
+          if (
+            !current ||
+            current.status !== "connected" ||
+            current.realmId !== decision.realmId ||
+            current.refreshLeaseUntil?.toMillis() !== decision.leaseUntilMs
+          ) {
+            return;
+          }
+          const cleanup: Record<string, unknown> = {
+            refreshLeaseUntil: FieldValue.delete(),
+            updatedAt: Timestamp.now(),
+          };
+          if (isRevoked) cleanup.status = "reauthorization_required";
+          tx.update(ref, cleanup);
+        })
+        .catch(() => {});
       if (isRevoked) {
         logWarn("qbo.token_refresh_failed", {
           environment: config.environment,

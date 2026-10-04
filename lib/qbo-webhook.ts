@@ -72,9 +72,12 @@ export async function recordQboWebhookNotifications(
 
   // Realm recognition: notifications for a company we are not connected to
   // are recorded (for dedupe) but flagged ignored — they must never trigger
-  // future sync work. A lookup failure propagates (route answers 500 and
-  // Intuit retries): swallowing it would stamp valid notifications
-  // realmKnown:false, which dedupe would then protect forever.
+  // future sync work. Only an actively connected record makes a realm
+  // known; a disconnected or reauthorization-pending record's stored realm
+  // does not count (same test as connectedRealmId in lib/qbo-mapping.ts).
+  // A lookup failure propagates (route answers 500 and Intuit retries):
+  // swallowing it would stamp valid notifications realmKnown:false, which
+  // dedupe would then protect forever.
   let connectedRealmId: string | null = null;
   const environment = getQboEnvironment();
   const snap = await getFirebaseAdminDb()
@@ -85,6 +88,7 @@ export async function recordQboWebhookNotifications(
   if (
     data &&
     data.environment === environment &&
+    data.status === "connected" &&
     typeof data.realmId === "string" &&
     data.realmId
   ) {

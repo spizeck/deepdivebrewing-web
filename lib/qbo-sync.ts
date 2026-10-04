@@ -5,6 +5,7 @@ import { getQboEnvironment } from "@/lib/qbo-config";
 import { logInfo } from "@/lib/log";
 import {
   normalizeQboSyncCandidate,
+  persistableQboSyncCandidate,
   qboSyncIdFor,
   QBO_SYNC_RECORDS_COLLECTION,
   type QuickBooksSyncCandidate,
@@ -67,7 +68,7 @@ export async function enqueueAccountingTransaction(
       lastErrorCode: null,
       lastErrorMessage: null,
       idempotencyKey: syncId,
-      candidate: normalized,
+      candidate: persistableQboSyncCandidate(normalized),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });

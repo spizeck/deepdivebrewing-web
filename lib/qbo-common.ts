@@ -259,3 +259,16 @@ export function normalizeQboSyncCandidate(
         : undefined,
   };
 }
+
+// Firestore rejects `undefined` property values at write time, and the
+// normalizer deliberately emits `undefined` for absent optional fields.
+// Strip them before the candidate is persisted inside the sync record.
+// Nested values are already concrete (`externalRefs` only ever holds
+// validated strings), so a shallow pass is sufficient.
+export function persistableQboSyncCandidate(
+  candidate: QuickBooksSyncCandidate
+): QuickBooksSyncCandidate {
+  return Object.fromEntries(
+    Object.entries(candidate).filter(([, value]) => value !== undefined)
+  ) as QuickBooksSyncCandidate;
+}
