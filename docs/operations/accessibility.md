@@ -105,8 +105,15 @@ fail — stop your server first or start it with `ADMIN_A11Y_FIXTURE=1`.
   The hero video is muted, decorative, and swaps to a static poster under
   `prefers-reduced-motion`.
 - **`prefers-reduced-motion`** is honored in `globals.css` for the site's
-  fade/reveal animations and in JS (`hero-video`, `IntroSection`) for the
-  video swap.
+  fade/reveal animations, in JS (`hero-video`, `IntroSection`) for the
+  video swap, and on interactive controls — the shared press feedback
+  (`motion-safe:active:scale-[0.98]` in `buttonVariants` and
+  `pressableClasses` in `lib/utils.ts`) never transforms under reduced
+  motion, so the color/border acknowledgement remains without movement.
+- **Interactive controls acknowledge activation.** Buttons, clickable
+  rows/cards, filter chips, and disclosure controls carry a distinct
+  pressed state in addition to hover and `focus-visible` — via the shared
+  primitives above, not per-component one-offs.
 - **Multiple `<nav>` landmarks get distinct `aria-label`s** ("Main",
   "Mobile", "Breadcrumb").
 
