@@ -6,6 +6,9 @@ import {
   qboApiUrl,
   qboEntityQueryStatement,
   qboErrorForHttpStatus,
+  qboQueryRowCount,
+  QBO_QUERY_MAX_PAGES,
+  QBO_QUERY_PAGE_SIZE,
   toQboError,
 } from "@/lib/qbo-protocol";
 import type {
@@ -84,20 +87,32 @@ export async function fetchQboCompanyInfo(input: {
 }
 
 // Read-only entity discovery used by the future accounting-mapping
-// configuration surface. Returns safe summaries only.
+// configuration surface. Returns safe summaries only. Pages through the
+// query endpoint — QBO defaults to 100 rows when no MAXRESULTS is given,
+// so a real company's chart of accounts or customer list would silently
+// truncate on a single bare select.
 export async function queryQboEntities(input: {
   environment: QboEnvironment;
   realmId: string;
   accessToken: string;
   type: QboDiscoveryEntityType;
 }): Promise<QboEntitySummary[]> {
-  const payload = await qboApiFetch({
-    ...input,
-    url: buildQboQueryUrl(
-      input.environment,
-      input.realmId,
-      qboEntityQueryStatement(input.type)
-    ),
-  });
-  return canonicalizeQboQueryEntities(input.type, payload);
+  const out: QboEntitySummary[] = [];
+  for (let page = 0; page < QBO_QUERY_MAX_PAGES; page++) {
+    const payload = await qboApiFetch({
+      ...input,
+      url: buildQboQueryUrl(
+        input.environment,
+        input.realmId,
+        qboEntityQueryStatement(
+          input.type,
+          page * QBO_QUERY_PAGE_SIZE + 1,
+          QBO_QUERY_PAGE_SIZE
+        )
+      ),
+    });
+    out.push(...canonicalizeQboQueryEntities(input.type, payload));
+    if (qboQueryRowCount(input.type, payload) < QBO_QUERY_PAGE_SIZE) break;
+  }
+  return out;
 }

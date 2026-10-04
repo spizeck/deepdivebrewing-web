@@ -16,11 +16,13 @@ import {
 // supplies safe domain facts; the QBO side owns every bookkeeping decision.
 //
 // Idempotency design: the sync record's document id is the deterministic
-// internal source identity (`sourceType:sourceId`). A durable record exists
-// BEFORE any QBO write is considered, so retries, webhook replays, job
-// retries, or browser refreshes can never create two QBO transactions for
-// the same source event. QBO entity ids stored later are correlation
-// references only — they are never the dedupe mechanism.
+// internal source identity (`environment:sourceType:sourceId`). A durable
+// record exists BEFORE any QBO write is considered, so retries, webhook
+// replays, job retries, or browser refreshes can never create two QBO
+// transactions for the same source event — and a later switch from a
+// sandbox to a production connection gets its own record rather than
+// colliding with the sandbox one. QBO entity ids stored later are
+// correlation references only — they are never the dedupe mechanism.
 //
 // No bookkeeping is performed here: enqueuing creates a `pending` record
 // and nothing more. The worker that maps candidates onto Sales Receipts,
@@ -38,8 +40,12 @@ export async function enqueueAccountingTransaction(
   candidate: QuickBooksSyncCandidate
 ): Promise<QboEnqueueResult> {
   const normalized = normalizeQboSyncCandidate(candidate);
-  const syncId = qboSyncIdFor(normalized.sourceType, normalized.sourceId);
   const environment = getQboEnvironment();
+  const syncId = qboSyncIdFor(
+    environment,
+    normalized.sourceType,
+    normalized.sourceId
+  );
   const ref = getFirebaseAdminDb()
     .collection(QBO_SYNC_RECORDS_COLLECTION)
     .doc(syncId);

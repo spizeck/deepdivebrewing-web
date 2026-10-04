@@ -8,6 +8,7 @@
 // Sandbox and production never share a base URL, and an unrecognized value
 // fails closed — the app refuses to guess where financial data would go.
 import { isQboEnvironment, type QboEnvironment } from "@/lib/qbo-common";
+import { parseQboEncryptionKey } from "@/lib/qbo-crypto";
 import { QboConfigError } from "@/lib/qbo-errors";
 
 // Intuit OAuth 2.0 endpoints — identical for development and production
@@ -59,10 +60,13 @@ export interface QboAppConfig {
 }
 
 // Non-throwing probe for the admin status surface: a deployment without the
-// integration configured should render "not configured", not an error.
+// integration configured should render "not configured", not an error. The
+// encryption key is validated too — without it the OAuth callback would fail
+// only after the admin had already completed Intuit consent.
 export function isQboConfigured(): boolean {
   try {
     getQboEnvironment();
+    parseQboEncryptionKey(process.env.QBO_TOKEN_ENCRYPTION_KEY);
   } catch {
     return false;
   }

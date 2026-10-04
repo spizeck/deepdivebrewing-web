@@ -476,8 +476,37 @@ const QBO_ENTITY_QUERIES: Record<
   "tax-code": { statement: "select * from TaxCode", responseKey: "TaxCode" },
 };
 
-export function qboEntityQueryStatement(type: QboDiscoveryEntityType): string {
-  return QBO_ENTITY_QUERIES[type].statement;
+// QBO queries default to 100 rows and cap at 1000 — discovery paginates.
+export const QBO_QUERY_PAGE_SIZE = 1000;
+// Safety bound so a misbehaving provider can never page forever.
+export const QBO_QUERY_MAX_PAGES = 10;
+
+export function qboEntityQueryStatement(
+  type: QboDiscoveryEntityType,
+  startPosition?: number,
+  maxResults?: number
+): string {
+  const base = QBO_ENTITY_QUERIES[type].statement;
+  if (startPosition === undefined && maxResults === undefined) return base;
+  return `${base} startposition ${startPosition ?? 1} maxresults ${maxResults ?? QBO_QUERY_PAGE_SIZE}`;
+}
+
+// Raw row count in a QueryResponse page — the pagination signal. Kept
+// separate from canonicalization, which may legitimately drop malformed
+// rows; a full raw page means another page may exist.
+export function qboQueryRowCount(
+  type: QboDiscoveryEntityType,
+  payload: unknown
+): number {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  if (typeof response !== "object" || response === null) return 0;
+  const rows = (response as Record<string, unknown>)[
+    QBO_ENTITY_QUERIES[type].responseKey
+  ];
+  return Array.isArray(rows) ? rows.length : 0;
 }
 
 // Reduces a QueryResponse page to safe display rows. Anything unexpected is
