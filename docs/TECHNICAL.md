@@ -810,9 +810,8 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    [operations/payments.md](operations/payments.md#refunds)): a Firestore
    transaction claims `paid → refunding` + `refund_requested` (retries
    resume, `refunded` is a no-op, so two admins can never both reach the
-   provider), the re-fetched PaymentIntent must agree on reference,
-   paymentId metadata, amount, currency, `succeeded` status, and no
-   in-flight refund before `refunds.create` fires under the deterministic
+   provider); the exact canonical checks are in the linked operations
+   guide. `refunds.create` fires under the deterministic
    per-attempt idempotency key `refund:<paymentId>:<attempt>` (full amount
    only — `attempt` is the durable counter each claim increments), and
    results commit in a second transaction — a provider failure releases

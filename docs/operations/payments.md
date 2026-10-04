@@ -158,8 +158,10 @@ Facts persisted per refund: `stripeRefundId`, `refundAmountMinor`,
 `refundFailureMessage` code on failure — enough for a future accounting
 sync (e.g. QuickBooks refund recognition) without ever storing raw Stripe
 payloads. No refund webhook events are subscribed: the synchronous
-`refunds.create` response plus canonical re-fetch already covers this
-workflow, and card refunds are not asynchronous decisions.
+`refunds.create` response plus canonical re-fetch covers this workflow —
+card refunds can be asynchronous (`pending`), but reconciliation is driven
+by the next staff refund request checking canonical `Refund.status`, so
+a webhook subscription would add surface without changing the outcome.
 
 ## Stripe API versions
 
