@@ -41,6 +41,10 @@ export interface NormalizedError {
   name: string;
   message: string;
   code?: string;
+  /** Provider correlation id (e.g. Intuit's `intuit_tid`) carried by a
+   *  normalized provider error — safe operational metadata for support
+   *  triage, never a credential. */
+  correlationId?: string;
   stack?: string;
 }
 
@@ -48,13 +52,20 @@ export function normalizeError(error: unknown): NormalizedError {
   // Error instances and provider error objects (e.g. Resend's
   // { name, message, statusCode }) are normalized the same way.
   if (error instanceof Error || isErrorLike(error)) {
-    const err = error as Error & { code?: unknown; statusCode?: unknown };
+    const err = error as Error & {
+      code?: unknown;
+      statusCode?: unknown;
+      correlationId?: unknown;
+    };
     const code = err.code ?? err.statusCode;
     return {
       name: err.name || "Error",
       message: err.message,
       ...(typeof code === "string" || typeof code === "number"
         ? { code: String(code) }
+        : {}),
+      ...(typeof err.correlationId === "string" && err.correlationId
+        ? { correlationId: err.correlationId }
         : {}),
       ...(err.stack ? { stack: err.stack } : {}),
     };

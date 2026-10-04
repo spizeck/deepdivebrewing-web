@@ -189,7 +189,7 @@ export async function completeQboAuthorization(input: {
   email?: string;
 }): Promise<{ companyName: string }> {
   const config = loadQboConfig();
-  const tokens = await requestQboTokens(
+  const { tokens } = await requestQboTokens(
     buildQboTokenExchangeRequest({
       clientId: config.clientId,
       clientSecret: config.clientSecret,
@@ -424,6 +424,7 @@ export async function disconnectQbo(actor: AdminActor): Promise<void> {
       logWarn("qbo.revoke_failed", {
         environment: config.environment,
         status: res.status,
+        correlationId: res.headers.get("intuit_tid") ?? undefined,
       });
     }
   } catch {

@@ -293,16 +293,21 @@ export function qboErrorForHttpStatus(
 
 // Normalizes any failure crossing the provider boundary. Raw response
 // bodies are deliberately discarded — they can echo request internals.
+// `correlationId` carries Intuit's `intuit_tid` (safe operational
+// metadata) so troubleshooting logs keep it even when the failure was a
+// transport or parse problem rather than an HTTP status.
 export function toQboError(
   error: unknown,
-  operation: string
+  operation: string,
+  opts: { correlationId?: string } = {}
 ): QboError {
   if (error instanceof QboError) return error;
   const kind: QboErrorKind = "unavailable";
   return new QboError(
     `QuickBooks ${operation} failed unexpectedly — try again shortly.`,
     kind,
-    502
+    502,
+    opts.correlationId
   );
 }
 

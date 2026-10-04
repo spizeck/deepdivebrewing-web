@@ -207,6 +207,25 @@ later are correlation references, not the dedupe mechanism.
 
 ## Troubleshooting
 
+### Intuit transaction IDs (`intuit_tid`)
+
+Every Intuit API and OAuth response carries an `intuit_tid` response
+header — Intuit's per-request correlation id. The app captures it
+server-side at the provider boundary (`lib/qbo-api.ts`,
+`lib/qbo-tokens.ts`):
+
+- successful CompanyInfo and entity-discovery calls log it as
+  `correlationId` on `qbo.api.companyinfo` / `qbo.api.entities`
+  (one line per operation, not per query page);
+- token refreshes log it on `qbo.token.refreshed`;
+- any failed provider call keeps it on the normalized `QboError`, which
+  `logError`/`logWarn` emit as `error.correlationId` automatically.
+
+When Intuit support asks about a specific request, grep Vercel logs for
+the `qbo.*` event and quote the `correlationId`. It is safe operational
+metadata — a request correlation id, not authentication material — and
+it is never sent to the browser.
+
 | Symptom | Likely cause | Check |
 | --- | --- | --- |
 | "Not configured" on the admin page | Missing `QBO_*` env vars in this deployment's scope | Vercel env scope (Preview vs Production); redeploy after changes |

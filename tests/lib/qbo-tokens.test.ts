@@ -196,3 +196,63 @@ describe("getQuickBooksAccessToken", () => {
     }
   });
 });
+
+describe("requestQboTokens intuit_tid", () => {
+  // The token endpoint returns `intuit_tid` on success and failure alike;
+  // both must reach the caller so refreshes and errors carry the provider
+  // correlation id into server-side logs.
+  const REQUEST = {
+    url: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "grant_type=refresh_token",
+  };
+
+  it("returns the transaction id on a successful token call", async () => {
+    const restore = stubFetch(undefined, () => {
+      const res = tokenResponse();
+      res.headers.set("intuit_tid", "tid-ok");
+      return res;
+    });
+    try {
+      const { requestQboTokens } = await import("@/lib/qbo-tokens");
+      const { tokens, correlationId } = await requestQboTokens(
+        REQUEST,
+        "token refresh"
+      );
+      assert.strictEqual(tokens.accessToken, "at-1");
+      assert.strictEqual(correlationId, "tid-ok");
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the transaction id on a failed token call", async () => {
+    const restore = stubFetch(
+      undefined,
+      () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: {
+            "content-type": "application/json",
+            intuit_tid: "tid-fail",
+          },
+        })
+    );
+    try {
+      const { requestQboTokens } = await import("@/lib/qbo-tokens");
+      await assert.rejects(
+        requestQboTokens(REQUEST, "token refresh"),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.strictEqual(
+            (error as { correlationId?: string }).correlationId,
+            "tid-fail"
+          );
+          return true;
+        }
+      );
+    } finally {
+      restore();
+    }
+  });
+});

@@ -77,11 +77,13 @@ export function usableQboConnection(
 }
 
 // Calls Intuit's token endpoint. 4xx/5xx and invalid_grant bodies are
-// normalized into QboError; the raw body never propagates.
+// normalized into QboError; the raw body never propagates. The response's
+// `intuit_tid` is returned alongside the token set so callers can log the
+// provider correlation id on success as well as failure.
 export async function requestQboTokens(
   request: QboTokenEndpointRequest,
   operation: string
-): Promise<QboTokenSet> {
+): Promise<{ tokens: QboTokenSet; correlationId?: string }> {
   let res: Response;
   try {
     res = await fetch(request.url, {
@@ -96,6 +98,7 @@ export async function requestQboTokens(
     );
   }
 
+  const correlationId = res.headers.get("intuit_tid") ?? undefined;
   let payload: unknown = null;
   try {
     payload = await res.json();
@@ -104,11 +107,11 @@ export async function requestQboTokens(
   }
   if (!res.ok) {
     throw qboErrorForHttpStatus(res.status, {
-      correlationId: res.headers.get("intuit_tid") ?? undefined,
+      correlationId,
       invalidGrant: qboTokenResponseIsInvalidGrant(payload),
     });
   }
-  return parseQboTokenResponse(payload);
+  return { tokens: parseQboTokenResponse(payload), correlationId };
 }
 
 type TokenDecision =
@@ -196,7 +199,7 @@ export async function getQuickBooksAccessToken(): Promise<{
     // Lease holder: refresh outside the transaction (no provider IO inside
     // Firestore transactions), then persist the rotated tokens atomically.
     try {
-      const tokens = await requestQboTokens(
+      const { tokens, correlationId } = await requestQboTokens(
         buildQboTokenRefreshRequest({
           clientId: config.clientId,
           clientSecret: config.clientSecret,
@@ -244,7 +247,10 @@ export async function getQuickBooksAccessToken(): Promise<{
           updatedAt: Timestamp.fromMillis(nowMs),
         });
       });
-      logInfo("qbo.token.refreshed", { environment: config.environment });
+      logInfo("qbo.token.refreshed", {
+        environment: config.environment,
+        correlationId,
+      });
       return { accessToken: tokens.accessToken, realmId: decision.realmId };
     } catch (error) {
       const isRevoked =

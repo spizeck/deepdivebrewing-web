@@ -1,4 +1,5 @@
 import "server-only";
+import { logInfo } from "@/lib/log";
 import {
   buildQboQueryUrl,
   canonicalizeCompanyInfo,
@@ -34,7 +35,17 @@ interface QboApiFetchInput {
   body?: unknown;
 }
 
-async function qboApiFetch(input: QboApiFetchInput): Promise<unknown> {
+interface QboApiFetchResult {
+  payload: unknown;
+  /** Intuit's per-request correlation id (`intuit_tid` response header).
+   *  Safe operational metadata — it identifies the provider request for
+   *  Intuit support without exposing any credential or payload. */
+  correlationId?: string;
+}
+
+async function qboApiFetch(
+  input: QboApiFetchInput
+): Promise<QboApiFetchResult> {
   const url =
     input.url ??
     qboApiUrl(input.environment, input.realmId, input.path ?? "");
@@ -54,15 +65,18 @@ async function qboApiFetch(input: QboApiFetchInput): Promise<unknown> {
   } catch (error) {
     throw toQboError(error, "request");
   }
+  // Captured before status/body handling so error and parse-failure paths
+  // keep the provider transaction id.
+  const correlationId = res.headers.get("intuit_tid") ?? undefined;
   if (!res.ok) {
-    throw qboErrorForHttpStatus(res.status, {
-      correlationId: res.headers.get("intuit_tid") ?? undefined,
-    });
+    throw qboErrorForHttpStatus(res.status, { correlationId });
   }
   try {
-    return await res.json();
+    return { payload: await res.json(), correlationId };
   } catch {
-    throw toQboError(new Error("non-JSON response"), "response parsing");
+    throw toQboError(new Error("non-JSON response"), "response parsing", {
+      correlationId,
+    });
   }
 }
 
@@ -81,9 +95,15 @@ export async function fetchQboCompanyInfo(input: {
   realmId: string;
   accessToken: string;
 }): Promise<QboCompanyInfoResult> {
-  const payload = await qboApiFetch({
+  const { payload, correlationId } = await qboApiFetch({
     ...input,
     path: `/companyinfo/${encodeURIComponent(input.realmId)}`,
+  });
+  // CompanyInfo is the connect/health probe — the Intuit transaction id
+  // here is what an operator quotes when troubleshooting a connection.
+  logInfo("qbo.api.companyinfo", {
+    environment: input.environment,
+    correlationId,
   });
   return canonicalizeCompanyInfo(payload);
 }
@@ -100,8 +120,13 @@ export async function queryQboEntities(input: {
   type: QboDiscoveryEntityType;
 }): Promise<QboEntitySummary[]> {
   const out: QboEntitySummary[] = [];
+  // Log once per discovery run, not per page — a paged query can make up
+  // to QBO_QUERY_MAX_PAGES requests and each page carries its own tid.
+  // The first page's tid identifies the operation for support purposes.
+  let correlationId: string | undefined;
+  let pages = 0;
   for (let page = 0; page < QBO_QUERY_MAX_PAGES; page++) {
-    const payload = await qboApiFetch({
+    const result = await qboApiFetch({
       ...input,
       url: buildQboQueryUrl(
         input.environment,
@@ -113,8 +138,17 @@ export async function queryQboEntities(input: {
         )
       ),
     });
-    out.push(...canonicalizeQboQueryEntities(input.type, payload));
-    if (qboQueryRowCount(input.type, payload) < QBO_QUERY_PAGE_SIZE) break;
+    pages++;
+    correlationId ??= result.correlationId;
+    out.push(...canonicalizeQboQueryEntities(input.type, result.payload));
+    if (qboQueryRowCount(input.type, result.payload) < QBO_QUERY_PAGE_SIZE)
+      break;
   }
+  logInfo("qbo.api.entities", {
+    environment: input.environment,
+    type: input.type,
+    pages,
+    correlationId,
+  });
   return out;
 }
