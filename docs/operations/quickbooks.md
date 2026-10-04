@@ -197,6 +197,11 @@ merged:
 - Any entity writes to QuickBooks at all — every current API call is
   read-only
 
+The accounting model that work must follow is designed in
+[QuickBooks Accounting Sync — Design](../architecture/quickbooks-accounting-sync.md)
+— read it before posting anything; it records the double-counting risks
+and the pre-flight inspection that must happen first.
+
 The seam for that work is `enqueueAccountingTransaction()`
 (`lib/qbo-sync.ts`): a future producer hands it a
 `QuickBooksSyncCandidate` (amount, currency, date, customer hints,
