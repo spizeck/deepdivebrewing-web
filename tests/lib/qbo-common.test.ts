@@ -41,20 +41,25 @@ describe("isQboDiscoveryEntityType", () => {
 });
 
 describe("qboSyncIdFor", () => {
-  it("builds a deterministic key from the source identity", () => {
+  it("builds a deterministic, environment-scoped key from the source identity", () => {
     assert.strictEqual(
-      qboSyncIdFor("stripe_payment", "pay_123"),
-      "stripe_payment:pay_123"
+      qboSyncIdFor("sandbox", "stripe_payment", "pay_123"),
+      "sandbox:stripe_payment:pay_123"
     );
     assert.strictEqual(
-      qboSyncIdFor(" stripe_payment ", " pay_123 "),
-      "stripe_payment:pay_123"
+      qboSyncIdFor("production", " stripe_payment ", " pay_123 "),
+      "production:stripe_payment:pay_123"
+    );
+    // Sandbox and production identities for the same event never collide.
+    assert.notStrictEqual(
+      qboSyncIdFor("sandbox", "stripe_payment", "pay_123"),
+      qboSyncIdFor("production", "stripe_payment", "pay_123")
     );
   });
 
   it("refuses empty identities", () => {
-    assert.throws(() => qboSyncIdFor("", "x"));
-    assert.throws(() => qboSyncIdFor("t", " "));
+    assert.throws(() => qboSyncIdFor("sandbox", "", "x"));
+    assert.throws(() => qboSyncIdFor("sandbox", "t", " "));
   });
 });
 

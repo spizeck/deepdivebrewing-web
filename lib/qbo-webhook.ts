@@ -3,7 +3,6 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { getQboEnvironment, getQboWebhookVerifierToken } from "@/lib/qbo-config";
 import { QboConfigError, QboError } from "@/lib/qbo-errors";
-import { logWarn } from "@/lib/log";
 import {
   parseQboWebhookNotifications,
   qboWebhookDedupeKey,
@@ -73,25 +72,23 @@ export async function recordQboWebhookNotifications(
 
   // Realm recognition: notifications for a company we are not connected to
   // are recorded (for dedupe) but flagged ignored — they must never trigger
-  // future sync work.
+  // future sync work. A lookup failure propagates (route answers 500 and
+  // Intuit retries): swallowing it would stamp valid notifications
+  // realmKnown:false, which dedupe would then protect forever.
   let connectedRealmId: string | null = null;
-  try {
-    const environment = getQboEnvironment();
-    const snap = await getFirebaseAdminDb()
-      .collection(QBO_CONNECTIONS_COLLECTION)
-      .doc(environment)
-      .get();
-    const data = snap.data();
-    if (
-      data &&
-      data.environment === environment &&
-      typeof data.realmId === "string" &&
-      data.realmId
-    ) {
-      connectedRealmId = data.realmId;
-    }
-  } catch {
-    logWarn("qbo.webhook.realm_lookup_failed", { requestId });
+  const environment = getQboEnvironment();
+  const snap = await getFirebaseAdminDb()
+    .collection(QBO_CONNECTIONS_COLLECTION)
+    .doc(environment)
+    .get();
+  const data = snap.data();
+  if (
+    data &&
+    data.environment === environment &&
+    typeof data.realmId === "string" &&
+    data.realmId
+  ) {
+    connectedRealmId = data.realmId;
   }
 
   const db = getFirebaseAdminDb();

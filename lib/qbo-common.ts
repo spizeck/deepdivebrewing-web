@@ -179,14 +179,20 @@ export type QboSyncStatus =
 // Deterministic internal sync-record key. The internal source identity is
 // the idempotency anchor — a future QBO entity id is correlation only, so
 // retries, webhook replays, and browser refreshes can never create two QBO
-// transactions for the same source event.
-export function qboSyncIdFor(sourceType: string, sourceId: string): string {
+// transactions for the same source event. The environment is part of the
+// identity: the same Firestore database may host a sandbox connection now
+// and a production one later, and each must get its own record.
+export function qboSyncIdFor(
+  environment: QboEnvironment,
+  sourceType: string,
+  sourceId: string
+): string {
   const type = sourceType.trim();
   const id = sourceId.trim();
   if (!type || !id) {
     throw new Error("qboSyncIdFor requires a non-empty sourceType and sourceId.");
   }
-  return `${type}:${id}`;
+  return `${environment}:${type}:${id}`;
 }
 
 const SYNC_SOURCE_TYPE_PATTERN = /^[a-z0-9_]{1,40}$/;
@@ -224,12 +230,9 @@ export function normalizeQboSyncCandidate(
   const externalRefs: Record<string, string> = {};
   if (input.externalRefs) {
     for (const [key, value] of Object.entries(input.externalRefs)) {
-      if (
-        Object.keys(externalRefs).length >= 20 ||
-        typeof value !== "string" ||
-        value.length > 128
-      ) {
-        break;
+      if (Object.keys(externalRefs).length >= 20) break;
+      if (typeof value !== "string" || !value || value.length > 128) {
+        continue;
       }
       externalRefs[key.trim().slice(0, 64)] = value;
     }

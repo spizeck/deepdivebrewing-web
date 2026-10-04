@@ -201,6 +201,25 @@ export async function getQuickBooksAccessToken(): Promise<{
       );
       const nowMs = Date.now();
       await db.runTransaction(async (tx) => {
+        // Re-verify inside the commit: a disconnect or a different
+        // company's reconnect during the Intuit round-trip must not be
+        // overwritten, and an expired lease means another caller may have
+        // taken over the refresh. The rotated tokens are dropped — the
+        // stored grant stays usable per Intuit's post-rotation grace.
+        const snap = await tx.get(ref);
+        const current = usableQboConnection(snap.data(), config.environment);
+        if (
+          !current ||
+          current.status !== "connected" ||
+          current.realmId !== decision.realmId ||
+          !current.refreshTokenEnc ||
+          (current.refreshLeaseUntil?.toMillis() ?? 0) <= nowMs
+        ) {
+          throw new QboError(
+            "The QuickBooks connection changed during token refresh — try again.",
+            "unavailable"
+          );
+        }
         tx.update(ref, {
           accessTokenEnc: encryptQboSecret(tokens.accessToken, key),
           refreshTokenEnc: encryptQboSecret(tokens.refreshToken, key),

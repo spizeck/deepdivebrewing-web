@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getRequestId, logError, logInfo, logWarn } from "@/lib/log";
+import { QboConfigError } from "@/lib/qbo-errors";
 import {
   recordQboWebhookNotifications,
   verifyQboWebhookRequest,
@@ -24,7 +25,17 @@ export async function POST(req: NextRequest) {
       rawPayload,
       req.headers.get("intuit-signature")
     );
-  } catch {
+  } catch (error) {
+    // A missing verifier token is a deployment problem, not a forged
+    // request — 500 so Intuit keeps retrying rather than dropping
+    // notifications we could have verified once configured.
+    if (error instanceof QboConfigError) {
+      logError("qbo.webhook.config_failed", error, { requestId });
+      return NextResponse.json(
+        { ok: false, error: "Webhook is not configured." },
+        { status: 500 }
+      );
+    }
     logWarn("qbo.webhook.rejected", { requestId });
     return NextResponse.json(
       { ok: false, error: "Invalid webhook." },

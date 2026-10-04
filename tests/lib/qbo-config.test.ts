@@ -43,6 +43,7 @@ const FULL_ENV = {
   QBO_CLIENT_SECRET: "client-secret",
   QBO_REDIRECT_URI: "https://app.example.com/api/admin/quickbooks/callback",
   QBO_WEBHOOK_VERIFIER_TOKEN: "verifier",
+  QBO_TOKEN_ENCRYPTION_KEY: "0".repeat(64),
 };
 
 describe("getQboEnvironment", () => {
@@ -136,6 +137,14 @@ describe("isQboConfigured", () => {
       assert.strictEqual(isQboConfigured(), false);
     });
     withEnv({ ...FULL_ENV, QBO_ENVIRONMENT: undefined }, () => {
+      assert.strictEqual(isQboConfigured(), false);
+    });
+    // The token-encryption key is part of "configured" — without it the
+    // OAuth callback would only fail after consent completed.
+    withEnv({ ...FULL_ENV, QBO_TOKEN_ENCRYPTION_KEY: undefined }, () => {
+      assert.strictEqual(isQboConfigured(), false);
+    });
+    withEnv({ ...FULL_ENV, QBO_TOKEN_ENCRYPTION_KEY: "short" }, () => {
       assert.strictEqual(isQboConfigured(), false);
     });
   });

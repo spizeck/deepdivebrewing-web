@@ -109,6 +109,10 @@ export async function createQboAuthorizationRequest(
   actor: AdminActor
 ): Promise<QboAuthorizationRequest> {
   const config = loadQboConfig();
+  // Fail before issuing any state if the token envelope can't be written —
+  // the callback would otherwise surface the same error only after the
+  // admin completed Intuit consent.
+  getQboEncryptionKey();
   const state = generateQboOAuthState();
   const now = Date.now();
 

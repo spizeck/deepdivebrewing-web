@@ -16,6 +16,7 @@ import {
   parseQboWebhookNotifications,
   qboEntityQueryStatement,
   qboErrorForHttpStatus,
+  qboQueryRowCount,
   qboTokenResponseIsInvalidGrant,
   qboWebhookDedupeKey,
   toQboError,
@@ -509,5 +510,36 @@ describe("qboEntityQueryStatement", () => {
         statement
       );
     }
+  });
+
+  it("appends pagination bounds when requested", () => {
+    assert.strictEqual(
+      qboEntityQueryStatement("customer", 1001, 1000),
+      "select * from Customer startposition 1001 maxresults 1000"
+    );
+    assert.strictEqual(
+      qboEntityQueryStatement("account", 1),
+      "select * from Account startposition 1 maxresults 1000"
+    );
+  });
+});
+
+describe("qboQueryRowCount", () => {
+  it("counts raw rows per entity type for pagination", () => {
+    assert.strictEqual(
+      qboQueryRowCount("item", {
+        QueryResponse: { Item: [{ Id: "1" }, { Id: "2" }] },
+      }),
+      2
+    );
+    assert.strictEqual(qboQueryRowCount("item", { QueryResponse: {} }), 0);
+    assert.strictEqual(qboQueryRowCount("item", null), 0);
+    // The count is of the raw page, not the canonicalized rows.
+    assert.strictEqual(
+      qboQueryRowCount("account", {
+        QueryResponse: { Account: [{ noId: true }] },
+      }),
+      1
+    );
   });
 });
