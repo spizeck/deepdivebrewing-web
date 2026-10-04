@@ -247,7 +247,7 @@ emits **single-line JSON** so Vercel's log search can filter reliably:
 | `payment.{create,get,cancel,refresh,qr}_failed` / `payments.list_failed` | Unhandled errors in the payments API routes |
 | `payment.enrichment_failed` | Paid-payment receipt/card-brand enrichment from Stripe failed — the payment stays `paid`; only display metadata is missing (warn) |
 | `payment.refresh_id_mismatch` | A Stripe session retrieved during refresh had the wrong `paymentId` — treated as a defensive anomaly, not an update (warn) |
-| `stripe_webhook.processed` | Signed Stripe event handled (`eventType`, `paymentId`, `result` — `applied`, `duplicate`, `ignored`, `unknown_payment`, or `quarantined`) |
+| `stripe_webhook.processed` | Signed Stripe event handled (`eventType`, `paymentId`, `result` — `applied`, `duplicate`, `ignored`, `unknown_payment`, or `quarantined`; see [payments.md](./payments.md#webhook-result-semantics) for what each means) |
 | `stripe_webhook.deferred` | Canonical Checkout Session state had not settled for the delivered event type — answered 500 so Stripe redelivers (warn) |
 | `stripe_webhook.quarantined` | Canonical session contradicted the stored snapshot (session/amount/currency) — settlement refused, `reconciliation_mismatch` event written, needs staff review (warn) |
 | `stripe_webhook.unknown_payment` | Signed event referenced a `paymentId` with no record — acked 200 so Stripe does not retry it forever (warn) |

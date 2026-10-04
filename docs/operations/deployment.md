@@ -75,8 +75,8 @@ Examples:
 - `FIREBASE_ADMIN_PRIVATE_KEY`
 - `ADMIN_REBUILD_COOLDOWN_MS`
 - `SUPER_ADMIN_EMAIL` — the verified Google account that receives the initial superadmin role
-- `STRIPE_SECRET_KEY` — Stripe secret key for the admin payments feature (scope and rotation: see [credential-rotation.md](credential-rotation.md))
-- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret for `POST /api/webhooks/stripe` (see [credential-rotation.md](credential-rotation.md))
+- `STRIPE_SECRET_KEY` — Stripe secret key for the admin payments feature (scope and rotation: see [credential-rotation.md](credential-rotation.md); activation checklist: [payments.md](payments.md))
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret for `POST /api/webhooks/stripe` (see [credential-rotation.md](credential-rotation.md) and [payments.md](payments.md))
 
 ## How to verify a preview with populated Firebase data
 
@@ -201,6 +201,7 @@ You can also check the response headers of the live site for build information, 
 ## Related guides
 
 - [Post-deployment checklist](./post-deployment-checklist.md)
+- [Payments operations](./payments.md) — Stripe activation, webhooks, receipts
 - [Credential rotation runbook](./credential-rotation.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Admin handbook](../admin/README.md)

@@ -355,6 +355,8 @@ the preview host automatically (`resolveCheckoutReturnBaseUrl`).
 - [SECURITY.md](../../SECURITY.md) — reporting, public-vs-secret
   classification, boundary summary.
 - [Deployment guide](./deployment.md) — env-var scopes, rebuild behavior.
+- [Payments operations](./payments.md) — Stripe webhook registration,
+  verification, and production activation checklist.
 - [Troubleshooting](./troubleshooting.md) — including the admin-lockout
   recovery path.
 - [docs/TECHNICAL.md](../TECHNICAL.md) §13 — full variable reference.

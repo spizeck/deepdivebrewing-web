@@ -20,6 +20,8 @@ The workspace has two halves:
 
 > The customer **never types their card into this app**. Card entry happens only on Stripe's hosted page — the app never sees, stores, or logs card numbers.
 
+On Stripe's page the customer can pay by card. Depending on their device and Stripe account they may also see faster card-based options — Apple Pay, Google Pay, or Link — which settle immediately just like a card. Bank transfers and pay-later options are intentionally not offered: the brewery needs to know the money arrived before the customer walks out.
+
 ## Getting the customer to pay
 
 Once created, the payment shows a live **payment link** with three ways to reach it:
@@ -50,7 +52,7 @@ While a payment is **Awaiting payment** (or still setting up), use **Cancel paym
 
 ## Receipts
 
-The **Receipt email** field pre-fills the customer's email on the Stripe Checkout page and associates it with the payment. Stripe emails a receipt automatically when the payment succeeds **if** automatic receipts for successful payments are enabled in the Stripe Dashboard (Dashboard → Settings → Emails → "Email customers about successful payments"). After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page — usable regardless of email settings — plus the card brand and last four digits, the only card details ever stored, and only as display metadata.
+The **Receipt email** field pre-fills the customer's email on the Stripe Checkout page and associates it with the payment. Stripe emails a receipt automatically when the payment succeeds **if** automatic receipts for successful payments are enabled in the Stripe Dashboard (Dashboard → Settings → Emails → "Email customers about successful payments"). Stripe never sends email in test mode, so use **View receipt** when checking a test payment. After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page — the reliable fallback regardless of email settings — plus the card brand and last four digits, the only card details ever stored, and only as display metadata.
 
 ## Payment detail
 
@@ -66,3 +68,7 @@ When the app runs with Stripe **test** credentials, a **Test mode** badge appear
 - **The link doesn't work** — links expire after about 24 hours or when canceled. Create a fresh payment.
 - **A payment shows "Needs attention"** — Stripe's report contradicted what was created (for example a different amount or currency), so the app refused to mark it paid. Check the session in the Stripe Dashboard and tell an owner.
 - **A charge happened twice** — it shouldn't: retries reuse the same payment record and Stripe session. Report it to an owner with the payment's Stripe session id from the detail view.
+
+## Operations reference
+
+Setup, webhook verification, receipts/branding configuration, and the production activation checklist live in [docs/operations/payments.md](../operations/payments.md).

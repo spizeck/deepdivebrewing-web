@@ -606,11 +606,14 @@ export interface CheckoutSessionSpec {
   mode: "payment";
   client_reference_id: string;
   customer_email?: string;
-  // Card-only, intentionally: this is a counter tool that must answer
-  // "paid now?" — async/delayed methods (bank debits, BNPL) settle days
-  // later and would leave a charge looking unpaid while the customer
-  // walks out. The async_payment_* webhook handlers stay wired
-  // defensively in case account settings ever broaden this.
+  // Restricted to the card payment rail, intentionally: this is a
+  // counter tool that must answer "paid now?" — delayed methods (bank
+  // debits, BNPL) settle days later and would leave a charge looking
+  // unpaid while the customer walks out. The card rail still surfaces
+  // Stripe's accelerated card methods — Link, Apple Pay, Google Pay —
+  // on eligible devices/accounts; those settle immediately like cards.
+  // The async_payment_* webhook handlers stay wired defensively in
+  // case account payment-method settings ever broaden this.
   payment_method_types: ["card"];
   line_items: {
     quantity: number;
@@ -662,8 +665,10 @@ export function buildCheckoutSessionSpec(args: {
     payment_intent_data: {
       metadata: { paymentId: args.paymentId, purpose: args.purpose },
       description: args.description,
-      // Guarantees Stripe emails the receipt — `customer_email` alone only
-      // prefills the checkout form and does not promise delivery.
+      // Supplies the address Stripe emails receipts to — `customer_email`
+      // alone only prefills the checkout form. Delivery itself is governed
+      // by the Stripe account's email settings (and test mode never sends
+      // email), so the stored hosted receipt URL stays the staff fallback.
       ...(args.customerEmail ? { receipt_email: args.customerEmail } : {}),
     },
     success_url: args.successUrl,

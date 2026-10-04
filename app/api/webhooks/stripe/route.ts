@@ -47,7 +47,10 @@ export async function POST(req: NextRequest) {
       });
     }
     // 200 for applied/duplicate/ignored/unknown/quarantined alike: Stripe
-    // must not retry deliveries we have durably accounted for.
+    // must not retry deliveries we have durably accounted for. `ignored`
+    // means a valid delivery needed no state transition (e.g. a manual
+    // refresh already settled the record); `duplicate` means this exact
+    // Stripe event id was already processed. Neither settles twice.
     return NextResponse.json({ ok: true, result: result.status });
   } catch (error) {
     // Signature-construction failures are client errors — 400, no retry.

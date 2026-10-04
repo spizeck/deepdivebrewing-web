@@ -207,7 +207,11 @@ describe("buildCheckoutSessionSpec", () => {
     assert.strictEqual(spec.line_items[0].quantity, 1);
   });
 
-  it("offers card payments only — async/delayed methods are not wired", () => {
+  it("restricts Checkout to the card payment rail — delayed methods are not wired", () => {
+    // ["card"] keeps Checkout on the card rail: bank debits, BNPL, and
+    // other delayed/async methods are never offered. Accelerated card
+    // methods (Link, Apple Pay, Google Pay) ride this rail and may still
+    // appear by customer device/account eligibility — that is intended.
     assert.deepStrictEqual(spec.payment_method_types, ["card"]);
   });
 
@@ -222,9 +226,11 @@ describe("buildCheckoutSessionSpec", () => {
     assert.strictEqual(spec.customer_email, "jane@example.com");
   });
 
-  it("sets receipt_email so Stripe emails the receipt automatically", () => {
-    // customer_email only prefills the form — receipt_email is what
-    // guarantees Stripe sends the customer a receipt on success.
+  it("sets receipt_email so Stripe can email the customer a receipt", () => {
+    // customer_email only prefills the form — receipt_email supplies the
+    // address Stripe emails receipts to when the account's email settings
+    // allow it (and never in test mode; the hosted receipt URL is the
+    // staff-visible fallback either way).
     assert.strictEqual(
       spec.payment_intent_data.receipt_email,
       "jane@example.com"
@@ -656,6 +662,32 @@ describe("processStripeEvent", () => {
     const result = await processStripeEvent(resolved, store);
     assert.strictEqual(result.status, "ignored");
     assert.strictEqual(payments.get(VALID_ID)?.status, "paid");
+  });
+
+  it("a webhook that loses the manual-refresh race is ignored once, then deduped on resend", async () => {
+    // The record is already `paid` (manual refresh settled it before
+    // Stripe's delivery arrived). First processing of this event id is a
+    // valid no-op — `ignored`, with a marker so Stripe does not retry.
+    const { store, payments, markers, writes } = fakeStore({
+      [VALID_ID]: { ...awaitingRecord, status: "paid", eventCount: 3 },
+    });
+    const resolved = resolvedFrom(paidEvent);
+
+    const first = await processStripeEvent(resolved, store);
+    assert.strictEqual(first.status, "ignored");
+    assert.strictEqual(markers.get("evt_paid"), "ignored");
+    assert.strictEqual(payments.get(VALID_ID)?.status, "paid");
+    // No payment write: no second payment_succeeded, no re-enrichment.
+    assert.strictEqual(writes.length, 0);
+    assert.strictEqual(payments.get(VALID_ID)?.eventCount, 3);
+
+    // A resend of the same Stripe event id exits as `duplicate` — again
+    // with no writes and no state regression.
+    const second = await processStripeEvent(resolved, store);
+    assert.strictEqual(second.status, "duplicate");
+    assert.strictEqual(payments.get(VALID_ID)?.status, "paid");
+    assert.strictEqual(writes.length, 0);
+    assert.strictEqual(payments.get(VALID_ID)?.eventCount, 3);
   });
 
   it("quarantines — never pays — when canonical amounts disagree", async () => {
