@@ -130,6 +130,14 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
   const [refundConfirm, setRefundConfirm] = useState("");
   const [refundBusy, setRefundBusy] = useState(false);
   const [refundError, setRefundError] = useState("");
+  // Ticking clock for the advisory refund-window check — render-time
+  // Date.now() is impure and a detail view sitting open across the 1-hour
+  // boundary must not keep offering a stale action.
+  const [nowMillis, setNowMillis] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMillis(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const apiFetch = useCallback(
     async (path: string, init?: RequestInit) => {
@@ -437,6 +445,19 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
   async function submitRefund() {
     const payment = refundTarget;
     if (!payment || refundBusy) return; // single-flight like createPayment
+    // Advisory re-check at submit time — the server is authoritative, but
+    // a dialog left open across the window boundary should fail cleanly
+    // here rather than round-trip a known-ineligible request.
+    const eligibility = paymentRefundEligibility({
+      status: payment.status,
+      paidAtMillis: payment.paidAt ? paymentMillis(payment.paidAt) : null,
+      hasStripePaymentRef: !!payment.stripePaymentIntentId,
+      nowMillis: Date.now(),
+    });
+    if (!eligibility.ok) {
+      setRefundError(eligibility.message);
+      return;
+    }
     setRefundBusy(true);
     setRefundError("");
     try {
@@ -457,7 +478,13 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
       );
       if (selectedIdRef.current === payment.id) setDetail(next);
       setRefundTarget(null);
-      setStatusMessage("Payment refunded.");
+      // A `refunding` result means Stripe is still processing the refund —
+      // it reconciles on the next check rather than pretending it landed.
+      setStatusMessage(
+        next.payment?.status === "refunded"
+          ? "Payment refunded."
+          : "Refund is processing — check back shortly."
+      );
       setStatusIsError(false);
     } catch (error) {
       setRefundError(
@@ -505,7 +532,7 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
           ? paymentMillis(shownPayment.paidAt)
           : null,
         hasStripePaymentRef: !!shownPayment.stripePaymentIntentId,
-        nowMillis: Date.now(),
+        nowMillis,
       })
     : null;
   const timeline = detail

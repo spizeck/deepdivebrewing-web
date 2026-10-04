@@ -811,13 +811,17 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    transaction claims `paid → refunding` + `refund_requested` (retries
    resume, `refunded` is a no-op, so two admins can never both reach the
    provider), the re-fetched PaymentIntent must agree on reference,
-   paymentId metadata, amount, currency, and `succeeded` status before
-   `refunds.create` fires under the deterministic idempotency key
-   `refund:<paymentId>` (full amount only), and results commit in a second
-   transaction — a provider failure releases the claim back to `paid` with
-   `refund_failed` only after canonical proof no refund exists, and a
-   charge Stripe already reports refunded converges instead of
-   re-refunding. The in-app window is `REFUND_WINDOW_MS` = 1 hour after
+   paymentId metadata, amount, currency, `succeeded` status, and no
+   in-flight refund before `refunds.create` fires under the deterministic
+   per-attempt idempotency key `refund:<paymentId>:<attempt>` (full amount
+   only — `attempt` is the durable counter each claim increments), and
+   results commit in a second transaction — a provider failure releases
+   the claim back to `paid` with `refund_failed` only after canonical
+   proof no refund exists, a charge Stripe already reports refunded
+   converges instead of re-refunding, and a `pending`/`requires_action`
+   refund keeps `refunding` with the refund id stored until a later
+   request reconciles the canonical `Refund.status` (only `succeeded`
+   commits). The in-app window is `REFUND_WINDOW_MS` = 1 hour after
    `paidAt`, strict boundary (elapsed ≥ window rejects), enforced
    inside the claim transaction by `paymentRefundEligibility`. `refunding`
    and `refunded` are Stripe-terminal in `planStripeEventApply`, so no

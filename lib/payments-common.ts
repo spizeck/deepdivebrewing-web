@@ -236,6 +236,10 @@ export interface PaymentRecord {
   refundRequestedAt?: unknown;
   refundedAt?: unknown;
   stripeRefundStatus?: string;
+  // Durable attempt counter scoped by the claim — drives the Stripe
+  // idempotency key (`refund:<id>:<attempt>`). Incremented per claim,
+  // never by a resume.
+  refundAttempt?: number;
   // Safe provider category for the last failed refund attempt (never a
   // raw Stripe message).
   refundFailureMessage?: string;
@@ -1352,10 +1356,14 @@ export const REFUND_WINDOW_MS = 60 * 60 * 1000;
 export const REFUND_CONFIRMATION_PHRASE = "REFUND";
 export const REFUND_REASON_MAX_LENGTH = 500;
 
-// Deterministic Stripe idempotency key: one refund object per internal
-// payment, no matter how the request is retried.
-export function refundIdempotencyKey(paymentId: string): string {
-  return `refund:${paymentId}`;
+// Deterministic Stripe idempotency key, scoped to one refund attempt —
+// the attempt counter persisted by the durable claim. Replays of the same
+// attempt reuse the key (Stripe replays its saved result, so a lost
+// response can never mint a second refund), while a fresh claim after a
+// confirmed failure gets a new key and can genuinely retry — a saved
+// *error* under an old key must not doom every later attempt.
+export function refundIdempotencyKey(paymentId: string, attempt: number): string {
+  return `refund:${paymentId}:${attempt}`;
 }
 
 // Millis for Firestore-shaped timestamp values (Timestamp-like, Date,
@@ -1530,6 +1538,13 @@ export function planRefundClaim(
       status: "refunding",
       refundReason: reason,
       refundFailureMessage: null,
+      // Attempt counter scoped by the claim — drives the Stripe
+      // idempotency key. A `resume` keeps the claimed attempt (same key,
+      // same refund); a fresh claim after a released failure increments
+      // it (new key, new refund object allowed).
+      refundAttempt:
+        (typeof record.refundAttempt === "number" ? record.refundAttempt : 0) +
+        1,
     },
     event: {
       type: "refund_requested",
@@ -1552,6 +1567,22 @@ export type RefundCanonicalDecision =
       refundAmountMinor?: number;
     }
   | { kind: "reject"; code: string; message: string };
+
+// True when the charge carries a refund that has not reached a final
+// state — `pending` or `requires_action` per the Refund lifecycle.
+function chargeHasPendingRefund(charge: Record<string, unknown>): boolean {
+  const refunds = charge.refunds;
+  if (!refunds || typeof refunds !== "object") return false;
+  const data = (refunds as Record<string, unknown>).data;
+  if (!Array.isArray(data)) return false;
+  return data.some((entry) => {
+    const status =
+      entry && typeof entry === "object"
+        ? (entry as Record<string, unknown>).status
+        : undefined;
+    return status === "pending" || status === "requires_action";
+  });
+}
 
 function firstRefundId(charge: Record<string, unknown>): string | undefined {
   const refunds = charge.refunds;
@@ -1650,6 +1681,17 @@ export function decideRefundFromPaymentIntent(
       kind: "already_refunded",
       stripeRefundId: firstRefundId(charge as Record<string, unknown>),
       refundAmountMinor: refundedMinor,
+    };
+  }
+  // A refund still in flight (card refunds are asynchronous: `pending`
+  // can later succeed or fail) must settle before anything else runs —
+  // creating another refund object now could double-refund once it lands.
+  if (chargeHasPendingRefund(charge as Record<string, unknown>)) {
+    return {
+      kind: "reject",
+      code: "refund_pending",
+      message:
+        "A refund is already processing in Stripe — check the Stripe Dashboard before retrying.",
     };
   }
   if (refundedMinor > 0) {

@@ -568,6 +568,11 @@ async function failRefundClaim(
     tx.update(ref, {
       status: "paid",
       refundFailureMessage: safeReason,
+      // A released claim never carries a refund identity — clearing it
+      // lets the next claim start clean instead of reconciling a dead
+      // refund object forever.
+      stripeRefundId: null,
+      stripeRefundStatus: null,
       eventCount: base + 1,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -630,11 +635,14 @@ async function canonicalRefundPosition(
       },
     };
   }
-  if (decision.kind === "create_refund") {
-    return { kind: "not_refunded" };
+  // A refund still in flight is not proof either way — keep the claim so
+  // the next request reconciles the canonical Refund.status.
+  if (decision.kind === "reject" && decision.code === "refund_pending") {
+    return { kind: "unknown" };
   }
-  // A reject here still answered a real question: Stripe shows no landed
-  // refund for this charge, so the claim may be released.
+  // `create_refund` and every other reject answered a real question:
+  // Stripe shows no landed or in-flight refund for this charge, so the
+  // claim may be released.
   return { kind: "not_refunded" };
 }
 
@@ -648,12 +656,17 @@ async function canonicalRefundPosition(
 //    re-fetched and every financial fact re-verified against the stored
 //    snapshot before any refund is created.
 // 3. `refunds.create` runs under the deterministic idempotency key
-//    `refund:<paymentId>` — a Stripe-side retry returns the same refund
-//    object rather than minting a second one.
+//    `refund:<paymentId>:<attempt>` where `attempt` is the durable counter
+//    the claim wrote — a Stripe-side replay of the same attempt returns
+//    the same refund object, while a fresh claim after a released failure
+//    gets a fresh key (a saved provider error must not doom retries).
 // 4. Provider results commit inside a second transaction; a failed
 //    provider call releases the claim only after canonical proof that no
 //    refund exists (ambiguous outcomes keep `refunding` so the next
-//    request reconciles instead of risking a double refund).
+//    request reconciles instead of risking a double refund). A refund
+//    Stripe reports `pending`/`requires_action` keeps `refunding` and
+//    stores the refund id — only `succeeded` commits, and the next
+//    request reconciles the canonical Refund.status.
 export async function refundAdminPayment(
   id: string,
   input: RefundRequestInput,
@@ -670,7 +683,14 @@ export async function refundAdminPayment(
     switch (plan.kind) {
       case "already_refunded":
       case "resume":
-        return { kind: plan.kind, record };
+        return {
+          kind: plan.kind,
+          record,
+          attempt:
+            typeof record.refundAttempt === "number"
+              ? record.refundAttempt
+              : 0,
+        };
       case "reject":
         throw new PaymentError(plan.message, 409);
     }
@@ -688,13 +708,63 @@ export async function refundAdminPayment(
       ref.collection(PAYMENT_EVENTS_SUBCOLLECTION).doc(),
       eventDoc(plan.event, base, actor)
     );
-    return { kind: plan.kind, record };
+    return {
+      kind: plan.kind,
+      record,
+      attempt: plan.updates.refundAttempt as number,
+    };
   });
 
   // Idempotent replay — the payment is already refunded.
   if (claim.kind === "already_refunded") return;
 
   const record = claim.record;
+
+  // A prior attempt may have recorded a refund object that had not
+  // reached a final state (`pending`/`requires_action` — card refunds are
+  // asynchronous and can still succeed or fail). Reconcile the canonical
+  // Refund.status before anything else: `charge.amount_refunded` alone
+  // cannot say whether an in-flight refund landed.
+  const recordedRefundId =
+    typeof record.stripeRefundId === "string" && record.stripeRefundId
+      ? record.stripeRefundId
+      : null;
+  if (recordedRefundId) {
+    let prior: Stripe.Refund;
+    try {
+      prior = await getStripeClient().refunds.retrieve(recordedRefundId);
+    } catch (error) {
+      throw toPaymentProviderError(error);
+    }
+    const priorStatus = prior.status;
+    if (priorStatus === "succeeded") {
+      await commitRefund(
+        id,
+        refundFactsFromStripeRefund(
+          prior as unknown as Record<string, unknown>
+        ),
+        actor
+      );
+      return;
+    }
+    if (priorStatus === "failed" || priorStatus === "canceled") {
+      // Determinate failure — release the claim so a fresh attempt (with
+      // a fresh idempotency key) can genuinely retry.
+      await failRefundClaim(id, `refund_${priorStatus}`, actor);
+      throw new PaymentError(
+        "Stripe marked this refund as failed. The payment is still marked paid — try again or refund it in the Stripe Dashboard.",
+        502
+      );
+    }
+    // Still in flight — refresh the stored status and stay `refunding`;
+    // the next request reconciles again.
+    await ref.update({
+      stripeRefundStatus: priorStatus ?? "pending",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
   const paymentIntentId =
     typeof record.stripePaymentIntentId === "string" &&
     record.stripePaymentIntentId
@@ -762,7 +832,7 @@ export async function refundAdminPayment(
         amount: record.amountMinor as number,
         metadata: { paymentId: id },
       },
-      { idempotencyKey: refundIdempotencyKey(id) }
+      { idempotencyKey: refundIdempotencyKey(id, claim.attempt) }
     );
   } catch (error) {
     // Ambiguous outcome — the refund may exist despite the error. Check
@@ -797,6 +867,19 @@ export async function refundAdminPayment(
       "Stripe could not complete the refund. The payment is still marked paid — try again or refund it in the Stripe Dashboard.",
       502
     );
+  }
+  if (refundStatus !== "succeeded") {
+    // `pending` / `requires_action` / unknown — a card refund can still
+    // fail later, so committing `refunded` now would misstate the record.
+    // Persist the refund identity and stay `refunding`: the next request
+    // reconciles the canonical Refund.status above.
+    await ref.update({
+      ...refundFactsFromStripeRefund(
+        refund as unknown as Record<string, unknown>
+      ),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
   }
 
   await commitRefund(

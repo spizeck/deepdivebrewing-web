@@ -123,11 +123,15 @@ Safety model (`refundAdminPayment` in `lib/payments-admin.ts`):
    PaymentIntent is re-fetched and verified against the stored record:
    same intent id, same internal `paymentId` metadata (when present), same
    amount, same currency, `status: "succeeded"`, and an existing charge
-   that is not already refunded. Any disagreement rejects with a safe code
+   that is not already refunded and carries no in-flight (`pending`/
+   `requires_action`) refund. Any disagreement rejects with a safe code
    and releases the claim back to `paid` (`refund_failed` event).
 3. `refunds.create` runs with the deterministic idempotency key
-   `refund:<paymentId>` — a Stripe-side replay returns the same refund
-   object instead of minting a second one. The durable claim is the
+   `refund:<paymentId>:<attempt>` — `attempt` is a durable counter
+   incremented by each claim, never by a resume. A Stripe-side replay of
+   the same attempt returns the same refund object instead of minting a
+   second one; a fresh claim after a released failure gets a fresh key so
+   a saved provider error cannot doom retries. The durable claim is the
    primary guard; the Stripe key is the second layer.
 4. Results commit inside a second transaction. If the provider call fails,
    canonical state is re-checked first: a charge Stripe already reports
@@ -135,7 +139,16 @@ Safety model (`refundAdminPayment` in `lib/payments-admin.ts`):
    `refunded`; only canonical proof that **no** refund exists releases the
    claim; an unreadable canonical state keeps `refunding` so the next
    request reconciles — never a blind second `refunds.create`.
-5. `refunding` and `refunded` are Stripe-terminal: checkout webhooks and
+5. Card refunds are asynchronous: a refund Stripe reports `pending` or
+   `requires_action` is **not** committed — the record stays `refunding`
+   with the Stripe refund id persisted, and the next request reconciles
+   the canonical `Refund.status` (retrieve, not `amount_refunded`, which
+   only reflects settled refunds): `succeeded` commits, `failed`/
+   `canceled` releases the claim for a genuine retry, still-pending stays
+   `refunding`. There is no polling loop — staff retries drive
+   reconciliation, and a `refunding` record left stuck is reconciled by
+   the next refund attempt or visible in the Stripe Dashboard.
+6. `refunding` and `refunded` are Stripe-terminal: checkout webhooks and
    manual refresh can never regress them, and a refund racing a refresh is
    harmless because session-level events no longer apply.
 

@@ -1104,13 +1104,25 @@ describe("planRefundClaim", () => {
     eventCount: 3,
   };
 
-  it("claims a paid payment: refunding status + audit event", () => {
+  it("claims a paid payment: refunding status, bumped attempt, audit event", () => {
     const plan = planRefundClaim(paidRecord, "charged in error", PAID_AT + 60000);
     assert.strictEqual(plan.kind, "claim");
     if (plan.kind !== "claim") return;
     assert.strictEqual(plan.updates.status, "refunding");
     assert.strictEqual(plan.updates.refundReason, "charged in error");
     assert.strictEqual(plan.updates.refundFailureMessage, null);
+    // The attempt counter is claimed durably — a later attempt's Stripe
+    // idempotency key differs, so a released failure can truly retry.
+    assert.strictEqual(plan.updates.refundAttempt, 1);
+    const second = planRefundClaim(
+      { ...paidRecord, refundAttempt: 3 },
+      "again",
+      PAID_AT + 60000
+    );
+    assert.strictEqual(
+      second.kind === "claim" && second.updates.refundAttempt,
+      4
+    );
     assert.strictEqual(plan.event.type, "refund_requested");
     assert.strictEqual(plan.event.details?.amountMinor, "20000");
     assert.strictEqual(plan.event.details?.reason, "charged in error");
@@ -1270,17 +1282,59 @@ describe("decideRefundFromPaymentIntent", () => {
     assert.strictEqual(d.kind, "reject");
     if (d.kind === "reject") assert.strictEqual(d.code, "partial_refund_exists");
   });
+
+  it("blocks while a refund is still in flight — pending can later succeed or fail", () => {
+    for (const status of ["pending", "requires_action"] as const) {
+      const d = decideRefundFromPaymentIntent(
+        "pay_1",
+        record,
+        intent({
+          latest_charge: {
+            id: "ch_1",
+            amount_refunded: 0,
+            refunds: { data: [{ id: "re_inflight", status }] },
+          },
+        })
+      );
+      assert.strictEqual(d.kind, "reject", status);
+      if (d.kind === "reject") assert.strictEqual(d.code, "refund_pending");
+    }
+    // A failed foreign refund does not block — it is final.
+    assert.strictEqual(
+      decideRefundFromPaymentIntent(
+        "pay_1",
+        record,
+        intent({
+          latest_charge: {
+            id: "ch_1",
+            amount_refunded: 0,
+            refunds: { data: [{ id: "re_dead", status: "failed" }] },
+          },
+        })
+      ).kind,
+      "create_refund"
+    );
+  });
 });
 
 describe("refund facts and identity", () => {
-  it("derives a deterministic Stripe idempotency key per payment", () => {
-    assert.strictEqual(refundIdempotencyKey("pay_1"), "refund:pay_1");
+  it("derives a deterministic Stripe idempotency key per payment attempt", () => {
+    assert.strictEqual(refundIdempotencyKey("pay_1", 1), "refund:pay_1:1");
     assert.strictEqual(
-      refundIdempotencyKey("pay_1"),
-      refundIdempotencyKey("pay_1"),
-      "same payment → same key on every retry"
+      refundIdempotencyKey("pay_1", 1),
+      refundIdempotencyKey("pay_1", 1),
+      "same attempt → same key on every retry"
     );
-    assert.notStrictEqual(refundIdempotencyKey("pay_1"), refundIdempotencyKey("pay_2"));
+    // A fresh claim after a released failure gets a fresh key — Stripe's
+    // saved error under the old key must not doom retries.
+    assert.notStrictEqual(
+      refundIdempotencyKey("pay_1", 1),
+      refundIdempotencyKey("pay_1", 2)
+    );
+    assert.notStrictEqual(
+      refundIdempotencyKey("pay_1", 1),
+      refundIdempotencyKey("pay_2", 1)
+    );
   });
 
   it("extracts only safe refund facts — ids, amount, currency, status", () => {
