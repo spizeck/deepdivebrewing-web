@@ -118,8 +118,8 @@ in the QBO and Stripe UIs):
 | All six accounting mappings unset (`qboConfig/accountingMapping` absent) | ✅ verified |
 | No sync records exist (`qboSyncRecords` empty) | ✅ verified |
 | Real Stripe payments settle through the tool (`checkout.session.completed` → `paid` applied in prod) | ✅ verified (`stripeEvents`, runtime logs) |
-| Prod chart of accounts actively maintained (`Account` webhook events on the prod realm) | ✅ verified (`qboWebhookReceipts`) |
-| Account/Item/Customer/TaxCode discovery returns data (one page each) | ✅ verified (`qbo.api.entities` logs) |
+| `Account` webhook notifications received for the production realm | ✅ verified (`qboWebhookReceipts`) |
+| Account/Item/Customer/TaxCode discovery queries succeed (one page each; result counts not logged) | ✅ verified (`qbo.api.entities` logs) |
 | Which integration/feed creates Stripe-related entries today | ⏳ pending — QBO UI inspection (#178) |
 | Whether a Stripe clearing/merchant-fee account exists and what it receives | ⏳ pending — QBO UI inspection |
 | Whether per-charge revenue records already exist in the books | ⏳ pending — QBO UI inspection |
