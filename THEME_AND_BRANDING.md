@@ -295,9 +295,26 @@ When in doubt, add more space rather than less.
 
 ### Allowed Animations
 * Hover states: Subtle opacity shift (1.0 → 0.85) or slight color change (200ms ease)
+* Pressed states: Brief scale-down (~2%) on activation, ~150ms — tactile
+  acknowledgement, never playful
 * Loading states: Simple fade-in (300ms ease)
 * Page transitions: None (or instant)
 * Scroll-triggered reveals: Simple fade-in (600ms ease)
+
+### Interactive feedback
+
+* Every interactive control (buttons, links styled as buttons, clickable
+  rows/cards, filter chips, disclosure controls) must show a distinct
+  hover, focus-visible, and pressed state so a click or tap never feels
+  unacknowledged.
+* Use the shared primitives rather than bespoke per-component motion:
+  `buttonVariants` in `components/ui/button.tsx` for `Button` instances and
+  `pressableClasses` in `lib/utils.ts` for other clickable surfaces.
+* The pressed state is a small scale-down (scale 0.98, ~150ms) — no bounce,
+  spring, ripples, or large transforms, and no layout shift.
+* Press transforms are gated by `motion-safe:` so `prefers-reduced-motion`
+  sessions keep the instant color/border acknowledgement without movement.
+* Text-style links use the opacity hover only — they do not scale.
 
 ### Forbidden Animations
 * Parallax scrolling

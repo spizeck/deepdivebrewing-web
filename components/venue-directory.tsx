@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { VenueCard } from "@/components/venue-card";
+import { cn, pressableClasses } from "@/lib/utils";
 import { trackEvent } from "@/lib/analytics";
 import {
   distinctIslands,
@@ -172,7 +173,10 @@ export function VenueDirectory({
                       type="button"
                       onClick={() => onFormatChange(option.value)}
                       aria-pressed={filters.format === option.value}
-                      className="min-h-[44px] min-w-[44px] cursor-pointer rounded-md focus-visible:ring-2 focus-visible:ring-ocean/50"
+                      className={cn(
+                        "min-h-[44px] min-w-[44px] cursor-pointer rounded-md hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ocean/50",
+                        pressableClasses
+                      )}
                     >
                       <Badge
                         variant={
@@ -220,7 +224,10 @@ export function VenueDirectory({
               <button
                 type="button"
                 onClick={onClear}
-                className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-stone bg-paper px-4 py-2 text-sm font-medium text-ink transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ocean/50"
+                className={cn(
+                  "inline-flex min-h-[44px] items-center justify-center rounded-md border border-stone bg-paper px-4 py-2 text-sm font-medium text-ink hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ocean/50",
+                  pressableClasses
+                )}
               >
                 Clear filters
               </button>
@@ -266,7 +273,10 @@ export function VenueDirectory({
           <button
             type="button"
             onClick={onClear}
-            className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-md border border-stone bg-paper px-4 py-2 text-sm font-medium text-ink transition-opacity duration-200 hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ocean/50"
+            className={cn(
+              "mt-3 inline-flex min-h-[44px] items-center justify-center rounded-md border border-stone bg-paper px-4 py-2 text-sm font-medium text-ink hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ocean/50",
+              pressableClasses
+            )}
           >
             Clear filters
           </button>

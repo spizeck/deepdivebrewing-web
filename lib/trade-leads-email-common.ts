@@ -288,10 +288,11 @@ export function plainTextToHtml(text: string): string {
 // --- Outbound branding ---
 //
 // Customer-facing mail is wrapped in a light branded shell: the hoppy
-// turtle mark (the primary brand mark), a clean white card for the
-// staff-written body, and a compact footer. Table-based layout and inline
-// styles only — no external fonts, background images, or scripts — so it
-// renders consistently across Gmail, Outlook, and mobile clients.
+// turtle mark (the primary brand mark) centered over a clean white card
+// for the staff-written body, and a compact centered footer. Table-based
+// layout and inline styles only — no external fonts, background images,
+// or scripts — so it renders consistently across Gmail, Outlook, and
+// mobile clients.
 //
 // The mark is served from the public site origin (`lib/site.ts` siteUrl) —
 // email clients need absolute URLs; relative paths never resolve outside
@@ -308,27 +309,35 @@ export function buildTradeLeadOutboundHtml(options: {
   markUrl: string;
   // Absolute site URL for the footer link.
   siteUrl: string;
+  // Sending admin's display name (the actor snapshot) — the footer's first
+  // line becomes "Name · Deep Dive Brewing Co" when present.
+  senderName?: string;
 }): string {
-  const { bodyHtml, markUrl, siteUrl } = options;
+  const { bodyHtml, markUrl, siteUrl, senderName } = options;
   const home = escapeHtml(siteUrl.replace(/^https?:\/\//, ""));
-  return `<div style="margin:0;padding:24px 16px;background-color:#fafaf8;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;">
+  const sender = senderName?.trim();
+  const brandLine = sender
+    ? `${escapeHtml(sender)} &middot; Deep Dive Brewing Co`
+    : "Deep Dive Brewing Co";
+  return `<div style="margin:0;padding:16px 16px 24px;background-color:#fafaf8;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
     <tr>
       <td align="center">
         <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:100%;">
           <tr>
-            <td style="padding:0 0 16px 4px;">
-              <img src="${escapeHtml(markUrl)}" width="64" height="54" alt="Deep Dive Brewing Co" style="display:block;border:0;outline:none;" />
+            <td align="center" style="padding:0 0 14px;">
+              <img src="${escapeHtml(markUrl)}" width="92" height="77" alt="Deep Dive Brewing Co" style="display:block;border:0;outline:none;margin:0 auto;" />
             </td>
           </tr>
           <tr>
-            <td style="background-color:#ffffff;border:1px solid #e6e7e3;border-radius:8px;padding:24px;font-size:15px;line-height:1.6;color:#0b0f14;">
+            <td style="background-color:#ffffff;border:1px solid #ececea;border-radius:8px;padding:20px 22px;font-size:15px;line-height:1.6;color:#0b0f14;">
               ${bodyHtml}
             </td>
           </tr>
           <tr>
-            <td style="padding:16px 4px 0;font-size:12px;line-height:1.5;color:#737373;">
-              Deep Dive Brewing Co &middot; Saba, Dutch Caribbean<br />
+            <td align="center" style="padding:14px 4px 0;font-size:12px;line-height:1.6;color:#737373;">
+              <span style="font-weight:600;color:#0b0f14;">${brandLine}</span><br />
+              Saba, Dutch Caribbean<br />
               <a href="${escapeHtml(siteUrl)}" style="color:#334e68;">${home}</a>
             </td>
           </tr>

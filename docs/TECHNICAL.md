@@ -647,10 +647,12 @@ Email is a channel on the lead, not a separate inbox:
   Firestore failure returns the communication id so the client retries the
   same recorded send rather than composing a duplicate. The HTML part is a
   branded shell (`buildTradeLeadOutboundHtml` in
-  `lib/trade-leads-email-common.ts`): hoppy-turtle mark + white card around
-  the staff-written body + a compact footer — table layout and inline
-  styles only. The mark resolves to an absolute URL on `siteUrl`
-  (`/brand/email-mark-black.png`); the plain-text part is sent unchanged.
+  `lib/trade-leads-email-common.ts`): the hoppy-turtle mark centered over a
+  white card around the staff-written body, and a compact centered footer
+  that credits the sending admin ("Name · Deep Dive Brewing Co") — table
+  layout and inline styles only. The mark resolves to an absolute URL on
+  `siteUrl` (`/brand/email-mark-black.png`); the plain-text part is sent
+  unchanged.
   The rendered HTML is persisted on the communication (`htmlBody`) so a
   resend replays the identical provider payload under the same idempotency
   key; records written before branded mail fall back to the legacy

@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { cn, pressableClasses } from "@/lib/utils";
 import { venueCardLocation, venueIslandKey } from "@/lib/venue-filters";
 import type { Venue } from "@/lib/types";
 
@@ -66,7 +67,10 @@ export function VenueCard({ venue, beerNameBySlug }: VenueCardProps) {
               data-analytics-island={island}
               data-analytics-venue-type={typeLabels[venue.type]}
               aria-label={`Directions to ${venue.name}`}
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-opacity duration-200 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50"
+              className={cn(
+                "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/50",
+                pressableClasses
+              )}
             >
               Directions
             </a>
