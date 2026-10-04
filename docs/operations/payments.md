@@ -105,6 +105,49 @@ If a manual refresh legitimately beats the webhook by a moment, the
 webhook resolves `ignored` — see the semantics table above; that is
 correct behavior, not a missed delivery.
 
+## Refunds
+
+The app supports **full refunds only**, in-app for **1 hour after `paidAt`**
+and only for payments it settled. The window is strict — exactly 1 hour
+elapsed means the window has passed — and is enforced server-side inside
+the claim transaction; the UI only mirrors it. After the window, and for
+partial refunds or anything unusual, the Stripe Dashboard is the tool.
+
+Safety model (`refundAdminPayment` in `lib/payments-admin.ts`):
+
+1. A Firestore transaction durably claims the refund — `refunding` status
+   plus a `refund_requested` audit event. Two simultaneous requests cannot
+   both claim; a retried request on a `refunding` record **resumes** rather
+   than re-claiming, and a request on a `refunded` record is a safe no-op.
+2. Provider calls stay outside transactions. Before mutating, the canonical
+   PaymentIntent is re-fetched and verified against the stored record:
+   same intent id, same internal `paymentId` metadata (when present), same
+   amount, same currency, `status: "succeeded"`, and an existing charge
+   that is not already refunded. Any disagreement rejects with a safe code
+   and releases the claim back to `paid` (`refund_failed` event).
+3. `refunds.create` runs with the deterministic idempotency key
+   `refund:<paymentId>` — a Stripe-side replay returns the same refund
+   object instead of minting a second one. The durable claim is the
+   primary guard; the Stripe key is the second layer.
+4. Results commit inside a second transaction. If the provider call fails,
+   canonical state is re-checked first: a charge Stripe already reports
+   refunded (our own timed-out attempt, or a Dashboard refund) converges to
+   `refunded`; only canonical proof that **no** refund exists releases the
+   claim; an unreadable canonical state keeps `refunding` so the next
+   request reconciles — never a blind second `refunds.create`.
+5. `refunding` and `refunded` are Stripe-terminal: checkout webhooks and
+   manual refresh can never regress them, and a refund racing a refresh is
+   harmless because session-level events no longer apply.
+
+Facts persisted per refund: `stripeRefundId`, `refundAmountMinor`,
+`refundCurrency`, `refundReason`, `refundedByUid`/`refundedByName`,
+`refundRequestedAt`, `refundedAt`, `stripeRefundStatus`, and a safe
+`refundFailureMessage` code on failure — enough for a future accounting
+sync (e.g. QuickBooks refund recognition) without ever storing raw Stripe
+payloads. No refund webhook events are subscribed: the synchronous
+`refunds.create` response plus canonical re-fetch already covers this
+workflow, and card refunds are not asynchronous decisions.
+
 ## Stripe API versions
 
 Two API versions coexist deliberately — the webhook endpoint is pinned to
@@ -165,7 +208,7 @@ are the last step, not the way to prove the flow works.
 Real-money check after merge/deploy — perform once, with a small amount:
 
 1. Create a small real payment in `/admin/payments` (e.g. $1–2; refund it
-   afterward in the Stripe Dashboard — refunds are not in the app).
+   afterward — in-app within 1 hour, otherwise in the Stripe Dashboard).
 2. Complete Checkout with a real card.
 3. Confirm the browser returns to `/pay/complete`.
 4. Confirm the live webhook delivery returns 2xx in the Stripe Dashboard.

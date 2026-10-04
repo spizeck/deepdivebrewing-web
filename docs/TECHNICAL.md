@@ -336,14 +336,19 @@ in code are listed.
   never a float), `currency` (`"usd"` — fixed), `customerName`,
   optional `customerEmail`/`tourDate` (`YYYY-MM-DD` calendar string)/
   `attendeeCount`/`internalNote`, `status` (`created | awaiting_payment |
-  processing | paid | failed | expired | canceled`), `livemode`, `eventCount`,
+  processing | paid | refunding | refunded | failed | expired | canceled`),
+  `livemode`, `eventCount`,
   `createdByUid`/`createdByName`, `createdAt`/`updatedAt`, Stripe
   identifiers (`stripeCheckoutSessionId`, `stripeSessionUrl`,
   `stripePaymentIntentId`, `stripeChargeId`, `stripeCustomerId`,
   `sessionExpiresAt`), `receiptUrl`, safe card display metadata
   (`paymentMethodBrand`/`paymentMethodLast4`), `reconciliationIssue` (set
   when Stripe's canonical report contradicted the stored snapshot —
-  settlement refused, flag cleared by a later verified `paid`), and
+  settlement refused, flag cleared by a later verified `paid`), refund
+  facts (`stripeRefundId`, `refundAmountMinor`, `refundCurrency`,
+  `refundReason`, `refundedByUid`/`refundedByName`, `refundRequestedAt`,
+  `refundedAt`, `stripeRefundStatus`, `refundFailureMessage` — set by the
+  admin refund flow; the original charge fields are never rewritten), and
   lifecycle timestamps (`paidAt`/`failedAt`/`expiredAt`/`canceledAt`).
   **Never stored:** PAN, CVC, or raw Stripe payloads — card entry happens
   only on Stripe's hosted page.
@@ -795,7 +800,33 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    code + message). Manual `POST .../[id]/refresh` reconciles through the
    same canonical planner, and `POST .../[id]/cancel` expires the session
    on Stripe then marks `canceled` (unpaid statuses only).
-4. **Mode:** `livemode` from the Stripe object is stored per payment; the
+4. **Refund:** `POST /api/admin/payments/[id]/refund` takes only `{reason,
+   confirmation}` — the browser supplies intent, never a financial fact;
+   the amount always comes from the stored record. `parseRefundBody`
+   requires a non-empty reason (≤ `REFUND_REASON_MAX_LENGTH`) and the
+   exact typed phrase `REFUND`. `refundAdminPayment` then runs a
+   claim → canonical-verify → provider → commit/revert pipeline (details
+   and race/idempotency analysis in
+   [operations/payments.md](operations/payments.md#refunds)): a Firestore
+   transaction claims `paid → refunding` + `refund_requested` (retries
+   resume, `refunded` is a no-op, so two admins can never both reach the
+   provider), the re-fetched PaymentIntent must agree on reference,
+   paymentId metadata, amount, currency, and `succeeded` status before
+   `refunds.create` fires under the deterministic idempotency key
+   `refund:<paymentId>` (full amount only), and results commit in a second
+   transaction — a provider failure releases the claim back to `paid` with
+   `refund_failed` only after canonical proof no refund exists, and a
+   charge Stripe already reports refunded converges instead of
+   re-refunding. The in-app window is `REFUND_WINDOW_MS` = 1 hour after
+   `paidAt`, strict boundary (elapsed ≥ window rejects), enforced
+   inside the claim transaction by `paymentRefundEligibility`. `refunding`
+   and `refunded` are Stripe-terminal in `planStripeEventApply`, so no
+   webhook or manual refresh can regress them. No refund webhook events
+   are subscribed — the synchronous `refunds.create` response plus
+   canonical re-fetch covers this workflow. Refunded payments drop out of
+   the collected-today total (`isCollectedForDailyTotal`) while every
+   original fact and history entry is preserved.
+5. **Mode:** `livemode` from the Stripe object is stored per payment; the
    UI badges test-mode payments. No analytics events carry payment data.
 
 Two Stripe API versions coexist by design: the registered webhook

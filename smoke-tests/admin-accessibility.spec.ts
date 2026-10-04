@@ -620,6 +620,90 @@ function mockPaymentsApi(page: import("playwright/test").Page) {
   });
 }
 
+// A settled payment still inside the 1-hour in-app refund window.
+const PAID_PAYMENT = {
+  ...PAYMENT,
+  status: "paid",
+  paidAt: new Date().toISOString(),
+};
+
+const REFUND_EVENTS = [
+  ...PAYMENT_EVENTS,
+  {
+    id: "e-2",
+    type: "payment_succeeded",
+    seq: 2,
+    actorUid: null,
+    actorName: null,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "e-3",
+    type: "refund_requested",
+    seq: 3,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: new Date().toISOString(),
+    details: { amountMinor: "8000", reason: "Duplicate charge" },
+  },
+  {
+    id: "e-4",
+    type: "refund_succeeded",
+    seq: 4,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: new Date().toISOString(),
+    details: { amountMinor: "8000" },
+  },
+];
+
+const REFUNDED_PAYMENT = {
+  ...PAID_PAYMENT,
+  status: "refunded",
+  stripeRefundId: "re_fixture_1",
+  refundAmountMinor: 8000,
+  refundCurrency: "usd",
+  refundReason: "Duplicate charge",
+  refundedByName: "Chad",
+  refundRequestedAt: new Date().toISOString(),
+  refundedAt: new Date().toISOString(),
+  stripeRefundStatus: "succeeded",
+};
+
+function mockRefundablePaymentsApi(page: import("playwright/test").Page) {
+  return page.route(/\/api\/admin\/payments/, (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+
+    if (method === "GET" && url.endsWith("/api/admin/payments")) {
+      return json({ ok: true, payments: [PAID_PAYMENT] });
+    }
+    if (method === "GET" && url.endsWith("/qr")) {
+      return json({ ok: false, error: "QR not needed in fixture" }, 400);
+    }
+    if (method === "GET" && url.includes("/api/admin/payments/")) {
+      return json({ ok: true, payment: PAID_PAYMENT, events: PAYMENT_EVENTS });
+    }
+    if (method === "POST" && url.includes("/refund")) {
+      return json({
+        ok: true,
+        payment: REFUNDED_PAYMENT,
+        events: REFUND_EVENTS,
+      });
+    }
+    if (method === "POST") {
+      return json({ ok: true, payment: PAID_PAYMENT, events: PAYMENT_EVENTS });
+    }
+    return json({ ok: false, error: "Unexpected fixture request" });
+  });
+}
+
 test("axe: payments workspace has no serious/critical violations", async ({
   page,
 }) => {
@@ -675,4 +759,43 @@ test("payment rows expose list semantics and the form is labeled", async ({
   await expect(page.getByLabel("Purpose")).toBeVisible();
   await expect(page.getByLabel(/Amount \(USD\)/)).toBeVisible();
   await expect(page.getByLabel(/Description/)).toBeVisible();
+});
+
+test("refund dialog gates the destructive action on reason + typed REFUND", async ({
+  page,
+}) => {
+  await mockRefundablePaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  await waitForAnimations(page);
+
+  // A paid payment inside the window offers the refund action.
+  await page.getByRole("button", { name: /Dana Guest/ }).press("Enter");
+  await page.getByRole("button", { name: "Refund payment" }).press("Enter");
+
+  const dialog = page.getByRole("dialog", { name: "Refund payment" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Refund amount")).toBeVisible();
+
+  const submit = dialog.getByRole("button", { name: "Refund $80.00" });
+  await expect(submit).toBeDisabled();
+
+  // Reason alone is not enough…
+  await dialog.getByLabel(/Refund reason/).fill("Duplicate charge");
+  await expect(submit).toBeDisabled();
+
+  // …and the confirmation is exact-match (lowercase does not count).
+  await dialog.getByLabel(/to confirm/).fill("refund");
+  await expect(submit).toBeDisabled();
+  await dialog.getByLabel(/to confirm/).fill("REFUND");
+  await expect(submit).toBeEnabled();
+
+  const blocking = await scanAxe(page, `${PAYMENTS_FIXTURE} (refund dialog)`);
+  expect(
+    blocking,
+    formatBlocking(`${PAYMENTS_FIXTURE} (refund dialog)`, blocking)
+  ).toEqual([]);
+
+  await submit.press("Enter");
+  await expect(page.getByText("Payment refunded.")).toBeVisible();
+  await expect(page.getByText("Refund completed")).toBeVisible();
 });

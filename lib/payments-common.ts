@@ -139,6 +139,8 @@ export const PAYMENT_STATUSES = [
   { value: "awaiting_payment", label: "Awaiting payment" },
   { value: "processing", label: "Processing" },
   { value: "paid", label: "Paid" },
+  { value: "refunding", label: "Refunding" },
+  { value: "refunded", label: "Refunded" },
   { value: "failed", label: "Failed" },
   { value: "expired", label: "Expired" },
   { value: "canceled", label: "Canceled" },
@@ -175,10 +177,18 @@ export function isPaymentCancelable(status: PaymentStatus): boolean {
 }
 
 // Statuses a Stripe transition may never overwrite. `paid` is also
-// absorbing for Stripe events but can later be superseded by refund states
-// (future work) — refunds are deliberately not in this model yet.
+// absorbing for Stripe events — a repeated canonical `paid` outcome is a
+// no-op rather than a regression. `refunding`/`refunded` sit here too:
+// the Checkout Session already settled, so session-level events arriving
+// during or after a refund are meaningless and must not touch the record.
 function isStripeTerminal(status: PaymentStatus): boolean {
-  return status === "paid" || status === "expired" || status === "canceled";
+  return (
+    status === "paid" ||
+    status === "refunding" ||
+    status === "refunded" ||
+    status === "expired" ||
+    status === "canceled"
+  );
 }
 
 // --- Records / views ---
@@ -214,6 +224,21 @@ export interface PaymentRecord {
   expiredAt?: unknown;
   canceledAt?: unknown;
   failureMessage?: string;
+  // Refund facts (full refunds only — see the Refunds section below).
+  // Set by the admin refund flow; the original charge fields are never
+  // rewritten once settled.
+  stripeRefundId?: string;
+  refundAmountMinor?: number;
+  refundCurrency?: string;
+  refundReason?: string;
+  refundedByUid?: string;
+  refundedByName?: string;
+  refundRequestedAt?: unknown;
+  refundedAt?: unknown;
+  stripeRefundStatus?: string;
+  // Safe provider category for the last failed refund attempt (never a
+  // raw Stripe message).
+  refundFailureMessage?: string;
   // Set when Stripe's canonical state contradicted the stored snapshot
   // (session/amount/currency) — settlement refused until staff review.
   reconciliationIssue?: string;
@@ -253,6 +278,15 @@ export interface PaymentView {
   canceledAt?: string;
   failureMessage?: string;
   reconciliationIssue?: string;
+  stripeRefundId?: string;
+  refundAmountMinor?: number;
+  refundCurrency?: string;
+  refundReason?: string;
+  refundedByName?: string;
+  refundRequestedAt?: string;
+  refundedAt?: string;
+  stripeRefundStatus?: string;
+  refundFailureMessage?: string;
 }
 
 export function serializePayment(
@@ -301,6 +335,18 @@ export function serializePayment(
     canceledAt: toIsoString(data.canceledAt),
     failureMessage: optStr("failureMessage"),
     reconciliationIssue: optStr("reconciliationIssue"),
+    stripeRefundId: optStr("stripeRefundId"),
+    refundAmountMinor:
+      typeof data.refundAmountMinor === "number"
+        ? data.refundAmountMinor
+        : undefined,
+    refundCurrency: optStr("refundCurrency"),
+    refundReason: optStr("refundReason"),
+    refundedByName: optStr("refundedByName"),
+    refundRequestedAt: toIsoString(data.refundRequestedAt),
+    refundedAt: toIsoString(data.refundedAt),
+    stripeRefundStatus: optStr("stripeRefundStatus"),
+    refundFailureMessage: optStr("refundFailureMessage"),
   };
 }
 
@@ -315,6 +361,9 @@ export const PAYMENT_EVENT_TYPES = [
   "session_expired",
   "payment_canceled",
   "reconciliation_mismatch",
+  "refund_requested",
+  "refund_succeeded",
+  "refund_failed",
 ] as const;
 
 export type PaymentEventType = (typeof PAYMENT_EVENT_TYPES)[number];
@@ -386,9 +435,31 @@ export function describePaymentEvent(
       const reason = detailStr("reason");
       return `Payment flagged — Stripe's report did not match this charge${reason ? ` (${reason})` : ""}. Do not treat it as paid without review`;
     }
+    case "refund_requested": {
+      const reason = detailStr("reason");
+      return `Refund requested — ${refundAmountLine(details)}${reason ? ` (${reason})` : ""}`;
+    }
+    case "refund_succeeded":
+      return `Refund completed — ${refundAmountLine(details)}`;
+    case "refund_failed": {
+      const msg = detailStr("message");
+      return msg ? `Refund failed — ${msg}` : "Refund failed";
+    }
     default:
       return event.type;
   }
+}
+
+// Shared amount rendering for refund events — details carry minor units
+// (machine-usable) while the timeline shows the formatted amount.
+function refundAmountLine(details: Record<string, unknown>): string {
+  const minor =
+    typeof details.amountMinor === "string"
+      ? Number(details.amountMinor)
+      : typeof details.amountMinor === "number"
+        ? details.amountMinor
+        : NaN;
+  return Number.isFinite(minor) ? formatUsdMinor(minor) : "full amount";
 }
 
 // --- Creation input validation ---
@@ -1266,4 +1337,365 @@ export async function processStripeEvent(
       quarantined: plan.quarantined,
     };
   });
+}
+
+// --- Refunds (full refunds only, 1-hour in-app window) ---
+
+// The in-app refund window after `paidAt`. Deliberately short: this tool
+// covers "the customer is still standing here" corrections; anything
+// later is a considered decision that belongs in the Stripe Dashboard.
+// Strict boundary — exactly REFUND_WINDOW_MS elapsed means the window has
+// passed (59:59.999 in, 1:00:00 out).
+export const REFUND_WINDOW_MS = 60 * 60 * 1000;
+
+// The exact phrase staff must type before the destructive action enables.
+export const REFUND_CONFIRMATION_PHRASE = "REFUND";
+export const REFUND_REASON_MAX_LENGTH = 500;
+
+// Deterministic Stripe idempotency key: one refund object per internal
+// payment, no matter how the request is retried.
+export function refundIdempotencyKey(paymentId: string): string {
+  return `refund:${paymentId}`;
+}
+
+// Millis for Firestore-shaped timestamp values (Timestamp-like, Date,
+// epoch number, ISO string). Returns null when absent/unparseable so
+// callers fail closed instead of treating "no timestamp" as epoch 0.
+export function timestampMillis(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  if (
+    typeof value === "object" &&
+    "toMillis" in value &&
+    typeof (value as { toMillis: unknown }).toMillis === "function"
+  ) {
+    const t = (value as { toMillis: () => number }).toMillis();
+    return Number.isFinite(t) ? t : null;
+  }
+  if (typeof value === "number" || typeof value === "string") {
+    const t = new Date(value).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
+export type RefundDenyCode =
+  | "not_paid"
+  | "refund_in_progress"
+  | "already_refunded"
+  | "missing_paid_at"
+  | "missing_stripe_reference"
+  | "window_expired";
+
+export type RefundEligibility =
+  | { ok: true }
+  | { ok: false; code: RefundDenyCode; message: string };
+
+// The single eligibility rule, enforced server-side and mirrored as an
+// advisory check in the UI. All inputs are already-resolved facts so the
+// same function serves the Firestore record and the serialized view.
+export function paymentRefundEligibility(args: {
+  status: unknown;
+  paidAtMillis: number | null;
+  hasStripePaymentRef: boolean;
+  nowMillis: number;
+}): RefundEligibility {
+  const status = normalizePaymentStatus(args.status);
+  if (status === "refunded") {
+    return {
+      ok: false,
+      code: "already_refunded",
+      message: "This payment has already been refunded.",
+    };
+  }
+  if (status === "refunding") {
+    return {
+      ok: false,
+      code: "refund_in_progress",
+      message: "A refund is already in progress for this payment.",
+    };
+  }
+  if (status !== "paid") {
+    return {
+      ok: false,
+      code: "not_paid",
+      message: "Only a paid payment can be refunded.",
+    };
+  }
+  if (args.paidAtMillis === null) {
+    return {
+      ok: false,
+      code: "missing_paid_at",
+      message:
+        "This payment has no recorded paid time — refund it in the Stripe Dashboard.",
+    };
+  }
+  if (!args.hasStripePaymentRef) {
+    return {
+      ok: false,
+      code: "missing_stripe_reference",
+      message:
+        "This payment has no Stripe payment reference — refund it in the Stripe Dashboard.",
+    };
+  }
+  if (args.nowMillis - args.paidAtMillis >= REFUND_WINDOW_MS) {
+    return {
+      ok: false,
+      code: "window_expired",
+      message:
+        "Refunds can be issued here for 1 hour after payment. After that, use Stripe Dashboard.",
+    };
+  }
+  return { ok: true };
+}
+
+export interface RefundRequestInput {
+  reason: string;
+}
+
+// The browser supplies intent only — a reason and the typed confirmation.
+// The refund amount is always derived from the stored payment, never from
+// the request.
+export function parseRefundBody(
+  body: unknown
+): { ok: true; input: RefundRequestInput } | { ok: false; error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, error: "Invalid request body." };
+  }
+  const raw = body as Record<string, unknown>;
+  const reason = typeof raw.reason === "string" ? raw.reason.trim() : "";
+  if (!reason) {
+    return { ok: false, error: "A refund reason is required." };
+  }
+  if (reason.length > REFUND_REASON_MAX_LENGTH) {
+    return { ok: false, error: "Refund reason is too long." };
+  }
+  if (raw.confirmation !== REFUND_CONFIRMATION_PHRASE) {
+    return {
+      ok: false,
+      error: `Type ${REFUND_CONFIRMATION_PHRASE} to confirm the refund.`,
+    };
+  }
+  return { ok: true, input: { reason } };
+}
+
+export type RefundClaimPlan =
+  | { kind: "already_refunded" }
+  | { kind: "resume" }
+  | {
+      kind: "claim";
+      updates: Record<string, unknown>;
+      event: PaymentEventDraft;
+    }
+  | { kind: "reject"; code: RefundDenyCode; message: string };
+
+// Pure claim planner applied inside the claim transaction: `claim` writes
+// the durable refunding state + audit event, `resume` means an earlier
+// request already claimed the refund (the caller continues from canonical
+// Stripe state without a second claim), and `already_refunded` makes a
+// replayed request a safe no-op.
+export function planRefundClaim(
+  record: PaymentRecord,
+  reason: string,
+  nowMillis: number
+): RefundClaimPlan {
+  const status = normalizePaymentStatus(record.status);
+  // Terminal/in-flight refund states resolve without re-checking the
+  // window: a replayed request on a refunded record is a safe no-op, and
+  // an in-flight claim is resumed from canonical Stripe state.
+  if (status === "refunded") return { kind: "already_refunded" };
+  if (status === "refunding") return { kind: "resume" };
+
+  const eligibility = paymentRefundEligibility({
+    status: record.status,
+    paidAtMillis: timestampMillis(record.paidAt),
+    hasStripePaymentRef:
+      typeof record.stripePaymentIntentId === "string" &&
+      record.stripePaymentIntentId.length > 0,
+    nowMillis,
+  });
+  if (!eligibility.ok) {
+    return {
+      kind: "reject",
+      code: eligibility.code,
+      message: eligibility.message,
+    };
+  }
+  return {
+    kind: "claim",
+    updates: {
+      status: "refunding",
+      refundReason: reason,
+      refundFailureMessage: null,
+    },
+    event: {
+      type: "refund_requested",
+      details: {
+        amountMinor:
+          typeof record.amountMinor === "number"
+            ? String(record.amountMinor)
+            : null,
+        reason,
+      },
+    },
+  };
+}
+
+export type RefundCanonicalDecision =
+  | { kind: "create_refund" }
+  | {
+      kind: "already_refunded";
+      stripeRefundId?: string;
+      refundAmountMinor?: number;
+    }
+  | { kind: "reject"; code: string; message: string };
+
+function firstRefundId(charge: Record<string, unknown>): string | undefined {
+  const refunds = charge.refunds;
+  if (refunds && typeof refunds === "object") {
+    const data = (refunds as Record<string, unknown>).data;
+    if (Array.isArray(data)) {
+      for (const entry of data) {
+        const id = stripeIdOf(entry);
+        if (id) return id;
+      }
+    }
+  }
+  return undefined;
+}
+
+// Verifies a re-fetched PaymentIntent against the stored record before a
+// refund may be created. Canonical Stripe state decides: reference,
+// amount, currency, and settlement must all agree, and a charge Stripe
+// already reports refunded is converged to (never a second refund).
+export function decideRefundFromPaymentIntent(
+  paymentId: string,
+  record: PaymentRecord,
+  intent: Record<string, unknown>
+): RefundCanonicalDecision {
+  const storedIntentId =
+    typeof record.stripePaymentIntentId === "string"
+      ? record.stripePaymentIntentId
+      : "";
+  if (!storedIntentId || stripeIdOf(intent.id) !== storedIntentId) {
+    return {
+      kind: "reject",
+      code: "intent_mismatch",
+      message: "Stripe's payment record does not match this payment.",
+    };
+  }
+  const metadata = intent.metadata;
+  const metaPaymentId =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>).paymentId
+      : undefined;
+  if (metaPaymentId !== undefined && metaPaymentId !== paymentId) {
+    return {
+      kind: "reject",
+      code: "payment_mismatch",
+      message: "Stripe's payment record belongs to a different payment.",
+    };
+  }
+  const storedCurrency =
+    typeof record.currency === "string" && record.currency
+      ? record.currency
+      : PAYMENT_CURRENCY;
+  if (
+    typeof intent.currency !== "string" ||
+    intent.currency.toUpperCase() !== storedCurrency.toUpperCase()
+  ) {
+    return {
+      kind: "reject",
+      code: "currency_mismatch",
+      message: "Stripe reports a different currency for this charge.",
+    };
+  }
+  if (
+    typeof record.amountMinor !== "number" ||
+    typeof intent.amount !== "number" ||
+    intent.amount !== record.amountMinor
+  ) {
+    return {
+      kind: "reject",
+      code: "amount_mismatch",
+      message: "Stripe reports a different amount for this charge.",
+    };
+  }
+  if (intent.status !== "succeeded") {
+    return {
+      kind: "reject",
+      code: "not_settled",
+      message: "Stripe does not show this payment as completed.",
+    };
+  }
+  const charge = intent.latest_charge;
+  if (!charge || typeof charge !== "object") {
+    return {
+      kind: "reject",
+      code: "no_charge",
+      message: "Stripe shows no captured charge for this payment.",
+    };
+  }
+  const refundedMinor =
+    typeof (charge as Record<string, unknown>).amount_refunded === "number"
+      ? ((charge as Record<string, unknown>).amount_refunded as number)
+      : 0;
+  if (refundedMinor >= record.amountMinor) {
+    // The money is already back with the customer — a Dashboard refund or
+    // a provider retry of our own earlier call. Converge, never re-create.
+    return {
+      kind: "already_refunded",
+      stripeRefundId: firstRefundId(charge as Record<string, unknown>),
+      refundAmountMinor: refundedMinor,
+    };
+  }
+  if (refundedMinor > 0) {
+    return {
+      kind: "reject",
+      code: "partial_refund_exists",
+      message:
+        "A partial refund already exists in Stripe — finish it in the Stripe Dashboard.",
+    };
+  }
+  return { kind: "create_refund" };
+}
+
+// Safe refund facts persisted on the record — ids, amount, status only.
+// Never a raw Stripe refund object.
+export function refundFactsFromStripeRefund(
+  refund: Record<string, unknown>
+): Record<string, unknown> {
+  const updates: Record<string, unknown> = {};
+  const id = stripeIdOf(refund.id);
+  if (id) updates.stripeRefundId = id;
+  if (typeof refund.amount === "number") {
+    updates.refundAmountMinor = refund.amount;
+  }
+  if (typeof refund.currency === "string" && refund.currency) {
+    updates.refundCurrency = refund.currency;
+  }
+  if (typeof refund.status === "string" && refund.status) {
+    updates.stripeRefundStatus = refund.status;
+  }
+  return updates;
+}
+
+// "Collected today" counts money still held: a payment paid today whose
+// refund has not completed. A `refunding` payment still counts (the money
+// may yet stay if the refund fails); a `refunded` one drops out — the
+// day's net position for it is zero.
+export function isCollectedForDailyTotal(args: {
+  status: unknown;
+  paidAtMillis: number | null;
+  dayStartMillis: number;
+}): boolean {
+  const status = normalizePaymentStatus(args.status);
+  return (
+    (status === "paid" || status === "refunding") &&
+    args.paidAtMillis !== null &&
+    args.paidAtMillis >= args.dayStartMillis
+  );
 }

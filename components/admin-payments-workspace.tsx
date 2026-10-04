@@ -4,18 +4,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { AdminPanelUser } from "@/components/admin-access";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
 import {
   describePaymentEvent,
   formatUsdMinor,
+  isCollectedForDailyTotal,
   isPaymentCancelable,
   isPaymentPayable,
   parseAmountMinor,
   paymentPurposeLabel,
+  paymentRefundEligibility,
   paymentStatusLabel,
   suggestedAmountMinor,
   PAYMENT_PURPOSES,
+  REFUND_CONFIRMATION_PHRASE,
+  REFUND_REASON_MAX_LENGTH,
   type PaymentEventView,
   type PaymentStatus,
   type PaymentView,
@@ -56,6 +67,8 @@ const STATUS_BADGE_CLASS: Record<PaymentStatus, string> = {
   awaiting_payment: "border-ocean/40 bg-ocean/10 text-ocean",
   processing: "border-amber-500/40 bg-amber-100/70 text-amber-900",
   paid: "border-moss/40 bg-moss/10 text-moss",
+  refunding: "border-amber-500/40 bg-amber-100/70 text-amber-900",
+  refunded: "border-stone bg-stone/50 text-muted-foreground",
   failed: "border-ember/40 bg-ember/10 text-ember",
   expired: "border-border text-muted-foreground",
   canceled: "border-border text-muted-foreground",
@@ -109,6 +122,14 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [qrForId, setQrForId] = useState<string | null>(null);
   const pollCountRef = useRef(0);
+
+  // Refund dialog state — target payment plus the two explicit gates
+  // (non-empty reason + typed REFUND) before the destructive button arms.
+  const [refundTarget, setRefundTarget] = useState<PaymentView | null>(null);
+  const [refundReason, setRefundReason] = useState("");
+  const [refundConfirm, setRefundConfirm] = useState("");
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundError, setRefundError] = useState("");
 
   const apiFetch = useCallback(
     async (path: string, init?: RequestInit) => {
@@ -406,6 +427,47 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
     }
   }
 
+  function openRefund(payment: PaymentView) {
+    setRefundReason("");
+    setRefundConfirm("");
+    setRefundError("");
+    setRefundTarget(payment);
+  }
+
+  async function submitRefund() {
+    const payment = refundTarget;
+    if (!payment || refundBusy) return; // single-flight like createPayment
+    setRefundBusy(true);
+    setRefundError("");
+    try {
+      const data = await apiFetch(`/api/admin/payments/${payment.id}/refund`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: refundReason.trim(),
+          confirmation: refundConfirm,
+        }),
+      });
+      const next = {
+        payment: data.payment as PaymentView,
+        events: (data.events as PaymentEventView[]) ?? [],
+      };
+      if (next.payment) upsertPayment(next.payment);
+      setActivePayment((prev) =>
+        prev?.payment.id === payment.id ? next : prev
+      );
+      if (selectedIdRef.current === payment.id) setDetail(next);
+      setRefundTarget(null);
+      setStatusMessage("Payment refunded.");
+      setStatusIsError(false);
+    } catch (error) {
+      setRefundError(
+        error instanceof Error ? error.message : "Could not complete the refund."
+      );
+    } finally {
+      setRefundBusy(false);
+    }
+  }
+
   // --- Derived view ---
 
   const summary = useMemo(() => {
@@ -417,7 +479,15 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
       if (p.status === "awaiting_payment" || p.status === "processing") {
         awaiting++;
       }
-      if (p.status === "paid" && paymentMillis(p.paidAt) >= startOfToday.getTime()) {
+      // `refunding` still counts (the money may yet stay); `refunded`
+      // drops out — a refunded charge's net position is zero.
+      if (
+        isCollectedForDailyTotal({
+          status: p.status,
+          paidAtMillis: p.paidAt ? paymentMillis(p.paidAt) : null,
+          dayStartMillis: startOfToday.getTime(),
+        })
+      ) {
         paidTodayMinor += p.amountMinor;
       }
     }
@@ -426,6 +496,18 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
 
   const reviewMinor = parseAmountMinor(form.amount);
   const shownPayment = detail?.payment ?? null;
+  // Advisory only — the server re-checks eligibility inside the claim
+  // transaction; this just decides what the detail view offers.
+  const refundEligibility = shownPayment
+    ? paymentRefundEligibility({
+        status: shownPayment.status,
+        paidAtMillis: shownPayment.paidAt
+          ? paymentMillis(shownPayment.paidAt)
+          : null,
+        hasStripePaymentRef: !!shownPayment.stripePaymentIntentId,
+        nowMillis: Date.now(),
+      })
+    : null;
   const timeline = detail
     ? [...detail.events].sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))
     : [];
@@ -868,6 +950,30 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
 
               {paymentLinkBlock(shownPayment)}
 
+              {refundEligibility?.ok && (
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="border-ember/50 text-ember hover:bg-ember/10 hover:text-ember"
+                    onClick={() => openRefund(shownPayment)}
+                  >
+                    Refund payment
+                  </Button>
+                </div>
+              )}
+              {refundEligibility && !refundEligibility.ok && shownPayment.status === "paid" && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {refundEligibility.message}
+                </p>
+              )}
+              {shownPayment.status === "refunding" && (
+                <p role="status" className="mt-3 text-sm text-amber-900">
+                  Refunding…
+                </p>
+              )}
+
               <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <dt className={sectionLabelClass}>Purpose</dt>
@@ -938,6 +1044,49 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                     {shownPayment.stripePaymentIntentId ?? "—"}
                   </dd>
                 </div>
+                {shownPayment.status === "refunded" && (
+                  <>
+                    <div>
+                      <dt className={sectionLabelClass}>Refunded</dt>
+                      <dd>
+                        {formatUsdMinor(
+                          shownPayment.refundAmountMinor ??
+                            shownPayment.amountMinor
+                        )}
+                        {shownPayment.refundedAt
+                          ? ` · ${formatAdminDateTime(shownPayment.refundedAt)}`
+                          : ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className={sectionLabelClass}>Refund reason</dt>
+                      <dd>{shownPayment.refundReason || "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className={sectionLabelClass}>Refunded by</dt>
+                      <dd>{shownPayment.refundedByName || "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className={sectionLabelClass}>Stripe refund</dt>
+                      <dd className="break-all text-xs">
+                        {shownPayment.stripeRefundId ?? "—"}
+                      </dd>
+                    </div>
+                  </>
+                )}
+                {shownPayment.status === "paid" &&
+                  shownPayment.refundFailureMessage && (
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <dt className={sectionLabelClass}>
+                        Last refund attempt
+                      </dt>
+                      <dd className="text-ember">
+                        Failed ({shownPayment.refundFailureMessage}) — you can
+                        try again while the payment is inside the refund
+                        window.
+                      </dd>
+                    </div>
+                  )}
                 {shownPayment.internalNote && (
                   <div className="sm:col-span-2 lg:col-span-3">
                     <dt className={sectionLabelClass}>Internal note</dt>
@@ -978,6 +1127,125 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
           )}
         </section>
       )}
+
+      <Dialog
+        open={refundTarget !== null}
+        onOpenChange={(open) => {
+          // Ignore dismiss while the request is in flight — the form is
+          // already disabled; closing would only hide the outcome.
+          if (!open && !refundBusy) setRefundTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogTitle className="text-lg font-semibold">
+            Refund payment
+          </DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            A full refund returns the entire charge to the customer&apos;s
+            card. This is permanent — the payment and its history are kept,
+            but the money does not come back through this tool.
+          </DialogDescription>
+          {refundTarget && (
+            <>
+              <dl className="mt-3 space-y-1 rounded-md border border-stone bg-stone/20 p-3 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">Customer</dt>
+                  <dd className="font-medium">
+                    {refundTarget.customerName || refundTarget.customerEmail}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">Purpose</dt>
+                  <dd>
+                    {paymentPurposeLabel(refundTarget.purpose) ||
+                      refundTarget.description}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">Paid at</dt>
+                  <dd>{formatAdminDateTime(refundTarget.paidAt)}</dd>
+                </div>
+                <div className="flex justify-between gap-3 border-t border-stone pt-1">
+                  <dt className="text-muted-foreground">Refund amount</dt>
+                  <dd className="font-semibold">
+                    {formatUsdMinor(refundTarget.amountMinor)}
+                  </dd>
+                </div>
+              </dl>
+              <form
+                className="mt-4 grid gap-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submitRefund();
+                }}
+              >
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">
+                    Refund reason
+                    <span aria-hidden="true" className="text-ember"> *</span>
+                  </span>
+                  <textarea
+                    required
+                    rows={2}
+                    maxLength={REFUND_REASON_MAX_LENGTH}
+                    className={fieldClass}
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    placeholder="e.g. Customer charged in error"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">
+                    Type{" "}
+                    <span className="font-mono font-semibold">
+                      {REFUND_CONFIRMATION_PHRASE}
+                    </span>{" "}
+                    to confirm
+                    <span aria-hidden="true" className="text-ember"> *</span>
+                  </span>
+                  <input
+                    required
+                    autoComplete="off"
+                    className={fieldClass}
+                    value={refundConfirm}
+                    onChange={(e) => setRefundConfirm(e.target.value)}
+                    placeholder={REFUND_CONFIRMATION_PHRASE}
+                  />
+                </label>
+                {refundError && (
+                  <p role="alert" className="text-sm text-ember">
+                    {refundError}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <DialogClose asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={refundBusy}
+                    >
+                      Cancel
+                    </Button>
+                  </DialogClose>
+                  <Button
+                    type="submit"
+                    variant="destructive"
+                    disabled={
+                      refundBusy ||
+                      !refundReason.trim() ||
+                      refundConfirm !== REFUND_CONFIRMATION_PHRASE
+                    }
+                  >
+                    {refundBusy
+                      ? "Refunding…"
+                      : `Refund ${formatUsdMinor(refundTarget.amountMinor)}`}
+                  </Button>
+                </div>
+              </form>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

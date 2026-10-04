@@ -39,7 +39,9 @@ The status updates automatically while the customer pays (the app checks Stripe 
 | **Setting up** | The record exists but the payment link is still being created — usually only for a second. |
 | **Awaiting payment** | The link is live; the customer has not finished paying. |
 | **Processing** | Stripe accepted the payment but the bank has not confirmed yet (rare for cards). |
-| **Paid** | Money captured. Final — the Stripe webhook confirmed it. |
+| **Paid** | Money captured — Stripe confirmed it. May still be refunded within 1 hour (see below). |
+| **Refunding** | A refund was started and the app is confirming it with Stripe — usually only for a few seconds. |
+| **Refunded** | The full charge went back to the customer's card. The original payment stays in history, untouched. |
 | **Failed** | The customer's attempt failed (e.g. a declined card). |
 | **Expired** | The payment link timed out (~24 hours) unpaid. |
 | **Canceled** | Staff canceled the payment before the customer paid. |
@@ -48,7 +50,21 @@ A payment is never marked paid because a browser landed on a success page — St
 
 ## Canceling a payment
 
-While a payment is **Awaiting payment** (or still setting up), use **Cancel payment** — it kills the payment link so it can no longer be used, and records the cancellation in the history. Paid, failed, and expired payments cannot be canceled from here. Refunds are not part of this tool yet — see an owner if a paid charge needs to be refunded (they are done in the Stripe Dashboard for now).
+While a payment is **Awaiting payment** (or still setting up), use **Cancel payment** — it kills the payment link so it can no longer be used, and records the cancellation in the history. Paid, failed, and expired payments cannot be canceled from here; for a paid charge, use a refund instead.
+
+## Refunding a payment
+
+A **Refund payment** button appears on a **Paid** payment for **1 hour after it was paid** — long enough to fix a charge while the customer is still at the counter. Refunding is always the **full amount**; partial refunds are not part of this tool.
+
+1. Select the paid payment and click **Refund payment**.
+2. Check the confirmation panel — it shows the customer, the original amount and purpose, when they paid, and the amount going back.
+3. Enter a **refund reason** (required — it goes on the permanent record, e.g. "charged twice" or "customer changed their mind").
+4. Type **REFUND** in the confirmation box. The destructive button stays disabled until both the reason and the exact phrase are entered.
+5. Click **Refund $X.XX**. The payment moves through **Refunding** to **Refunded** within a few seconds.
+
+After the window closes the button is replaced by a note — **refunds can be issued here for 1 hour after payment; after that, use the Stripe Dashboard**. Anything older, anything partial, and anything unusual (a refund Stripe won't accept) is a Dashboard job — ask an owner if unsure.
+
+Refunds are **permanent**: the money does not come back through this tool. The payment itself is never deleted or rewritten — the detail view keeps the original charge, shows the refund amount, reason, who issued it and when, and the Stripe refund id, and the **History** keeps the original payment entries alongside `Refund requested`/`Refund completed`. A payment refunded the same day no longer counts toward the **collected today** total — the money is gone, so the number stays honest. If a refund attempt fails, the payment stays **Paid**, the detail shows the failed attempt, and you can try again inside the window (each attempt is safe — a double-click or retry can never refund the customer twice).
 
 ## Receipts
 
@@ -56,7 +72,7 @@ The **Receipt email** field pre-fills the customer's email on the Stripe Checkou
 
 ## Payment detail
 
-Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the Stripe identifiers, receipt link, and an append-only **History** (created, link issued, succeeded/failed/expired, canceled, flagged-for-review). History entries marked "(manual refresh)" were applied by a staff refresh; unmarked status changes came from Stripe's webhook.
+Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the Stripe identifiers, receipt link, refund facts when refunded (amount, reason, issuer, Stripe refund id), and an append-only **History** (created, link issued, succeeded/failed/expired, canceled, refund requested/completed/failed, flagged-for-review). History entries marked "(manual refresh)" were applied by a staff refresh; unmarked status changes came from Stripe's webhook.
 
 ## Test mode
 
@@ -68,6 +84,7 @@ When the app runs with Stripe **test** credentials, a **Test mode** badge appear
 - **The link doesn't work** — links expire after about 24 hours or when canceled. Create a fresh payment.
 - **A payment shows "Needs attention"** — Stripe's report contradicted what was created (for example a different amount or currency), so the app refused to mark it paid. Check the session in the Stripe Dashboard and tell an owner.
 - **A charge happened twice** — it shouldn't: retries reuse the same payment record and Stripe session. Report it to an owner with the payment's Stripe session id from the detail view.
+- **A refund failed or got stuck on "Refunding"** — the payment is still **Paid** and the money is still held unless Stripe says otherwise; check the charge in the Stripe Dashboard, then retry within the window. If a refund was already completed in the Stripe Dashboard, the app reconciles to **Refunded** on the next attempt — it never issues a second refund.
 
 ## Operations reference
 

@@ -4,26 +4,37 @@ import {
   assertCheckoutSessionUrl,
   buildCheckoutSessionSpec,
   canonicalSessionDecision,
+  decideRefundFromPaymentIntent,
   describePaymentEvent,
   enrichmentFromPaymentIntent,
   formatUsdMinor,
+  isCollectedForDailyTotal,
   isPaymentCancelable,
   isPaymentPayable,
   normalizePaymentStatus,
   outcomeFromSession,
   parseAmountMinor,
   parsePaymentCreateBody,
+  parseRefundBody,
   paymentCreateMatchesRecord,
+  paymentRefundEligibility,
   paymentStatusLabel,
+  planRefundClaim,
   planStripeEventApply,
   processStripeEvent,
   readStripeEventRefs,
+  refundFactsFromStripeRefund,
+  refundIdempotencyKey,
   resolveCanonicalEventOutcome,
   serializePayment,
   suggestedAmountMinor,
+  timestampMillis,
   toPaymentProviderError,
   PaymentProviderError,
   PAYMENT_MAX_AMOUNT_MINOR,
+  REFUND_CONFIRMATION_PHRASE,
+  REFUND_REASON_MAX_LENGTH,
+  REFUND_WINDOW_MS,
   type StripeEventStore,
   type StripeEventTx,
 } from "@/lib/payments-common";
@@ -954,5 +965,473 @@ describe("toPaymentProviderError", () => {
     assert.strictEqual(toPaymentProviderError(null).code, "unexpected_provider_error");
     const already = new PaymentProviderError("rate_limit");
     assert.strictEqual(toPaymentProviderError(already), already);
+  });
+});
+
+// --- Refunds ---
+
+const PAID_AT = new Date("2026-10-03T12:00:00.000Z").getTime();
+
+const refundArgs = (over: Partial<Parameters<typeof paymentRefundEligibility>[0]> = {}) => ({
+  status: "paid",
+  paidAtMillis: PAID_AT,
+  hasStripePaymentRef: true,
+  nowMillis: PAID_AT + 30 * 60 * 1000, // 30 minutes in
+  ...over,
+});
+
+describe("paymentRefundEligibility", () => {
+  it("accepts a paid payment inside the window", () => {
+    assert.deepStrictEqual(paymentRefundEligibility(refundArgs()), { ok: true });
+    // One millisecond before the boundary is still eligible.
+    assert.deepStrictEqual(
+      paymentRefundEligibility(
+        refundArgs({ nowMillis: PAID_AT + REFUND_WINDOW_MS - 1 })
+      ),
+      { ok: true }
+    );
+  });
+
+  it("uses a strict boundary — exactly 1 hour means the window has passed", () => {
+    const atBoundary = paymentRefundEligibility(
+      refundArgs({ nowMillis: PAID_AT + REFUND_WINDOW_MS })
+    );
+    assert.deepStrictEqual(atBoundary.ok, false);
+    if (!atBoundary.ok) assert.strictEqual(atBoundary.code, "window_expired");
+    assert.strictEqual(
+      paymentRefundEligibility(
+        refundArgs({ nowMillis: PAID_AT + REFUND_WINDOW_MS + 1 })
+      ).ok,
+      false
+    );
+  });
+
+  it("rejects non-paid, unknown, refunded, and refunding statuses", () => {
+    for (const [status, code] of [
+      ["awaiting_payment", "not_paid"],
+      ["processing", "not_paid"],
+      ["failed", "not_paid"],
+      ["canceled", "not_paid"],
+      ["nonsense", "not_paid"],
+      ["refunded", "already_refunded"],
+      ["refunding", "refund_in_progress"],
+    ] as const) {
+      const r = paymentRefundEligibility(refundArgs({ status }));
+      assert.strictEqual(r.ok, false, status);
+      if (!r.ok) assert.strictEqual(r.code, code, status);
+    }
+  });
+
+  it("rejects missing paidAt and missing Stripe reference, in that order", () => {
+    const noPaidAt = paymentRefundEligibility(
+      refundArgs({ paidAtMillis: null })
+    );
+    assert.strictEqual(noPaidAt.ok, false);
+    if (!noPaidAt.ok) assert.strictEqual(noPaidAt.code, "missing_paid_at");
+
+    const noRef = paymentRefundEligibility(
+      refundArgs({ hasStripePaymentRef: false })
+    );
+    assert.strictEqual(noRef.ok, false);
+    if (!noRef.ok) assert.strictEqual(noRef.code, "missing_stripe_reference");
+  });
+
+  it("points staff at the Stripe Dashboard once the window has passed", () => {
+    const r = paymentRefundEligibility(
+      refundArgs({ nowMillis: PAID_AT + REFUND_WINDOW_MS })
+    );
+    if (!r.ok) assert.match(r.message, /Stripe Dashboard/);
+  });
+});
+
+describe("parseRefundBody", () => {
+  const good = { reason: "Customer changed their mind", confirmation: "REFUND" };
+
+  it("accepts a reason plus the exact confirmation phrase", () => {
+    const r = parseRefundBody(good);
+    assert.strictEqual(r.ok, true);
+    if (r.ok) assert.strictEqual(r.input.reason, "Customer changed their mind");
+  });
+
+  it("trims the reason and rejects empty/overlong reasons", () => {
+    const trimmed = parseRefundBody({ ...good, reason: "  duplicate charge  " });
+    assert.ok(trimmed.ok && trimmed.input.reason === "duplicate charge");
+
+    for (const reason of ["", "   ", "x".repeat(REFUND_REASON_MAX_LENGTH + 1), undefined, 42]) {
+      assert.strictEqual(
+        parseRefundBody({ ...good, reason }).ok,
+        false,
+        `reason ${JSON.stringify(reason)?.slice(0, 30)}`
+      );
+    }
+    assert.strictEqual(
+      parseRefundBody({ ...good, reason: "x".repeat(REFUND_REASON_MAX_LENGTH) }).ok,
+      true
+    );
+  });
+
+  it("requires the exact confirmation phrase — case-sensitive", () => {
+    for (const confirmation of [undefined, "", "refund", "Refund", "REFUND ", "REFUNDD", 0, true]) {
+      assert.strictEqual(
+        parseRefundBody({ ...good, confirmation }).ok,
+        false,
+        `confirmation ${JSON.stringify(confirmation)}`
+      );
+    }
+    assert.strictEqual(REFUND_CONFIRMATION_PHRASE, "REFUND");
+  });
+
+  it("ignores any client-supplied amount — the server derives it", () => {
+    const r = parseRefundBody({ ...good, amount: "0.01", refundAmountMinor: 1 });
+    assert.strictEqual(r.ok, true);
+    if (r.ok) assert.deepStrictEqual(r.input, { reason: "Customer changed their mind" });
+  });
+
+  it("rejects malformed bodies", () => {
+    for (const body of [null, undefined, "REFUND", 42, [1, 2]]) {
+      assert.strictEqual(parseRefundBody(body).ok, false, JSON.stringify(body));
+    }
+  });
+});
+
+describe("planRefundClaim", () => {
+  const paidRecord = {
+    status: "paid",
+    amountMinor: 20000,
+    currency: "usd",
+    paidAt: new Date(PAID_AT),
+    stripePaymentIntentId: "pi_123",
+    eventCount: 3,
+  };
+
+  it("claims a paid payment: refunding status + audit event", () => {
+    const plan = planRefundClaim(paidRecord, "charged in error", PAID_AT + 60000);
+    assert.strictEqual(plan.kind, "claim");
+    if (plan.kind !== "claim") return;
+    assert.strictEqual(plan.updates.status, "refunding");
+    assert.strictEqual(plan.updates.refundReason, "charged in error");
+    assert.strictEqual(plan.updates.refundFailureMessage, null);
+    assert.strictEqual(plan.event.type, "refund_requested");
+    assert.strictEqual(plan.event.details?.amountMinor, "20000");
+    assert.strictEqual(plan.event.details?.reason, "charged in error");
+  });
+
+  it("never re-claims: refunded is idempotent, refunding resumes", () => {
+    assert.strictEqual(
+      planRefundClaim(
+        { ...paidRecord, status: "refunded" },
+        "again",
+        PAID_AT + 60000
+      ).kind,
+      "already_refunded"
+    );
+    assert.strictEqual(
+      planRefundClaim(
+        { ...paidRecord, status: "refunding" },
+        "again",
+        PAID_AT + 60000
+      ).kind,
+      "resume"
+    );
+  });
+
+  it("rejects ineligible records with a safe code", () => {
+    const expired = planRefundClaim(
+      paidRecord,
+      "too late",
+      PAID_AT + REFUND_WINDOW_MS
+    );
+    assert.strictEqual(expired.kind, "reject");
+    if (expired.kind === "reject") {
+      assert.strictEqual(expired.code, "window_expired");
+      assert.match(expired.message, /Stripe Dashboard/);
+    }
+    assert.strictEqual(
+      planRefundClaim({ ...paidRecord, status: "awaiting_payment" }, "x", PAID_AT + 1).kind,
+      "reject"
+    );
+  });
+});
+
+describe("decideRefundFromPaymentIntent", () => {
+  const record = {
+    status: "refunding",
+    amountMinor: 20000,
+    currency: "usd",
+    stripePaymentIntentId: "pi_123",
+  };
+  const intent = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: "pi_123",
+    metadata: { paymentId: "pay_1" },
+    currency: "usd",
+    amount: 20000,
+    status: "succeeded",
+    latest_charge: { id: "ch_1", amount_refunded: 0, refunds: { data: [] } },
+    ...over,
+  });
+
+  it("creates a refund for a matching, settled, unrefunded charge", () => {
+    const d = decideRefundFromPaymentIntent("pay_1", record, intent());
+    assert.strictEqual(d.kind, "create_refund");
+  });
+
+  it("rejects when the re-fetched intent does not match the stored reference", () => {
+    const wrong = decideRefundFromPaymentIntent(
+      "pay_1",
+      record,
+      intent({ id: "pi_other" })
+    );
+    assert.strictEqual(wrong.kind, "reject");
+    if (wrong.kind === "reject") assert.strictEqual(wrong.code, "intent_mismatch");
+
+    const missing = decideRefundFromPaymentIntent(
+      "pay_1",
+      { ...record, stripePaymentIntentId: "" },
+      intent()
+    );
+    assert.strictEqual(missing.kind, "reject");
+  });
+
+  it("rejects a different internal payment id in Stripe metadata", () => {
+    const d = decideRefundFromPaymentIntent(
+      "pay_1",
+      record,
+      intent({ metadata: { paymentId: "pay_other" } })
+    );
+    assert.strictEqual(d.kind, "reject");
+    if (d.kind === "reject") assert.strictEqual(d.code, "payment_mismatch");
+    // No metadata at all: the reference check still applied, so allowed.
+    assert.strictEqual(
+      decideRefundFromPaymentIntent("pay_1", record, intent({ metadata: undefined })).kind,
+      "create_refund"
+    );
+  });
+
+  it("rejects amount and currency disagreement — never trust the browser", () => {
+    for (const [mut, code] of [
+      [{ amount: 20001 }, "amount_mismatch"],
+      [{ currency: "eur" }, "currency_mismatch"],
+    ] as const) {
+      const d = decideRefundFromPaymentIntent("pay_1", record, intent(mut));
+      assert.strictEqual(d.kind, "reject", code);
+      if (d.kind === "reject") assert.strictEqual(d.code, code);
+    }
+  });
+
+  it("rejects an unsettled payment and a charge with no canonical object", () => {
+    const unsettled = decideRefundFromPaymentIntent(
+      "pay_1",
+      record,
+      intent({ status: "processing" })
+    );
+    assert.strictEqual(unsettled.kind, "reject");
+    if (unsettled.kind === "reject") assert.strictEqual(unsettled.code, "not_settled");
+
+    const noCharge = decideRefundFromPaymentIntent(
+      "pay_1",
+      record,
+      intent({ latest_charge: null })
+    );
+    assert.strictEqual(noCharge.kind, "reject");
+    if (noCharge.kind === "reject") assert.strictEqual(noCharge.code, "no_charge");
+  });
+
+  it("converges instead of re-refunding when Stripe already refunded", () => {
+    const d = decideRefundFromPaymentIntent(
+      "pay_1",
+      record,
+      intent({
+        latest_charge: {
+          id: "ch_1",
+          amount_refunded: 20000,
+          refunds: { data: [{ id: "re_1" }] },
+        },
+      })
+    );
+    assert.strictEqual(d.kind, "already_refunded");
+    if (d.kind === "already_refunded") {
+      assert.strictEqual(d.stripeRefundId, "re_1");
+      assert.strictEqual(d.refundAmountMinor, 20000);
+    }
+  });
+
+  it("refuses to layer a full refund over an existing partial refund", () => {
+    const d = decideRefundFromPaymentIntent(
+      "pay_1",
+      record,
+      intent({
+        latest_charge: {
+          id: "ch_1",
+          amount_refunded: 5000,
+          refunds: { data: [{ id: "re_partial" }] },
+        },
+      })
+    );
+    assert.strictEqual(d.kind, "reject");
+    if (d.kind === "reject") assert.strictEqual(d.code, "partial_refund_exists");
+  });
+});
+
+describe("refund facts and identity", () => {
+  it("derives a deterministic Stripe idempotency key per payment", () => {
+    assert.strictEqual(refundIdempotencyKey("pay_1"), "refund:pay_1");
+    assert.strictEqual(
+      refundIdempotencyKey("pay_1"),
+      refundIdempotencyKey("pay_1"),
+      "same payment → same key on every retry"
+    );
+    assert.notStrictEqual(refundIdempotencyKey("pay_1"), refundIdempotencyKey("pay_2"));
+  });
+
+  it("extracts only safe refund facts — ids, amount, currency, status", () => {
+    const facts = refundFactsFromStripeRefund({
+      id: "re_123",
+      amount: 20000,
+      currency: "usd",
+      status: "succeeded",
+      // Anything else Stripe attaches (balance transactions, raw metadata)
+      // must not persist.
+      balance_transaction: "txn_1",
+      raw: { nested: "payload" },
+    });
+    assert.deepStrictEqual(facts, {
+      stripeRefundId: "re_123",
+      refundAmountMinor: 20000,
+      refundCurrency: "usd",
+      stripeRefundStatus: "succeeded",
+    });
+  });
+});
+
+describe("isCollectedForDailyTotal", () => {
+  const dayStart = new Date("2026-10-03T00:00:00").getTime();
+  const today = dayStart + 12 * 60 * 60 * 1000;
+  const yesterday = dayStart - 60 * 1000;
+
+  it("counts paid and in-flight refunds, drops completed refunds", () => {
+    for (const [status, expected] of [
+      ["paid", true],
+      ["refunding", true],
+      ["refunded", false],
+      ["awaiting_payment", false],
+      ["canceled", false],
+    ] as const) {
+      assert.strictEqual(
+        isCollectedForDailyTotal({ status, paidAtMillis: today, dayStartMillis: dayStart }),
+        expected,
+        status
+      );
+    }
+  });
+
+  it("only counts payments settled today", () => {
+    assert.strictEqual(
+      isCollectedForDailyTotal({ status: "paid", paidAtMillis: yesterday, dayStartMillis: dayStart }),
+      false
+    );
+    assert.strictEqual(
+      isCollectedForDailyTotal({ status: "paid", paidAtMillis: null, dayStartMillis: dayStart }),
+      false
+    );
+  });
+});
+
+describe("refund regression safety in Stripe event planning", () => {
+  const record = (status: string) => ({
+    status,
+    stripeCheckoutSessionId: "cs_test_123",
+    amountMinor: 8000,
+    currency: "usd",
+    eventCount: 2,
+  });
+  const outcome = (transition: "paid" | "processing" | "failed" | "expired") => ({
+    transition,
+    sessionId: "cs_test_123",
+    paymentIntentId: "pi_123",
+    amountMinor: 8000,
+    currency: "usd",
+  });
+  const NOW = new Date("2026-10-03T12:00:00.000Z");
+
+  it("refunding and refunded are Stripe-terminal — webhooks and refreshes cannot touch them", () => {
+    for (const status of ["refunding", "refunded"] as const) {
+      for (const transition of ["paid", "processing", "failed", "expired"] as const) {
+        for (const source of ["webhook", "manual_refresh"] as const) {
+          assert.strictEqual(
+            planStripeEventApply(record(status), outcome(transition), source, NOW).apply,
+            false,
+            `${status} must not regress on ${transition} via ${source}`
+          );
+        }
+      }
+    }
+  });
+});
+
+describe("timestampMillis", () => {
+  it("reads Timestamp-like, Date, epoch, and ISO shapes; fails closed", () => {
+    const t = PAID_AT;
+    assert.strictEqual(timestampMillis(new Date(t)), t);
+    assert.strictEqual(timestampMillis({ toMillis: () => t }), t);
+    assert.strictEqual(timestampMillis("2026-10-03T12:00:00.000Z"), t);
+    assert.strictEqual(timestampMillis(t), t);
+    for (const bad of [null, undefined, "not-a-date", {}, NaN]) {
+      assert.strictEqual(timestampMillis(bad), null, JSON.stringify(bad));
+    }
+  });
+});
+
+describe("refund event rendering and serialization", () => {
+  it("describes refund history entries with amounts and reasons", () => {
+    assert.strictEqual(
+      describePaymentEvent({
+        type: "refund_requested",
+        details: { amountMinor: "20000", reason: "charged twice" },
+      }),
+      "Refund requested — $200.00 (charged twice)"
+    );
+    assert.strictEqual(
+      describePaymentEvent({
+        type: "refund_succeeded",
+        details: { amountMinor: "20000" },
+      }),
+      "Refund completed — $200.00"
+    );
+    assert.strictEqual(
+      describePaymentEvent({
+        type: "refund_failed",
+        details: { message: "card_declined" },
+      }),
+      "Refund failed — card_declined"
+    );
+  });
+
+  it("serializes refund facts onto the payment view", () => {
+    const view = serializePayment("p1", {
+      status: "refunded",
+      amountMinor: 20000,
+      currency: "usd",
+      stripeRefundId: "re_1",
+      refundAmountMinor: 20000,
+      refundCurrency: "usd",
+      refundReason: "changed mind",
+      refundedByName: "Sam Admin",
+      stripeRefundStatus: "succeeded",
+      refundRequestedAt: new Date(PAID_AT),
+      refundedAt: new Date(PAID_AT + 1000),
+    });
+    assert.strictEqual(view.status, "refunded");
+    assert.strictEqual(view.stripeRefundId, "re_1");
+    assert.strictEqual(view.refundAmountMinor, 20000);
+    assert.strictEqual(view.refundReason, "changed mind");
+    assert.strictEqual(view.refundedByName, "Sam Admin");
+    assert.strictEqual(view.refundedAt, new Date(PAID_AT + 1000).toISOString());
+    // The original amount is immutable history — never rewritten.
+    assert.strictEqual(view.amountMinor, 20000);
+  });
+
+  it("labels the new statuses for staff", () => {
+    assert.strictEqual(paymentStatusLabel("refunding"), "Refunding");
+    assert.strictEqual(paymentStatusLabel("refunded"), "Refunded");
   });
 });

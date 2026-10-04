@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import type { AdminPanelUser } from "@/components/admin-access";
-import { formatUsdMinor, type PaymentView } from "@/lib/payments-common";
+import {
+  formatUsdMinor,
+  isCollectedForDailyTotal,
+  type PaymentView,
+} from "@/lib/payments-common";
 
 // Compact entry point into /admin/payments (#155). Loads the same authorized
 // list endpoint the workspace uses and derives the actionable numbers; a
@@ -36,10 +40,14 @@ export function AdminPaymentsSummary({ user }: { user: AdminPanelUser }) {
           if (p.status === "awaiting_payment" || p.status === "processing") {
             awaiting++;
           }
+          // `refunding` still counts (the money may yet stay); a
+          // `refunded` payment drops out — its net position is zero.
           if (
-            p.status === "paid" &&
-            p.paidAt &&
-            new Date(p.paidAt).getTime() >= startOfToday.getTime()
+            isCollectedForDailyTotal({
+              status: p.status,
+              paidAtMillis: p.paidAt ? new Date(p.paidAt).getTime() : null,
+              dayStartMillis: startOfToday.getTime(),
+            })
           ) {
             paidTodayMinor += p.amountMinor;
           }

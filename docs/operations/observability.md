@@ -243,8 +243,9 @@ emits **single-line JSON** so Vercel's log search can filter reliably:
 | `admin_invitation_email.{misconfigured,send_rejected,send_exception}` | Invitation email send-path failures (`missing` names the unset var) |
 | `admin_bootstrap.failed` / `admin_me.unexpected` | Bootstrap and identity-probe failures |
 | `payment.created` | Internal payment record + Stripe Checkout Session created (`paymentId`, `replayed`, `requestId` — no customer data) |
-| `payment.canceled` / `payment.refreshed` | Staff canceled an unpaid payment, or a manual status refresh applied a state change |
-| `payment.{create,get,cancel,refresh,qr}_failed` / `payments.list_failed` | Unhandled errors in the payments API routes |
+| `payment.canceled` / `payment.refreshed` / `payment.refunded` | Staff canceled an unpaid payment, a manual status refresh applied a state change, or a full refund completed |
+| `payment.{create,get,cancel,refresh,refund,qr}_failed` / `payments.list_failed` | Unhandled errors in the payments API routes — `payment.refund_failed` means the refund attempt did not complete; the payment record shows whether it reverted to `paid` or is still `refunding` awaiting reconciliation |
+| `payment.refund_commit_unexpected_status` | A refund commit saw a payment status it could not safely overwrite — canonical Stripe truth was NOT written; needs investigation (warn) |
 | `payment.enrichment_failed` | Paid-payment receipt/card-brand enrichment from Stripe failed — the payment stays `paid`; only display metadata is missing (warn) |
 | `payment.refresh_id_mismatch` | A Stripe session retrieved during refresh had the wrong `paymentId` — treated as a defensive anomaly, not an update (warn) |
 | `stripe_webhook.processed` | Signed Stripe event handled (`eventType`, `paymentId`, `result` — `applied`, `duplicate`, `ignored`, `unknown_payment`, or `quarantined`; see [payments.md](./payments.md#webhook-result-semantics) for what each means) |

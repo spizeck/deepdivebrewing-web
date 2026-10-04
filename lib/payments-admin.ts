@@ -19,17 +19,22 @@ import {
   paymentIdFromSession,
   PaymentError,
   PaymentNotFoundError,
+  planRefundClaim,
   planStripeEventApply,
   processStripeEvent,
   readStripeEventRefs,
+  refundFactsFromStripeRefund,
+  refundIdempotencyKey,
   resolveCanonicalEventOutcome,
   toPaymentProviderError,
+  decideRefundFromPaymentIntent,
   HANDLED_STRIPE_EVENT_TYPES,
   PAYMENTS_COLLECTION,
   PAYMENT_EVENTS_SUBCOLLECTION,
   STRIPE_EVENTS_COLLECTION,
   type PaymentCreateInput,
   type PaymentEventDraft,
+  type RefundRequestInput,
   type StripeEventOutcome,
   type StripeEventStore,
   type StripeOutcome,
@@ -481,6 +486,324 @@ export async function refreshAdminPayment(id: string): Promise<void> {
         .update({ ...enrich, updatedAt: FieldValue.serverTimestamp() });
     }
   }
+}
+
+// --- Refunds (full refunds only, 1-hour window) ---
+
+// Commit the refunded state inside a transaction. Canonical Stripe truth
+// wins over any interleaved internal state: a landed provider refund
+// converges `refunding` AND `paid` (a failed attempt's revert may have
+// raced a successful provider call), while `refunded` is already settled.
+// Other statuses are an anomaly — logged, never written over.
+async function commitRefund(
+  id: string,
+  facts: Record<string, unknown>,
+  actor: PaymentActor | null
+): Promise<void> {
+  const ref = getPaymentsCollection().doc(id);
+  await getFirebaseAdminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new PaymentNotFoundError();
+    const record = (snap.data() ?? {}) as Record<string, unknown>;
+    const status = normalizePaymentStatus(record.status);
+    if (status === "refunded") return;
+    if (status !== "refunding" && status !== "paid") {
+      logWarn("payment.refund_commit_unexpected_status", { paymentId: id });
+      return;
+    }
+    const base =
+      typeof record.eventCount === "number" ? record.eventCount : 0;
+    const amountMinor =
+      typeof facts.refundAmountMinor === "number"
+        ? facts.refundAmountMinor
+        : record.amountMinor;
+    tx.update(ref, {
+      status: "refunded",
+      ...facts,
+      refundFailureMessage: null,
+      refundedAt: FieldValue.serverTimestamp(),
+      ...(record.refundRequestedAt
+        ? {}
+        : { refundRequestedAt: FieldValue.serverTimestamp() }),
+      eventCount: base + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      ref.collection(PAYMENT_EVENTS_SUBCOLLECTION).doc(),
+      eventDoc(
+        {
+          type: "refund_succeeded",
+          details: {
+            amountMinor: typeof amountMinor === "number" ? String(amountMinor) : null,
+            ...(typeof record.refundReason === "string" && record.refundReason
+              ? { reason: record.refundReason }
+              : {}),
+          },
+        },
+        base,
+        actor
+      )
+    );
+  });
+}
+
+// Releases a claimed refund after canonical proof that no refund exists —
+// back to `paid` with safe failure metadata + an audit event. Only ever
+// applies while `refunding`: a concurrent successful commit is never
+// clobbered, and `safeReason` is a machine code, never a raw Stripe
+// message.
+async function failRefundClaim(
+  id: string,
+  safeReason: string,
+  actor: PaymentActor | null
+): Promise<void> {
+  const ref = getPaymentsCollection().doc(id);
+  await getFirebaseAdminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new PaymentNotFoundError();
+    const record = (snap.data() ?? {}) as Record<string, unknown>;
+    if (normalizePaymentStatus(record.status) !== "refunding") return;
+    const base =
+      typeof record.eventCount === "number" ? record.eventCount : 0;
+    tx.update(ref, {
+      status: "paid",
+      refundFailureMessage: safeReason,
+      eventCount: base + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      ref.collection(PAYMENT_EVENTS_SUBCOLLECTION).doc(),
+      eventDoc(
+        {
+          type: "refund_failed",
+          details: {
+            message: safeReason,
+            amountMinor:
+              typeof record.amountMinor === "number"
+                ? String(record.amountMinor)
+                : null,
+          },
+        },
+        base,
+        actor
+      )
+    );
+  });
+}
+
+// Canonical refund position of the charge: the refund facts when Stripe
+// shows the money returned, "not_refunded" when provably un-refunded, or
+// "unknown" when canonical state cannot be read at all.
+async function canonicalRefundPosition(
+  paymentId: string,
+  record: Record<string, unknown>,
+  paymentIntentId: string
+): Promise<
+  | { kind: "refunded"; facts: Record<string, unknown> }
+  | { kind: "not_refunded" }
+  | { kind: "unknown" }
+> {
+  let intent: Stripe.PaymentIntent;
+  try {
+    intent = await getStripeClient().paymentIntents.retrieve(
+      paymentIntentId,
+      { expand: ["latest_charge", "latest_charge.refunds"] }
+    );
+  } catch {
+    return { kind: "unknown" };
+  }
+  const decision = decideRefundFromPaymentIntent(
+    paymentId,
+    record,
+    intent as unknown as Record<string, unknown>
+  );
+  if (decision.kind === "already_refunded") {
+    return {
+      kind: "refunded",
+      facts: {
+        ...(decision.stripeRefundId
+          ? { stripeRefundId: decision.stripeRefundId }
+          : {}),
+        ...(typeof decision.refundAmountMinor === "number"
+          ? { refundAmountMinor: decision.refundAmountMinor }
+          : {}),
+      },
+    };
+  }
+  if (decision.kind === "create_refund") {
+    return { kind: "not_refunded" };
+  }
+  // A reject here still answered a real question: Stripe shows no landed
+  // refund for this charge, so the claim may be released.
+  return { kind: "not_refunded" };
+}
+
+// Issues a full refund for a paid payment inside REFUND_WINDOW_MS.
+//
+// Safety model (same shape as the rest of the payments flow):
+// 1. A Firestore transaction durably claims the refund (`refunding` +
+//    `refund_requested`) — two simultaneous requests cannot both proceed,
+//    and a retried request resumes instead of re-claiming.
+// 2. Provider calls happen outside transactions: the PaymentIntent is
+//    re-fetched and every financial fact re-verified against the stored
+//    snapshot before any refund is created.
+// 3. `refunds.create` runs under the deterministic idempotency key
+//    `refund:<paymentId>` — a Stripe-side retry returns the same refund
+//    object rather than minting a second one.
+// 4. Provider results commit inside a second transaction; a failed
+//    provider call releases the claim only after canonical proof that no
+//    refund exists (ambiguous outcomes keep `refunding` so the next
+//    request reconciles instead of risking a double refund).
+export async function refundAdminPayment(
+  id: string,
+  input: RefundRequestInput,
+  actor: PaymentActor
+): Promise<void> {
+  const db = getFirebaseAdminDb();
+  const ref = getPaymentsCollection().doc(id);
+
+  const claim = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new PaymentNotFoundError();
+    const record = (snap.data() ?? {}) as Record<string, unknown>;
+    const plan = planRefundClaim(record, input.reason, Date.now());
+    switch (plan.kind) {
+      case "already_refunded":
+      case "resume":
+        return { kind: plan.kind, record };
+      case "reject":
+        throw new PaymentError(plan.message, 409);
+    }
+    const base =
+      typeof record.eventCount === "number" ? record.eventCount : 0;
+    tx.update(ref, {
+      ...plan.updates,
+      refundedByUid: actor.uid,
+      refundedByName: actor.name,
+      refundRequestedAt: FieldValue.serverTimestamp(),
+      eventCount: base + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      ref.collection(PAYMENT_EVENTS_SUBCOLLECTION).doc(),
+      eventDoc(plan.event, base, actor)
+    );
+    return { kind: plan.kind, record };
+  });
+
+  // Idempotent replay — the payment is already refunded.
+  if (claim.kind === "already_refunded") return;
+
+  const record = claim.record;
+  const paymentIntentId =
+    typeof record.stripePaymentIntentId === "string" &&
+    record.stripePaymentIntentId
+      ? record.stripePaymentIntentId
+      : null;
+  if (!paymentIntentId) {
+    // Eligibility requires this reference; a claim without it is a bug —
+    // release the claim rather than strand the record in `refunding`.
+    await failRefundClaim(id, "missing_stripe_reference", actor);
+    throw new PaymentError(
+      "This payment has no Stripe payment reference — refund it in the Stripe Dashboard.",
+      409
+    );
+  }
+
+  let intent: Stripe.PaymentIntent;
+  try {
+    intent = await getStripeClient().paymentIntents.retrieve(
+      paymentIntentId,
+      { expand: ["latest_charge", "latest_charge.refunds"] }
+    );
+  } catch (error) {
+    throw toPaymentProviderError(error);
+  }
+
+  const decision = decideRefundFromPaymentIntent(
+    id,
+    record,
+    intent as unknown as Record<string, unknown>
+  );
+
+  if (decision.kind === "already_refunded") {
+    // Canonical state shows the money already returned — a Dashboard
+    // refund, or a provider retry of our own earlier attempt. Converge to
+    // `refunded` with Stripe's facts instead of creating a second refund.
+    await commitRefund(
+      id,
+      {
+        ...(decision.stripeRefundId
+          ? { stripeRefundId: decision.stripeRefundId }
+          : {}),
+        ...(typeof decision.refundAmountMinor === "number"
+          ? { refundAmountMinor: decision.refundAmountMinor }
+          : {}),
+      },
+      actor
+    );
+    return;
+  }
+
+  if (decision.kind === "reject") {
+    // Canonical proof no refund can be created — release the claim and
+    // tell staff why (safe message, never a raw Stripe payload).
+    await failRefundClaim(id, decision.code, actor);
+    throw new PaymentError(decision.message, 409);
+  }
+
+  let refund: Stripe.Refund;
+  try {
+    refund = await getStripeClient().refunds.create(
+      {
+        payment_intent: paymentIntentId,
+        // Full refund only — the amount comes from the stored record,
+        // never from the request body.
+        amount: record.amountMinor as number,
+        metadata: { paymentId: id },
+      },
+      { idempotencyKey: refundIdempotencyKey(id) }
+    );
+  } catch (error) {
+    // Ambiguous outcome — the refund may exist despite the error. Check
+    // canonical state before deciding; never blindly create another
+    // refund object.
+    const position = await canonicalRefundPosition(id, record, paymentIntentId);
+    if (position.kind === "refunded") {
+      await commitRefund(id, position.facts, actor);
+      return;
+    }
+    if (position.kind === "not_refunded") {
+      await failRefundClaim(id, toPaymentProviderError(error).code, actor);
+      throw new PaymentError(
+        "Stripe could not complete the refund. The payment is still marked paid — try again or refund it in the Stripe Dashboard.",
+        502
+      );
+    }
+    // Canonical state unreadable — keep `refunding` so the next request
+    // resumes and reconciles rather than risking a second refund.
+    throw toPaymentProviderError(error);
+  }
+
+  const refundStatus = refund.status;
+  if (refundStatus === "failed" || refundStatus === "canceled") {
+    const position = await canonicalRefundPosition(id, record, paymentIntentId);
+    if (position.kind === "refunded") {
+      await commitRefund(id, position.facts, actor);
+      return;
+    }
+    await failRefundClaim(id, `refund_${refundStatus}`, actor);
+    throw new PaymentError(
+      "Stripe could not complete the refund. The payment is still marked paid — try again or refund it in the Stripe Dashboard.",
+      502
+    );
+  }
+
+  await commitRefund(
+    id,
+    refundFactsFromStripeRefund(refund as unknown as Record<string, unknown>),
+    actor
+  );
 }
 
 // --- Stripe webhook ---
