@@ -81,6 +81,16 @@ export const test = base.extend({
       })
     );
 
+    // Same for the payments summary card (#155): default to an empty list so
+    // unrelated specs stay hermetic.
+    await page.route(/\/api\/admin\/payments/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, payments: [] }),
+      })
+    );
+
     page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
     page.on("console", (msg) => {
       if (

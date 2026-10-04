@@ -546,3 +546,256 @@ test("trade-lead note entry is labeled and announces its result", async ({
     page.getByRole("status").filter({ hasText: "Note added." })
   ).toBeVisible();
 });
+
+// --- Payments workspace fixture (Issue #155) ---
+
+const PAYMENTS_FIXTURE = "/admin-payments-fixture";
+
+const PAYMENT = {
+  id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  purpose: "brewery_tour_tasting",
+  description: "Brewery Tour + Tasting",
+  amountMinor: 8000,
+  currency: "usd",
+  customerName: "Dana Guest",
+  customerEmail: "dana@example.com",
+  tourDate: "2026-10-15",
+  attendeeCount: 2,
+  status: "awaiting_payment",
+  livemode: false,
+  createdByUid: "u-1",
+  createdByName: "Chad",
+  createdAt: "2026-10-03T12:00:00.000Z",
+  stripeCheckoutSessionId: "cs_test_fixture",
+  stripeSessionUrl: "https://checkout.stripe.com/c/pay/cs_test_fixture",
+  stripePaymentIntentId: "pi_fixture",
+};
+
+const PAYMENT_EVENTS = [
+  {
+    id: "e-0",
+    type: "payment_created",
+    seq: 0,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: "2026-10-03T12:00:00.000Z",
+  },
+  {
+    id: "e-1",
+    type: "checkout_session_created",
+    seq: 1,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: "2026-10-03T12:00:01.000Z",
+  },
+];
+
+function mockPaymentsApi(page: import("playwright/test").Page) {
+  return page.route(/\/api\/admin\/payments/, (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+
+    if (method === "GET" && url.endsWith("/api/admin/payments")) {
+      return json({ ok: true, payments: [PAYMENT] });
+    }
+    if (method === "GET" && url.endsWith("/qr")) {
+      return json({ ok: false, error: "QR not needed in fixture" }, 400);
+    }
+    if (method === "GET" && url.includes("/api/admin/payments/")) {
+      return json({ ok: true, payment: PAYMENT, events: PAYMENT_EVENTS });
+    }
+    if (method === "POST" && url.endsWith("/api/admin/payments")) {
+      return json({ ok: true, payment: PAYMENT, replayed: false });
+    }
+    if (method === "POST") {
+      return json({ ok: true, payment: PAYMENT, events: PAYMENT_EVENTS });
+    }
+    return json({ ok: false, error: "Unexpected fixture request" });
+  });
+}
+
+// A settled payment still inside the 1-hour in-app refund window.
+const PAID_PAYMENT = {
+  ...PAYMENT,
+  status: "paid",
+  paidAt: new Date().toISOString(),
+};
+
+const REFUND_EVENTS = [
+  ...PAYMENT_EVENTS,
+  {
+    id: "e-2",
+    type: "payment_succeeded",
+    seq: 2,
+    actorUid: null,
+    actorName: null,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "e-3",
+    type: "refund_requested",
+    seq: 3,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: new Date().toISOString(),
+    details: { amountMinor: "8000", reason: "Duplicate charge" },
+  },
+  {
+    id: "e-4",
+    type: "refund_succeeded",
+    seq: 4,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: new Date().toISOString(),
+    details: { amountMinor: "8000" },
+  },
+];
+
+const REFUNDED_PAYMENT = {
+  ...PAID_PAYMENT,
+  status: "refunded",
+  stripeRefundId: "re_fixture_1",
+  refundAmountMinor: 8000,
+  refundCurrency: "usd",
+  refundReason: "Duplicate charge",
+  refundedByName: "Chad",
+  refundRequestedAt: new Date().toISOString(),
+  refundedAt: new Date().toISOString(),
+  stripeRefundStatus: "succeeded",
+};
+
+function mockRefundablePaymentsApi(page: import("playwright/test").Page) {
+  return page.route(/\/api\/admin\/payments/, (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+
+    if (method === "GET" && url.endsWith("/api/admin/payments")) {
+      return json({ ok: true, payments: [PAID_PAYMENT] });
+    }
+    if (method === "GET" && url.endsWith("/qr")) {
+      return json({ ok: false, error: "QR not needed in fixture" }, 400);
+    }
+    if (method === "GET" && url.includes("/api/admin/payments/")) {
+      return json({ ok: true, payment: PAID_PAYMENT, events: PAYMENT_EVENTS });
+    }
+    if (method === "POST" && url.includes("/refund")) {
+      return json({
+        ok: true,
+        payment: REFUNDED_PAYMENT,
+        events: REFUND_EVENTS,
+      });
+    }
+    if (method === "POST") {
+      return json({ ok: true, payment: PAID_PAYMENT, events: PAYMENT_EVENTS });
+    }
+    return json({ ok: false, error: "Unexpected fixture request" });
+  });
+}
+
+test("axe: payments workspace has no serious/critical violations", async ({
+  page,
+}) => {
+  await mockPaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  await waitForAnimations(page);
+  await expect(page.getByText("Dana Guest")).toBeVisible();
+
+  let blocking = await scanAxe(page, `${PAYMENTS_FIXTURE} (form + list)`);
+  expect(
+    blocking,
+    formatBlocking(`${PAYMENTS_FIXTURE} (form + list)`, blocking)
+  ).toEqual([]);
+
+  // Detail panel with the event history.
+  await page.getByRole("button", { name: /Dana Guest/ }).press("Enter");
+  await expect(page.getByText("Payment link created")).toBeVisible();
+  blocking = await scanAxe(page, `${PAYMENTS_FIXTURE} (detail)`);
+  expect(
+    blocking,
+    formatBlocking(`${PAYMENTS_FIXTURE} (detail)`, blocking)
+  ).toEqual([]);
+});
+
+test("take-payment form validates the amount before review", async ({
+  page,
+}) => {
+  await mockPaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  await expect(page.getByText("Dana Guest")).toBeVisible();
+
+  await page.getByLabel("Customer name").fill("Fixture Person");
+  await page.getByLabel("Amount (USD)").fill("0");
+  await page.getByRole("button", { name: "Review payment" }).press("Enter");
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Amount must be greater than zero." })
+  ).toBeVisible();
+});
+
+test("payment rows expose list semantics and the form is labeled", async ({
+  page,
+}) => {
+  await mockPaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  const row = page.getByRole("button", { name: /Dana Guest/ });
+  await expect(row).toBeVisible();
+  expect(await row.evaluate((el) => el.closest("ul > li") !== null)).toBe(
+    true
+  );
+
+  await expect(page.getByLabel("Purpose")).toBeVisible();
+  await expect(page.getByLabel(/Amount \(USD\)/)).toBeVisible();
+  await expect(page.getByLabel(/Description/)).toBeVisible();
+});
+
+test("refund dialog gates the destructive action on reason + typed REFUND", async ({
+  page,
+}) => {
+  await mockRefundablePaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  await waitForAnimations(page);
+
+  // A paid payment inside the window offers the refund action.
+  await page.getByRole("button", { name: /Dana Guest/ }).press("Enter");
+  await page.getByRole("button", { name: "Refund payment" }).press("Enter");
+
+  const dialog = page.getByRole("dialog", { name: "Refund payment" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Refund amount")).toBeVisible();
+
+  const submit = dialog.getByRole("button", { name: "Refund $80.00" });
+  await expect(submit).toBeDisabled();
+
+  // Reason alone is not enough…
+  await dialog.getByLabel(/Refund reason/).fill("Duplicate charge");
+  await expect(submit).toBeDisabled();
+
+  // …and the confirmation is exact-match (lowercase does not count).
+  await dialog.getByLabel(/to confirm/).fill("refund");
+  await expect(submit).toBeDisabled();
+  await dialog.getByLabel(/to confirm/).fill("REFUND");
+  await expect(submit).toBeEnabled();
+
+  const blocking = await scanAxe(page, `${PAYMENTS_FIXTURE} (refund dialog)`);
+  expect(
+    blocking,
+    formatBlocking(`${PAYMENTS_FIXTURE} (refund dialog)`, blocking)
+  ).toEqual([]);
+
+  await submit.press("Enter");
+  await expect(page.getByText("Payment refunded.")).toBeVisible();
+  await expect(page.getByText("Refund completed")).toBeVisible();
+});

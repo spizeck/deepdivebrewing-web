@@ -137,6 +137,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 - [Managing locations](./docs/admin/managing-locations.md)
 - [Images and storage](./docs/admin/images-and-storage.md)
 - [Trade inquiries](./docs/admin/trade-inquiries.md)
+- [Payments](./docs/admin/payments.md)
 
 ### For developers and operators
 
@@ -148,6 +149,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 - [Observability & error handling](./docs/operations/observability.md)
 - [Accessibility](./docs/operations/accessibility.md)
 - [Credential rotation runbook](./docs/operations/credential-rotation.md)
+- [Payments operations](./docs/operations/payments.md)
 - [Troubleshooting guide](./docs/operations/troubleshooting.md)
 - [Post-deployment checklist](./docs/operations/post-deployment-checklist.md)
 

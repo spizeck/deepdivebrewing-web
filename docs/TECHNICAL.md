@@ -322,6 +322,55 @@ in code are listed.
   enforcement.
 - **Visibility:** admin-only (rules deny public access).
 
+### `payments`
+
+- **Purpose:** internal record for one-off card charges taken in the admin
+  payments workspace (`/admin/payments`, issue #155) — brewery tours and
+  other charges that do not fit the B2B beer-sales workflow. Stripe is the
+  payment processor; this collection is the operational record.
+- **Key fields (`PaymentRecord` in `lib/payments-common.ts`):** the document
+  id is the client-generated `clientRequestId` (UUID) — it is also the
+  Stripe idempotency key, so a retried create can never double-charge.
+  `purpose` (`brewery_tour | brewery_tour_tasting | additional_guests |
+  private_tour | other`), `description`, `amountMinor` (integer USD cents —
+  never a float), `currency` (`"usd"` — fixed), `customerName`,
+  optional `customerEmail`/`tourDate` (`YYYY-MM-DD` calendar string)/
+  `attendeeCount`/`internalNote`, `status` (`created | awaiting_payment |
+  processing | paid | refunding | refunded | failed | expired | canceled`),
+  `livemode`, `eventCount`,
+  `createdByUid`/`createdByName`, `createdAt`/`updatedAt`, Stripe
+  identifiers (`stripeCheckoutSessionId`, `stripeSessionUrl`,
+  `stripePaymentIntentId`, `stripeChargeId`, `stripeCustomerId`,
+  `sessionExpiresAt`), `receiptUrl`, safe card display metadata
+  (`paymentMethodBrand`/`paymentMethodLast4`), `reconciliationIssue` (set
+  when Stripe's canonical report contradicted the stored snapshot —
+  settlement refused, flag cleared by a later verified `paid`), refund
+  facts (`stripeRefundId`, `refundAmountMinor`, `refundCurrency`,
+  `refundReason`, `refundedByUid`/`refundedByName`, `refundRequestedAt`,
+  `refundedAt`, `stripeRefundStatus`, `refundFailureMessage` — set by the
+  admin refund flow; the original charge fields are never rewritten), and
+  lifecycle timestamps (`paidAt`/`failedAt`/`expiredAt`/`canceledAt`).
+  **Never stored:** PAN, CVC, or raw Stripe payloads — card entry happens
+  only on Stripe's hosted page.
+- **History:** `payments/{id}/events` subcollection — append-only
+  (`type`, `seq`, `actorUid`/`actorName` for staff actions, `details`,
+  `createdAt`); `eventCount` is the next `seq`, same pattern as lead
+  `activities`.
+- **Writes:** server-only — `lib/payments-admin.ts` via the Admin SDK,
+  called by `/api/admin/payments*` (behind `requireAdminActor`) and
+  `/api/webhooks/stripe` (behind Stripe signature verification).
+- **Visibility:** **no client access at all** — `read, write: if false` on
+  `payments/{paymentId}` and `events/{eventId}`.
+
+### `stripeEvents`
+
+- **Purpose:** webhook dedupe markers — one document per processed Stripe
+  event id (`type`, `paymentId`, `result`, `processedAt`); `result` is
+  `applied | ignored | unknown_payment | mismatch`. The webhook transaction
+  creates the marker and applies the payment update atomically, so a
+  replayed delivery exits before touching the record.
+- **Visibility:** deny-all (`read, write: if false`); Admin SDK only.
+
 ### Firebase Authentication
 
 Not a Firestore collection, but part of the data model: each admin is an Auth
@@ -686,6 +735,115 @@ Email is a channel on the lead, not a separate inbox:
 - **Logging** — operational logs carry ids and event names only; email
   bodies, recipients, and customer addresses are never logged.
 
+### Admin payments (`/admin/payments`, issue #155)
+
+One-off card charges (tours, ad-hoc) flow through **Stripe Checkout** —
+Stripe's hosted payment page — chosen over Payment Element because the card
+entry surface lives entirely on Stripe: no `NEXT_PUBLIC_` publishable key,
+no Stripe.js in the bundle, no CSP change, and the session `url` doubles as
+a shareable customer link (copy/QR/open) covering both counter and remote
+collection. The Stripe client is built lazily via `getStripeClient()`
+(`lib/stripe.ts`), so `next build` needs no Stripe values; `stripe` is
+listed in `serverExternalPackages` alongside `firebase-admin`.
+
+1. **Create:** `POST /api/admin/payments` validates input
+   (`parsePaymentCreateBody` — required `clientRequestId` UUID, purpose
+   enum, integer-minor-unit amount bounded by `PAYMENT_MAX_AMOUNT_MINOR`,
+   optional email/tour-date/attendees/note bounds), then writes the
+   `payments/{clientRequestId}` record + `payment_created` event in a
+   transaction (existing doc → replay/recovery, never overwrite), creates
+   the Checkout Session with `idempotencyKey: paymentId`,
+   `payment_method_types: ["card"]` — Checkout is restricted to the card
+   payment rail so counter charges settle immediately; an explicit
+   `payment_method_types` list also overrides Dashboard dynamic
+   payment-method settings, so nothing else can leak in. The full
+   policy — including which accelerated card methods may still appear —
+   is in [operations/payments.md](operations/payments.md#payment-method-policy).
+   The async_payment_* webhook handlers stay wired defensively, and
+   `metadata.paymentId` + `client_reference_id` (no PII in metadata), and
+   records the session id/url + `livemode` + `checkout_session_created`
+   event. Session params are built from the **stored** record
+   (`buildCheckoutSessionSpec`), so a browser can never tamper with the
+   charged amount. Success/cancel URLs point at the static, noindex
+   `/pay/complete` and `/pay/cancelled` pages — they carry no state — on
+   the origin returned by `resolveCheckoutReturnBaseUrl`
+   (`lib/stripe-config.ts`): the Vercel preview host on preview
+   deployments (`VERCEL_BRANCH_URL ?? VERCEL_URL`), the canonical site
+   origin in production, localhost in dev. Server-derived only — no
+   caller-supplied return origin.
+2. **Collect:** the workspace (`components/admin-payments-workspace.tsx`
+   behind `AdminAuthGate`) shows the session URL with copy, QR
+   (`GET /api/admin/payments/[id]/qr` renders it server-side via `qrcode`),
+   and open-link actions, and polls the refresh route while unresolved.
+   Quick-pick tour purposes derive suggestions from the canonical
+   `TOUR_PRODUCTS` prices; amounts are always staff-editable.
+3. **Reconcile:** `POST /api/webhooks/stripe` verifies the signature
+   (`STRIPE_WEBHOOK_SECRET`, raw body). A signed event is treated as a
+   *hint*, not financial truth — `readStripeEventRefs` extracts only the
+   event id/type + session id from
+   `checkout.session.{completed,expired,async_payment_succeeded,
+   async_payment_failed}`, then the Checkout Session is **re-fetched from
+   Stripe** and canonical `status`/`payment_status`/`amount_total`/
+   `currency` drive the decision (`canonicalSessionDecision`; unsettled
+   sessions defer with a 500 so Stripe redelivers). Before a `paid`
+   transition applies, `reconcilePaymentSnapshot` compares the canonical
+   amount/currency/session id against the stored snapshot — a mismatch is
+   quarantined (`reconciliation_mismatch` audit event +
+   `reconciliationIssue` flag, never silently paid). `processStripeEvent`
+   runs the dedupe-marker + transition inside one Firestore transaction
+   (`planStripeEventApply` is the pure state machine; Stripe-terminal
+   statuses never regress, `canceled` outranks a late `expired`). `paid`
+   additionally enriches from the PaymentIntent's latest charge
+   (`receiptUrl`, brand/last4 — best-effort). Session URLs are pinned to
+   `https://checkout.stripe.com/` (`assertCheckoutSessionUrl`) and Stripe
+   SDK failures cross the boundary only as `PaymentProviderError` (safe
+   code + message). Manual `POST .../[id]/refresh` reconciles through the
+   same canonical planner, and `POST .../[id]/cancel` expires the session
+   on Stripe then marks `canceled` (unpaid statuses only).
+4. **Refund:** `POST /api/admin/payments/[id]/refund` takes only `{reason,
+   confirmation}` — the browser supplies intent, never a financial fact;
+   the amount always comes from the stored record. `parseRefundBody`
+   requires a non-empty reason (≤ `REFUND_REASON_MAX_LENGTH`) and the
+   exact typed phrase `REFUND`. `refundAdminPayment` then runs a
+   claim → canonical-verify → provider → commit/revert pipeline (details
+   and race/idempotency analysis in
+   [operations/payments.md](operations/payments.md#refunds)): a Firestore
+   transaction claims `paid → refunding` + `refund_requested` (retries
+   resume, `refunded` is a no-op, so two admins can never both reach the
+   provider); the exact canonical checks are in the linked operations
+   guide. `refunds.create` fires under the deterministic
+   per-attempt idempotency key `refund:<paymentId>:<attempt>` (full amount
+   only — `attempt` is the durable counter each claim increments), and
+   results commit in a second transaction — a provider failure releases
+   the claim back to `paid` with `refund_failed` only after canonical
+   proof no refund exists, a charge Stripe already reports refunded
+   converges instead of re-refunding, and a `pending`/`requires_action`
+   refund keeps `refunding` with the refund id stored until a later
+   request reconciles the canonical `Refund.status` (only `succeeded`
+   commits). The in-app window is `REFUND_WINDOW_MS` = 1 hour after
+   `paidAt`, strict boundary (elapsed ≥ window rejects), enforced
+   inside the claim transaction by `paymentRefundEligibility`. `refunding`
+   and `refunded` are Stripe-terminal in `planStripeEventApply`, so no
+   webhook or manual refresh can regress them. No refund webhook events
+   are subscribed — the synchronous `refunds.create` response plus
+   canonical re-fetch covers this workflow. Refunded payments drop out of
+   the collected-today total (`isCollectedForDailyTotal`) while every
+   original fact and history entry is preserved.
+5. **Mode:** `livemode` from the Stripe object is stored per payment; the
+   UI badges test-mode payments. No analytics events carry payment data.
+
+Two Stripe API versions coexist by design: the registered webhook
+endpoint is pinned to `2023-10-16` (payloads arrive under it) while the
+installed `stripe` SDK pins its own version for outbound calls
+(`2026-08-26.dahlia` at stripe v22). This is safe because the payload
+contributes only ids — every financial fact is re-fetched canonically
+under the SDK version. Receipt behavior (account email settings, the
+best-effort `receiptUrl` fallback) is covered in
+[operations/payments.md](operations/payments.md#receipts). Operational
+setup — payment-method policy, webhook-verification procedure, branding,
+and the production activation checklist — lives in
+[docs/operations/payments.md](operations/payments.md).
+
 ## 12. Analytics and observability
 
 - **GA4 via GTM:** `app/layout.tsx` renders `components/gtm-bootstrap.tsx`
@@ -785,6 +943,8 @@ Names only — never commit values. Source of truth for names:
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | Admin SDK credential | Yes for all `/api/admin/*` |
 | `FIREBASE_ADMIN_PRIVATE_KEY` | Admin SDK credential (PEM; stored with `\n` escapes) | Yes for all `/api/admin/*` |
 | `SUPER_ADMIN_EMAIL` | Bootstrap allowlist — the only email `admin/bootstrap` will promote | Yes for bootstrap |
+| `STRIPE_SECRET_KEY` | Stripe secret key for the admin payments feature — Checkout Session create/expire/retrieve and PaymentIntent retrieve via lazy `getStripeClient()` (`sk_test_*` selects test mode) | Runtime only — required when an operation calls `getStripeClient()`; build-safe otherwise |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_*`) for `/api/webhooks/stripe` signature verification | Runtime only — required for webhook processing; the route 500s without it rather than accept unsigned events |
 | `NEXT_PUBLIC_SENTRY_DSN` | Error-monitoring ingest DSN for the server + browser SDKs (`lib/monitoring-shared.ts`); inlined into the client bundle by design — not a credential | Optional — reporting is enabled only when this is set **and** the environment is Vercel Production (`VERCEL_ENV` server-side / `NEXT_PUBLIC_VERCEL_ENV` client-side); preview/dev/CI never emit events |
 | `SENTRY_ORG` | Sentry org slug for source-map upload (`withSentryConfig`) | Build time, Production scope — absent everywhere else |
 | `SENTRY_PROJECT` | Sentry project slug for source-map upload | Build time, Production scope |

@@ -409,3 +409,98 @@ describe("tradeLeads denies all client access", () => {
     );
   });
 });
+
+const validPayment = {
+  purpose: "brewery_tour",
+  description: "Brewery Tour",
+  amountMinor: 4000,
+  currency: "usd",
+  customerName: "Test Customer",
+  status: "awaiting_payment",
+  createdAt: 0,
+  updatedAt: 0,
+};
+
+describe("payments deny all client access (Issue #155)", () => {
+  it("denies unauthenticated reads and writes", async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(setDoc(doc(db, "payments", "p1"), validPayment));
+    await assertFails(getDoc(doc(db, "payments", "p1")));
+    await assertFails(getDocs(collection(db, "payments")));
+  });
+
+  it("denies authenticated non-admin access", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "payments", "p1"), validPayment);
+    });
+    const db = testEnv.authenticatedContext("visitor1").firestore();
+    await assertFails(getDoc(doc(db, "payments", "p1")));
+    await assertFails(setDoc(doc(db, "payments", "p2"), validPayment));
+  });
+
+  it("denies even active admins — payments are server-only via the Admin SDK", async () => {
+    await seedAdminRecord("admin1", "admin", "active");
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "payments", "p1"), validPayment);
+    });
+    const db = adminContext("admin1", "admin").firestore();
+    await assertFails(getDoc(doc(db, "payments", "p1")));
+    await assertFails(setDoc(doc(db, "payments", "p2"), validPayment));
+    await assertFails(
+      updateDoc(doc(db, "payments", "p1"), { status: "paid" })
+    );
+    await assertFails(deleteDoc(doc(db, "payments", "p1")));
+  });
+
+  it("denies all client access to the payment events subcollection", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "payments", "p1"), validPayment);
+      await setDoc(
+        doc(ctx.firestore(), "payments", "p1", "events", "e1"),
+        { type: "payment_created", seq: 0 }
+      );
+    });
+
+    const anonDb = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(anonDb, "payments", "p1", "events", "e1")));
+    await assertFails(
+      getDocs(collection(anonDb, "payments", "p1", "events"))
+    );
+    await assertFails(
+      addDoc(collection(anonDb, "payments", "p1", "events"), {
+        type: "payment_created",
+      })
+    );
+
+    await seedAdminRecord("admin1", "admin", "active");
+    const db = adminContext("admin1", "admin").firestore();
+    await assertFails(getDoc(doc(db, "payments", "p1", "events", "e1")));
+    await assertFails(
+      addDoc(collection(db, "payments", "p1", "events"), {
+        type: "payment_created",
+      })
+    );
+  });
+
+  it("denies all client access to stripeEvents dedupe markers", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "stripeEvents", "evt_1"), {
+        result: "applied",
+      });
+    });
+
+    const anonDb = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(anonDb, "stripeEvents", "evt_1")));
+    await assertFails(
+      setDoc(doc(anonDb, "stripeEvents", "evt_2"), { result: "applied" })
+    );
+
+    await seedAdminRecord("admin1", "admin", "active");
+    const db = adminContext("admin1", "admin").firestore();
+    await assertFails(getDoc(doc(db, "stripeEvents", "evt_1")));
+    await assertFails(
+      setDoc(doc(db, "stripeEvents", "evt_2"), { result: "applied" })
+    );
+    await assertFails(deleteDoc(doc(db, "stripeEvents", "evt_1")));
+  });
+});

@@ -19,6 +19,7 @@ export default function robots(): MetadataRoute.Robots {
           "/trade/login",
           "/trade/order",
           "/trade/orders",
+          "/pay",
           "/api/",
         ],
       },
