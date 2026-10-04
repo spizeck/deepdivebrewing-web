@@ -13,6 +13,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: [
           "/admin",
           "/admin-fixture",
+          "/admin-quickbooks-fixture",
           "/admin-trade-fixture",
           "/carousel-fixture",
           "/where-to-buy-fixture",
