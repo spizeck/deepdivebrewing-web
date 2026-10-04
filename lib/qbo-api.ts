@@ -67,13 +67,15 @@ async function qboApiFetch(input: QboApiFetchInput): Promise<unknown> {
 }
 
 export interface QboCompanyInfoResult {
-  realmId: string;
   companyName: string;
   country?: string;
 }
 
-// CompanyInfo is the canonical "does this connection work" probe — it also
-// reports which company the admin authorized, which the admin UI surfaces.
+// CompanyInfo is the canonical "does this connection work" probe — the
+// request itself is scoped to the connected realm, and the response
+// provides the display metadata (company name, country) the admin UI
+// surfaces. The realm id is not derived from the response: CompanyInfo.Id
+// is provider metadata, never the OAuth realm identity.
 export async function fetchQboCompanyInfo(input: {
   environment: QboEnvironment;
   realmId: string;
@@ -83,7 +85,7 @@ export async function fetchQboCompanyInfo(input: {
     ...input,
     path: `/companyinfo/${encodeURIComponent(input.realmId)}`,
   });
-  return canonicalizeCompanyInfo(payload, input.realmId);
+  return canonicalizeCompanyInfo(payload);
 }
 
 // Read-only entity discovery used by the future accounting-mapping

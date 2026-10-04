@@ -199,8 +199,10 @@ export async function completeQboAuthorization(input: {
     "token exchange"
   );
 
-  // Prove the grant works and learn which company was actually authorized
-  // before recording anything.
+  // Prove the grant works inside the authorized realm before recording
+  // anything. The realm id Intuit sent on the OAuth callback is the
+  // connected-company identity — CompanyInfo only confirms the read and
+  // supplies display metadata, it can never re-assign the realm.
   const company = await fetchQboCompanyInfo({
     environment: config.environment,
     realmId: input.realmId,
@@ -214,7 +216,7 @@ export async function completeQboAuthorization(input: {
     {
       environment: config.environment,
       status: "connected",
-      realmId: company.realmId,
+      realmId: input.realmId,
       companyName: company.companyName,
       ...(company.country ? { companyCountry: company.country } : {}),
       accessTokenEnc: encryptQboSecret(tokens.accessToken, key),
@@ -245,11 +247,11 @@ export async function completeQboAuthorization(input: {
   await auditQbo("qbo_connected", input, {
     environment: config.environment,
     companyName: company.companyName,
-    realmIdShort: abbreviateRealmId(company.realmId),
+    realmIdShort: abbreviateRealmId(input.realmId),
   });
   logInfo("qbo.oauth.connected", {
     environment: config.environment,
-    realmIdShort: abbreviateRealmId(company.realmId),
+    realmIdShort: abbreviateRealmId(input.realmId),
   });
   return { companyName: company.companyName };
 }

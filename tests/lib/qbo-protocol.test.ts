@@ -430,38 +430,53 @@ describe("qboWebhookDedupeKey", () => {
 });
 
 describe("canonicalizeCompanyInfo", () => {
-  it("extracts the safe company identity when the realm matches", () => {
-    const info = canonicalizeCompanyInfo(
-      {
-        CompanyInfo: {
-          Id: "934145475",
-          CompanyName: "Deep Dive Brewing Sandbox",
-          Country: "US",
-          Email: { Address: "internal@example.com" },
-        },
+  it("extracts the safe company metadata", () => {
+    const info = canonicalizeCompanyInfo({
+      CompanyInfo: {
+        // Real sandbox responses carry an entity Id unrelated to the OAuth
+        // realmId — it is provider metadata, never the connection realm.
+        Id: "1",
+        CompanyName: "Deep Dive Brewing Sandbox",
+        Country: "US",
+        Email: { Address: "internal@example.com" },
       },
-      "934145475"
-    );
+    });
     assert.deepStrictEqual(info, {
-      realmId: "934145475",
       companyName: "Deep Dive Brewing Sandbox",
       country: "US",
     });
+    // Provider fields — including Id — never leak into the canonical shape.
+    assert.ok(!("realmId" in info));
+    assert.ok(!("Id" in info));
   });
 
-  it("rejects missing, empty, non-string, and mismatched company ids", () => {
+  it("accepts a valid payload whatever the Id value, or none at all", () => {
+    for (const payload of [
+      { CompanyInfo: { Id: "1", CompanyName: "Co" } },
+      { CompanyInfo: { Id: "9341454755", CompanyName: "Co" } },
+      { CompanyInfo: { CompanyName: "Co" } },
+    ]) {
+      assert.deepStrictEqual(canonicalizeCompanyInfo(payload), {
+        companyName: "Co",
+        country: undefined,
+      });
+    }
+  });
+
+  it("rejects malformed and missing CompanyInfo payloads", () => {
     const badPayloads: unknown[] = [
       null,
       {},
+      "x",
       { CompanyInfo: null },
       { CompanyInfo: {} },
-      { CompanyInfo: { Id: "" } },
-      { CompanyInfo: { Id: 934145475 } },
-      { CompanyInfo: { Id: "other-realm", CompanyName: "Wrong Co" } },
+      { CompanyInfo: { Id: "1" } },
+      { CompanyInfo: { CompanyName: "" } },
+      { CompanyInfo: { CompanyName: 42 } },
     ];
     for (const payload of badPayloads) {
       try {
-        canonicalizeCompanyInfo(payload, "realm-1");
+        canonicalizeCompanyInfo(payload);
         assert.fail(`expected rejection for ${JSON.stringify(payload)}`);
       } catch (error) {
         assert.ok(error instanceof QboError);
@@ -471,21 +486,16 @@ describe("canonicalizeCompanyInfo", () => {
     }
   });
 
-  it("never substitutes the requested realm for a missing or foreign id", () => {
-    // A provider answer for another company must not be absorbed into the
-    // requested realm — and the rejection must not echo provider data.
-    for (const payload of [
-      {},
-      { CompanyInfo: { Id: "other-realm", CompanyName: "Wrong Co" } },
-    ]) {
-      try {
-        canonicalizeCompanyInfo(payload, "realm-1");
-        assert.fail("expected rejection");
-      } catch (error) {
-        assert.ok(error instanceof QboError);
-        assert.ok(!error.message.includes("other-realm"));
-        assert.ok(!error.message.includes("Wrong Co"));
-      }
+  it("does not echo provider data in the rejection", () => {
+    try {
+      canonicalizeCompanyInfo({
+        CompanyInfo: { Id: "secret-realm", Notes: "leak" },
+      });
+      assert.fail("expected rejection");
+    } catch (error) {
+      assert.ok(error instanceof QboError);
+      assert.ok(!error.message.includes("secret-realm"));
+      assert.ok(!error.message.includes("leak"));
     }
   });
 });

@@ -430,20 +430,19 @@ export function qboWebhookDedupeKey(n: QboEntityNotification): string {
 // --- Provider payload canonicalization ---
 
 export interface QboCompanyInfo {
-  realmId: string;
   companyName: string;
   country?: string;
 }
 
-// GET companyinfo — proves the connection works and records which company
-// the admin actually authorized. The returned company identity must be the
-// realm the request was made against: a missing, empty, or mismatched Id is
-// a provider-boundary violation, never silently absorbed into the requested
-// realm — that would let a wrong-company response pass as the expected one.
-export function canonicalizeCompanyInfo(
-  payload: unknown,
-  expectedRealmId: string
-): QboCompanyInfo {
+// GET companyinfo — proves the grant works inside the requested realm and
+// reports display metadata (name, country) for the admin UI and the
+// connection record. CompanyInfo.Id is a provider entity identifier, NOT
+// the OAuth realmId the callback delivered — real sandbox responses carry
+// an Id that differs from the realm — so it is deliberately not carried
+// into the canonical shape: the connected-company identity comes from the
+// OAuth flow, never from this payload, and metadata can never replace it.
+// A response without a usable CompanyName is malformed and rejected.
+export function canonicalizeCompanyInfo(payload: unknown): QboCompanyInfo {
   const info =
     typeof payload === "object" && payload !== null
       ? (payload as Record<string, unknown>).CompanyInfo
@@ -452,22 +451,19 @@ export function canonicalizeCompanyInfo(
     typeof info === "object" && info !== null
       ? (info as Record<string, unknown>)
       : {};
-  const realmId = typeof record.Id === "string" ? record.Id : "";
-  if (!realmId || realmId !== expectedRealmId) {
+  const companyName =
+    typeof record.CompanyName === "string" ? record.CompanyName : "";
+  if (!companyName) {
     throw new QboError(
-      "QuickBooks returned an unexpected company identity.",
+      "QuickBooks returned a malformed company response.",
       "unexpected"
     );
   }
-  const companyName =
-    typeof record.CompanyName === "string" && record.CompanyName
-      ? record.CompanyName
-      : "Unknown company";
   const country =
     typeof record.Country === "string" && record.Country
       ? record.Country
       : undefined;
-  return { realmId, companyName, country };
+  return { companyName, country };
 }
 
 const QBO_ENTITY_QUERIES: Record<
