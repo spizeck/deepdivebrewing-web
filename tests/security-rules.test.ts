@@ -113,6 +113,36 @@ describe("firestore.rules", () => {
       "Expected the communications subcollection to deny all client access"
     );
   });
+
+  it("keeps payments, their events, and stripeEvents fully server-side (Issue #155)", () => {
+    const paymentsStart = rules.indexOf("match /payments/{paymentId}");
+    const stripeEventsStart = rules.indexOf("match /stripeEvents/{eventId}");
+    const metaStart = rules.indexOf("match /meta/{docId}");
+    assert.ok(paymentsStart > -1, "Expected the payments deny-all match");
+    assert.ok(
+      stripeEventsStart > paymentsStart,
+      "Expected the stripeEvents match after payments"
+    );
+    assert.ok(metaStart > stripeEventsStart, "Expected meta after stripeEvents");
+
+    const paymentsSection = rules.slice(paymentsStart, stripeEventsStart);
+    assert.ok(
+      paymentsSection.includes("allow read, write: if false"),
+      "Expected payments to deny all client access"
+    );
+    const eventsStart = paymentsSection.indexOf("match /events/{eventId}");
+    assert.ok(eventsStart > -1, "Expected the nested payments events match");
+    assert.ok(
+      paymentsSection.slice(eventsStart).includes("allow read, write: if false"),
+      "Expected the events subcollection to deny all client access"
+    );
+
+    const stripeEventsSection = rules.slice(stripeEventsStart, metaStart);
+    assert.ok(
+      stripeEventsSection.includes("allow read, write: if false"),
+      "Expected stripeEvents to deny all client access"
+    );
+  });
 });
 
 describe("storage.rules", () => {
