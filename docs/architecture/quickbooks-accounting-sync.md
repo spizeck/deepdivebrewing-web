@@ -104,6 +104,29 @@ Until items 1–5 are answered in writing, treat the model below as
 cash-side records (deposits, fees), and it must change if the existing
 path already posts revenue.
 
+### Production pre-flight findings — status
+
+Tracked in issue #178. Evidence gathered programmatically so far
+(read-only; production QBO and Stripe secrets are Vercel `sensitive`
+env vars — unretrievable outside production compute, so the
+integration/ledger questions below can only be answered by inspection
+in the QBO and Stripe UIs):
+
+| Finding | Status |
+| --- | --- |
+| Production connection live and healthy (`Deep Dive Brews, BV`, country CW) | ✅ verified (Firestore `qboConnections/production`, connection-check audit logs) |
+| All six accounting mappings unset (`qboConfig/accountingMapping` absent) | ✅ verified |
+| No sync records exist (`qboSyncRecords` empty) | ✅ verified |
+| Real Stripe payments settle through the tool (`checkout.session.completed` → `paid` applied in prod) | ✅ verified (`stripeEvents`, runtime logs) |
+| Prod chart of accounts actively maintained (`Account` webhook events on the prod realm) | ✅ verified (`qboWebhookReceipts`) |
+| Account/Item/Customer/TaxCode discovery returns data (one page each) | ✅ verified (`qbo.api.entities` logs) |
+| Which integration/feed creates Stripe-related entries today | ⏳ pending — QBO UI inspection (#178) |
+| Whether a Stripe clearing/merchant-fee account exists and what it receives | ⏳ pending — QBO UI inspection |
+| Whether per-charge revenue records already exist in the books | ⏳ pending — QBO UI inspection |
+| Payout gross/net/fee split and bank-feed matching behavior | ⏳ pending — Stripe + QBO UI inspection |
+| CW tax configuration and required `GlobalTaxCalculation` value | ⏳ pending — QBO tax settings + accountant |
+| QBO home currency / multicurrency vs USD card sales | ⏳ pending — QBO company settings |
+
 ## 3. Double-counting risks
 
 | If the app posts… | …and the existing Stripe/bank path already posts… | Result |
