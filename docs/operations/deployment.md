@@ -75,8 +75,8 @@ Examples:
 - `FIREBASE_ADMIN_PRIVATE_KEY`
 - `ADMIN_REBUILD_COOLDOWN_MS`
 - `SUPER_ADMIN_EMAIL` — the verified Google account that receives the initial superadmin role
-- `STRIPE_SECRET_KEY` — Stripe secret key for the admin payments feature; use the `sk_test_*` key in Development/Preview and `sk_live_*` in Production
-- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret for `POST /api/webhooks/stripe` (one signing secret per registered endpoint)
+- `STRIPE_SECRET_KEY` — Stripe secret key for the admin payments feature (scope and rotation: see [credential-rotation.md](credential-rotation.md))
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret for `POST /api/webhooks/stripe` (see [credential-rotation.md](credential-rotation.md))
 
 ## How to verify a preview with populated Firebase data
 
