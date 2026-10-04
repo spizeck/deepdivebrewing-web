@@ -5,7 +5,10 @@ import { AdminQuickbooksWorkspace } from "@/components/admin-quickbooks-workspac
 
 export function AdminQuickbooksPage() {
   return (
-    <AdminAuthGate heading="QuickBooks">
+    <AdminAuthGate
+      heading="QuickBooks"
+      description="Sign in with an authorized Google account to manage the QuickBooks integration."
+    >
       {(user) => <AdminQuickbooksWorkspace user={user} />}
     </AdminAuthGate>
   );

@@ -116,6 +116,25 @@ Verify the integration boundary while testing:
 - Firestore console: `qboConnections/sandbox` contains only
   `accessTokenEnc`/`refreshTokenEnc` envelopes (`v1.…`), never plaintext.
 
+### Verified against a real Intuit sandbox
+
+This flow has been exercised end to end on a preview deployment with
+Intuit **Development** credentials and a US sandbox company:
+
+- OAuth consent completed and the callback returned `qbo=connected`; the
+  connected state, company name, and abbreviated realm persist and
+  display correctly.
+- **Test connection** succeeded and health shows healthy.
+- The accounting-mapping UI loaded real sandbox entities (accounts,
+  items, customers, payment methods, tax codes).
+- A signed Intuit webhook delivery was accepted: signature verified,
+  connected realm recognized, receipt persisted
+  (`qbo.webhook.processed` — `received=1 recorded=1 duplicates=0
+  ignoredRealms=0`).
+
+Duplicate webhook delivery is covered by automated tests; a real Intuit
+resend was not performed manually.
+
 ## Production setup
 
 Do this only when the integration is ready for the real company, and
