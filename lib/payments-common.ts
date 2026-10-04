@@ -214,6 +214,9 @@ export interface PaymentRecord {
   expiredAt?: unknown;
   canceledAt?: unknown;
   failureMessage?: string;
+  // Set when Stripe's canonical state contradicted the stored snapshot
+  // (session/amount/currency) — settlement refused until staff review.
+  reconciliationIssue?: string;
 }
 
 // Serialized view returned to the admin client — ISO strings, no
@@ -249,6 +252,7 @@ export interface PaymentView {
   expiredAt?: string;
   canceledAt?: string;
   failureMessage?: string;
+  reconciliationIssue?: string;
 }
 
 export function serializePayment(
@@ -296,6 +300,7 @@ export function serializePayment(
     expiredAt: toIsoString(data.expiredAt),
     canceledAt: toIsoString(data.canceledAt),
     failureMessage: optStr("failureMessage"),
+    reconciliationIssue: optStr("reconciliationIssue"),
   };
 }
 
@@ -309,6 +314,7 @@ export const PAYMENT_EVENT_TYPES = [
   "payment_failed",
   "session_expired",
   "payment_canceled",
+  "reconciliation_mismatch",
 ] as const;
 
 export type PaymentEventType = (typeof PAYMENT_EVENT_TYPES)[number];
@@ -376,6 +382,10 @@ export function describePaymentEvent(
       return `Payment link expired${source}`;
     case "payment_canceled":
       return "Payment canceled by staff";
+    case "reconciliation_mismatch": {
+      const reason = detailStr("reason");
+      return `Payment flagged — Stripe's report did not match this charge${reason ? ` (${reason})` : ""}. Do not treat it as paid without review`;
+    }
     default:
       return event.type;
   }
@@ -384,7 +394,9 @@ export function describePaymentEvent(
 // --- Creation input validation ---
 
 export class PaymentError extends Error {
-  public readonly clientSafe = true;
+  // Annotated `boolean` so subclasses (e.g. PaymentProviderError) may
+  // deliberately opt out of client-safe exposure.
+  public readonly clientSafe: boolean = true;
   constructor(
     message: string,
     public status: number = 400
@@ -397,6 +409,40 @@ export class PaymentNotFoundError extends PaymentError {
   constructor() {
     super("Payment not found.", 404);
   }
+}
+
+// Provider failures are normalized into this shape before they cross the
+// server boundary — only Stripe's machine-readable `code` is preserved.
+// The raw error (message, request/response payloads) is never forwarded to
+// the client, the audit trail, or structured log context.
+//
+// Deliberately NOT clientSafe: apiErrorResponse logs it through the
+// normalized error path (safe name/message/code — observable in ops) and
+// answers the generic fallback instead of a provider-flavored message.
+export class PaymentProviderError extends PaymentError {
+  public readonly clientSafe = false;
+  // Carried on `code` so lib/log's normalizeError surfaces it as the safe
+  // machine-level category (e.g. "rate_limit", "resource_missing").
+  public readonly code: string;
+  constructor(providerCode?: string | null) {
+    super(
+      "The payment provider could not complete the request. Please try again.",
+      502
+    );
+    this.name = "PaymentProviderError";
+    this.code = providerCode || "unexpected_provider_error";
+  }
+}
+
+export function toPaymentProviderError(error: unknown): PaymentProviderError {
+  if (error instanceof PaymentProviderError) return error;
+  const code =
+    error &&
+    typeof error === "object" &&
+    typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : null;
+  return new PaymentProviderError(code);
 }
 
 export const PAYMENT_FIELD_LIMITS = {
@@ -529,6 +575,28 @@ export function parsePaymentCreateBody(
   };
 }
 
+// Idempotent-replay check: a clientRequestId may be retried only when the
+// payment-relevant payload matches the stored record exactly. Any drift
+// (amount, description, customer, tour details, note) means the submit was
+// a *different* action reusing the id — a conflict, not a replay.
+export function paymentCreateMatchesRecord(
+  record: Record<string, unknown>,
+  input: PaymentCreateInput
+): boolean {
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+  return (
+    str(record.purpose) === input.purpose &&
+    str(record.description) === input.description &&
+    num(record.amountMinor) === input.amountMinor &&
+    str(record.customerName) === input.customerName &&
+    str(record.customerEmail) === input.customerEmail &&
+    str(record.tourDate) === input.tourDate &&
+    num(record.attendeeCount) === input.attendeeCount &&
+    str(record.internalNote) === input.internalNote
+  );
+}
+
 // --- Checkout Session construction ---
 
 // Minimal structural shape of the Stripe SessionCreateParams we build —
@@ -596,6 +664,26 @@ export function buildCheckoutSessionSpec(args: {
   };
 }
 
+// Hosted Checkout URLs are surfaced to staff (copy/QR) — only ever accept
+// Stripe's own secure origin. Anything else (open redirect, lookalike
+// domain, plain http) fails closed instead of reaching a customer's screen.
+export const CHECKOUT_SESSION_URL_ORIGIN = "https://checkout.stripe.com";
+
+export function assertCheckoutSessionUrl(url: unknown): string {
+  let parsed: URL | null = null;
+  if (typeof url === "string" && url) {
+    try {
+      parsed = new URL(url);
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!parsed || parsed.origin !== CHECKOUT_SESSION_URL_ORIGIN) {
+    throw new PaymentProviderError("invalid_checkout_url");
+  }
+  return url as string;
+}
+
 // --- Stripe event → internal outcome ---
 
 export type StripeTransition = "paid" | "processing" | "failed" | "expired";
@@ -610,6 +698,11 @@ export interface StripeOutcome {
   stripeCustomerId?: string;
   sessionExpiresAtMillis?: number;
   failureMessage?: string;
+  // Canonical provider-reported money facts — read only from a re-fetched
+  // Checkout Session (never the webhook payload) and compared against the
+  // stored snapshot before a `paid` transition may apply.
+  amountMinor?: number;
+  currency?: string;
   // Additional safe fields merged into the document when the transition
   // applies — e.g. receipt URL / card brand+last4 fetched from the
   // PaymentIntent on a `paid` transition (see enrichmentFromPaymentIntent).
@@ -640,16 +733,13 @@ function stripeIdOf(value: unknown): string | undefined {
   return undefined;
 }
 
-// Maps a checkout.session-shaped object to the internal outcome. Shared by
-// the webhook (event.data.object) and the refresh action (retrieved session)
-// so both reconcile identically.
-export function outcomeFromSession(
-  session: Record<string, unknown>,
-  transition: StripeTransition,
-  failureMessage?: string
-): { paymentId: string | null; outcome: StripeOutcome } {
+// The internal payment id embedded on a Checkout Session at creation.
+// Read from the canonical retrieved object; absent on foreign sessions.
+export function paymentIdFromSession(
+  session: Record<string, unknown>
+): string | null {
   const metadata = session.metadata;
-  const paymentId =
+  return (
     (metadata &&
     typeof metadata === "object" &&
     typeof (metadata as Record<string, unknown>).paymentId === "string"
@@ -658,15 +748,25 @@ export function outcomeFromSession(
     (typeof session.client_reference_id === "string"
       ? session.client_reference_id
       : undefined) ??
-    null;
+    null
+  );
+}
 
+// Maps a checkout.session-shaped object to the internal outcome. Shared by
+// the webhook (canonical retrieved session) and the refresh action so both
+// reconcile identically.
+export function outcomeFromSession(
+  session: Record<string, unknown>,
+  transition: StripeTransition,
+  failureMessage?: string
+): { paymentId: string | null; outcome: StripeOutcome } {
   const expiresAt =
     typeof session.expires_at === "number" && session.expires_at > 0
       ? session.expires_at * 1000
       : undefined;
 
   return {
-    paymentId,
+    paymentId: paymentIdFromSession(session),
     outcome: {
       transition,
       sessionId: stripeIdOf(session.id) ?? (typeof session.id === "string" ? session.id : undefined),
@@ -674,21 +774,43 @@ export function outcomeFromSession(
       stripeCustomerId: stripeIdOf(session.customer),
       sessionExpiresAtMillis: expiresAt,
       failureMessage,
+      amountMinor:
+        typeof session.amount_total === "number"
+          ? session.amount_total
+          : undefined,
+      currency:
+        typeof session.currency === "string" ? session.currency : undefined,
     },
   };
 }
 
-// Resolves a verified Stripe webhook event to the outcome it implies.
-// Only the events we subscribe to produce transitions; everything else is
-// acknowledged-and-ignored so stray subscriptions cannot corrupt state.
-export function resolveStripeEventOutcome(event: {
+// --- Webhook event references + canonical-state decisions ---
+
+// The Checkout Session event types this app subscribes to. Everything else
+// is acknowledged-and-ignored so stray subscriptions cannot corrupt state.
+export const HANDLED_STRIPE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "checkout.session.completed",
+  "checkout.session.expired",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+]);
+
+export interface StripeEventRefs {
+  eventId: string;
+  eventType: string;
+  sessionId: string | null;
+}
+
+// A signed webhook event proves Stripe sent it — it is NOT proof of the
+// financial fields embedded in it. Only identifiers are extracted here;
+// the session's status, payment_status, and amounts must come from the
+// canonical re-fetched object (see app-foundations payment standard).
+export function readStripeEventRefs(event: {
   id?: unknown;
   type?: unknown;
   data?: unknown;
-}): StripeEventOutcome {
-  const eventId = typeof event.id === "string" ? event.id : "";
-  const eventType = typeof event.type === "string" ? event.type : "";
-  const session =
+}): StripeEventRefs {
+  const object =
     event.data &&
     typeof event.data === "object" &&
     (event.data as { object?: unknown }).object &&
@@ -696,38 +818,113 @@ export function resolveStripeEventOutcome(event: {
       ? ((event.data as { object: Record<string, unknown> })
           .object as Record<string, unknown>)
       : {};
+  return {
+    eventId: typeof event.id === "string" ? event.id : "",
+    eventType: typeof event.type === "string" ? event.type : "",
+    sessionId:
+      object.object === "checkout.session"
+        ? stripeIdOf(object.id) ?? null
+        : null,
+  };
+}
 
-  let transition: StripeTransition | null = null;
-  if (eventType === "checkout.session.completed") {
-    transition =
-      session.payment_status === "paid" ? "paid" : "processing";
-  } else if (eventType === "checkout.session.async_payment_succeeded") {
-    transition = "paid";
-  } else if (eventType === "checkout.session.async_payment_failed") {
-    transition = "failed";
-  } else if (eventType === "checkout.session.expired") {
-    transition = "expired";
+export type CanonicalSessionDecision =
+  | { kind: "transition"; transition: StripeTransition }
+  | { kind: "ignored"; reason: string }
+  | { kind: "retry" };
+
+// Decides the internal transition from the *canonical* Checkout Session.
+// The event type only disambiguates `complete`+`unpaid` (async failure vs.
+// still-processing) — every financial fact is read from the session.
+//
+// `eventType` is null for the manual-refresh path, which has no delivery
+// semantics: an open/unsettled session means "no change" rather than a
+// retryable failure.
+export function canonicalSessionDecision(
+  eventType: string | null,
+  session: Record<string, unknown>
+): CanonicalSessionDecision {
+  const status = typeof session.status === "string" ? session.status : "";
+  const paymentStatus =
+    typeof session.payment_status === "string" ? session.payment_status : "";
+
+  if (status === "expired") {
+    return { kind: "transition", transition: "expired" };
   }
+  if (status === "complete") {
+    if (paymentStatus === "paid" || paymentStatus === "no_payment_required") {
+      return { kind: "transition", transition: "paid" };
+    }
+    if (paymentStatus === "unpaid") {
+      if (eventType === "checkout.session.async_payment_failed") {
+        return { kind: "transition", transition: "failed" };
+      }
+      if (eventType === "checkout.session.async_payment_succeeded") {
+        // The event claims success but canonical state has not caught up —
+        // ask Stripe to redeliver rather than settle (or fail) on a race.
+        return { kind: "retry" };
+      }
+      return { kind: "transition", transition: "processing" };
+    }
+    return { kind: "ignored", reason: "unexpected_payment_status" };
+  }
+  if (status === "open") {
+    // Session object has not settled for an event claiming a terminal
+    // state — transient on webhook delivery, a no-op on manual refresh.
+    return eventType === null
+      ? { kind: "ignored", reason: "session_open" }
+      : { kind: "retry" };
+  }
+  return { kind: "ignored", reason: "unexpected_session_state" };
+}
 
-  if (!transition) {
+// Resolves a verified webhook event + its canonical retrieved session into
+// the outcome the event implies. Returns kind "retry" when canonical state
+// has not settled — the delivery must be reattempted, not acknowledged.
+export function resolveCanonicalEventOutcome(
+  refs: StripeEventRefs,
+  session: Record<string, unknown>
+):
+  | { kind: "resolved"; resolved: StripeEventOutcome }
+  | { kind: "retry" } {
+  const decision = canonicalSessionDecision(refs.eventType, session);
+  const paymentId = paymentIdFromSession(session);
+
+  if (decision.kind === "retry") {
+    return { kind: "retry" };
+  }
+  if (decision.kind === "ignored") {
     return {
-      eventId,
-      eventType,
-      paymentId: null,
-      ignoredReason: "unhandled_event_type",
+      kind: "resolved",
+      resolved: {
+        eventId: refs.eventId,
+        eventType: refs.eventType,
+        paymentId,
+        ignoredReason: decision.reason,
+      },
     };
   }
-
-  const { paymentId, outcome } = outcomeFromSession(session, transition);
+  const { outcome } = outcomeFromSession(session, decision.transition);
   if (!paymentId) {
     return {
-      eventId,
-      eventType,
-      paymentId: null,
-      ignoredReason: "no_payment_reference",
+      kind: "resolved",
+      resolved: {
+        eventId: refs.eventId,
+        eventType: refs.eventType,
+        paymentId: null,
+        ignoredReason: "no_payment_reference",
+      },
     };
   }
-  return { eventId, eventType, paymentId, outcome };
+  return {
+    kind: "resolved",
+    resolved: {
+      eventId: refs.eventId,
+      eventType: refs.eventType,
+      paymentId,
+      outcome,
+    },
+  };
 }
 
 // --- Transition planning ---
@@ -738,6 +935,58 @@ export interface StripeApplyPlan {
   events: PaymentEventDraft[];
   // The status the plan would produce — for logging/response context.
   toStatus?: PaymentStatus;
+  // Reconciliation code when settlement was refused — the payment keeps its
+  // current status but is flagged for staff attention instead of marking
+  // paid on contradicted provider evidence.
+  quarantined?: string;
+}
+
+// Compares the canonical provider state embedded in an outcome against the
+// immutable snapshot stored at initiation. Any disagreement — or money
+// facts Stripe failed to report — means the settlement cannot be verified;
+// returns the mismatch code and safe expected/actual strings for the audit
+// event, or null when the outcome is consistent with the record.
+export function reconcilePaymentSnapshot(
+  record: PaymentRecord,
+  outcome: StripeOutcome
+): { code: string; expected: string; actual: string } | null {
+  const storedSessionId =
+    typeof record.stripeCheckoutSessionId === "string" &&
+    record.stripeCheckoutSessionId
+      ? record.stripeCheckoutSessionId
+      : null;
+  if (storedSessionId && outcome.sessionId !== storedSessionId) {
+    return {
+      code: "session_mismatch",
+      expected: storedSessionId,
+      actual: outcome.sessionId ?? "missing",
+    };
+  }
+  const storedCurrency =
+    typeof record.currency === "string" && record.currency
+      ? record.currency
+      : PAYMENT_CURRENCY;
+  if (
+    typeof outcome.currency !== "string" ||
+    outcome.currency.toUpperCase() !== storedCurrency.toUpperCase()
+  ) {
+    return {
+      code: "currency_mismatch",
+      expected: storedCurrency.toUpperCase(),
+      actual: outcome.currency ?? "missing",
+    };
+  }
+  if (
+    typeof outcome.amountMinor !== "number" ||
+    outcome.amountMinor !== record.amountMinor
+  ) {
+    return {
+      code: "amount_mismatch",
+      expected: String(record.amountMinor ?? "missing"),
+      actual: String(outcome.amountMinor ?? "missing"),
+    };
+  }
+  return null;
 }
 
 // Pure state machine: given the stored record and a Stripe outcome, decide
@@ -787,6 +1036,46 @@ export function planStripeEventApply(
     return { apply: false, updates: {}, events: [] };
   }
 
+  // Money may be marked settled only when canonical provider state matches
+  // the snapshot taken at initiation. A mismatch is quarantined — flagged
+  // for attention, never silently paid and never auto-corrected.
+  if (target === "paid") {
+    const mismatch = reconcilePaymentSnapshot(record, outcome);
+    if (mismatch) {
+      if (record.reconciliationIssue === mismatch.code) {
+        // Same mismatch already recorded — stay quarantined without
+        // appending duplicate audit events.
+        return {
+          apply: false,
+          updates: {},
+          events: [],
+          toStatus: current,
+          quarantined: mismatch.code,
+        };
+      }
+      return {
+        apply: true,
+        updates: {
+          reconciliationIssue: mismatch.code,
+          updatedAt: now,
+        },
+        events: [
+          {
+            type: "reconciliation_mismatch",
+            details: {
+              ...sourceDetail,
+              reason: mismatch.code,
+              expected: mismatch.expected,
+              actual: mismatch.actual,
+            },
+          },
+        ],
+        toStatus: current,
+        quarantined: mismatch.code,
+      };
+    }
+  }
+
   const updates: Record<string, unknown> = { status: target, updatedAt: now };
   const events: PaymentEventDraft[] = [];
 
@@ -809,6 +1098,9 @@ export function planStripeEventApply(
   switch (target) {
     case "paid":
       updates.paidAt = now;
+      // A cleanly reconciled settlement clears a prior flag (e.g. canonical
+      // state corrected itself after an early delivery raced).
+      updates.reconciliationIssue = null;
       events.push({ type: "payment_succeeded", details: sourceDetail });
       break;
     case "processing":
@@ -887,7 +1179,7 @@ export interface StripeEventTx {
   ): Promise<void>;
   markStripeEventProcessed(
     eventId: string,
-    result: "applied" | "ignored" | "unknown_payment",
+    result: "applied" | "ignored" | "unknown_payment" | "mismatch",
     meta: { eventType: string; paymentId: string | null }
   ): Promise<void>;
 }
@@ -897,9 +1189,15 @@ export interface StripeEventStore {
 }
 
 export interface StripeEventResult {
-  status: "applied" | "duplicate" | "ignored" | "unknown_payment";
+  status:
+    | "applied"
+    | "duplicate"
+    | "ignored"
+    | "unknown_payment"
+    | "quarantined";
   paymentId: string | null;
   toStatus?: PaymentStatus;
+  quarantined?: string;
 }
 
 // Single delivery path for verified webhook events: dedupe → load record →
@@ -942,13 +1240,18 @@ export async function processStripeEvent(
     }
     await tx.markStripeEventProcessed(
       resolved.eventId,
-      plan.apply ? "applied" : "ignored",
+      plan.quarantined ? "mismatch" : plan.apply ? "applied" : "ignored",
       meta
     );
     return {
-      status: plan.apply ? "applied" : "ignored",
+      status: plan.quarantined
+        ? "quarantined"
+        : plan.apply
+          ? "applied"
+          : "ignored",
       paymentId: resolved.paymentId,
       toStatus: plan.toStatus,
+      quarantined: plan.quarantined,
     };
   });
 }

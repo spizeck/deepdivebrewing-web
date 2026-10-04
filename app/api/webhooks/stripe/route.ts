@@ -23,14 +23,31 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await handleStripeWebhook(rawBody, signature);
+    if (result.status === "retry") {
+      // Canonical state had not settled — ask Stripe to redeliver rather
+      // than acknowledge a transition we could not verify.
+      return NextResponse.json(
+        { ok: false, error: "Event deferred — retry." },
+        { status: 500 }
+      );
+    }
     if (result.status === "unknown_payment") {
       logWarn("stripe_webhook.unknown_payment", {
         paymentId: result.paymentId,
         requestId,
       });
     }
-    // 200 for applied/duplicate/ignored/unknown alike: Stripe must not retry
-    // deliveries we have durably accounted for.
+    if (result.status === "quarantined") {
+      // Canonical state contradicted the stored snapshot — acknowledged
+      // durably so Stripe stops retrying, but the payment is NOT paid and
+      // needs staff review.
+      logWarn("stripe_webhook.quarantined", {
+        paymentId: result.paymentId,
+        requestId,
+      });
+    }
+    // 200 for applied/duplicate/ignored/unknown/quarantined alike: Stripe
+    // must not retry deliveries we have durably accounted for.
     return NextResponse.json({ ok: true, result: result.status });
   } catch (error) {
     // Signature-construction failures are client errors — 400, no retry.

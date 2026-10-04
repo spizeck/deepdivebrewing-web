@@ -4,11 +4,25 @@
 // routes, the webhook route) import these; the secret key must never reach
 // a client component or a NEXT_PUBLIC_* variable.
 
+const LIVE_KEY_PREFIXES = ["sk_live_", "rk_live_"];
+
 export function getStripeSecretKey(): string {
   const key = process.env.STRIPE_SECRET_KEY?.trim();
   if (!key) {
     throw new Error(
       "Missing Stripe credentials. Set STRIPE_SECRET_KEY (server-only)."
+    );
+  }
+  // Live keys belong to production only — preview deployments and local
+  // dev must run on test keys so a staging payment can never move real
+  // money. `next build` never evaluates this (the client is lazy), so the
+  // check cannot break a production build.
+  const nonProduction =
+    process.env.VERCEL_ENV === "preview" ||
+    process.env.NODE_ENV === "development";
+  if (nonProduction && LIVE_KEY_PREFIXES.some((p) => key.startsWith(p))) {
+    throw new Error(
+      "Live Stripe keys are not allowed outside production. Configure a test key (sk_test_*) for this environment."
     );
   }
   return key;

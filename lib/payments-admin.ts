@@ -6,21 +6,29 @@ import { getStripeWebhookSecret } from "@/lib/stripe-config";
 import { siteUrl } from "@/lib/site";
 import { logInfo, logWarn } from "@/lib/log";
 import {
+  assertCheckoutSessionUrl,
   buildCheckoutSessionSpec,
+  canonicalSessionDecision,
   enrichmentFromPaymentIntent,
   isPaymentCancelable,
   normalizePaymentStatus,
   outcomeFromSession,
+  paymentCreateMatchesRecord,
+  paymentIdFromSession,
   PaymentError,
   PaymentNotFoundError,
   planStripeEventApply,
   processStripeEvent,
-  resolveStripeEventOutcome,
+  readStripeEventRefs,
+  resolveCanonicalEventOutcome,
+  toPaymentProviderError,
+  HANDLED_STRIPE_EVENT_TYPES,
   PAYMENTS_COLLECTION,
   PAYMENT_EVENTS_SUBCOLLECTION,
   STRIPE_EVENTS_COLLECTION,
   type PaymentCreateInput,
   type PaymentEventDraft,
+  type StripeEventOutcome,
   type StripeEventStore,
   type StripeOutcome,
 } from "@/lib/payments-common";
@@ -166,17 +174,7 @@ export async function createAdminPayment(
     // clientRequestId carrying *different* details (staff edited the
     // amount after a lost response) must not silently charge the stored
     // amount — surface a conflict so staff start a fresh payment.
-    const stored = seed.data;
-    const mismatch =
-      stored.purpose !== input.purpose ||
-      stored.description !== input.description ||
-      stored.amountMinor !== input.amountMinor ||
-      stored.customerName !== input.customerName ||
-      stored.customerEmail !== input.customerEmail ||
-      stored.tourDate !== input.tourDate ||
-      stored.attendeeCount !== input.attendeeCount ||
-      stored.internalNote !== input.internalNote;
-    if (mismatch) {
+    if (!paymentCreateMatchesRecord(seed.data, input)) {
       throw new PaymentError(
         "A payment with this reference already exists with different details. Start a new payment instead.",
         409
@@ -210,22 +208,23 @@ export async function createAdminPayment(
 
   // Idempotency key = payment id: a Stripe retry of this call returns the
   // same session instead of creating a second hosted page.
-  const session = await getStripeClient().checkout.sessions.create(
-    spec as Stripe.Checkout.SessionCreateParams,
-    { idempotencyKey: ref.id }
-  );
-  if (!session.url) {
-    throw new PaymentError(
-      "Stripe did not return a payment page. Please try again.",
-      502
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await getStripeClient().checkout.sessions.create(
+      spec as Stripe.Checkout.SessionCreateParams,
+      { idempotencyKey: ref.id }
     );
+  } catch (error) {
+    throw toPaymentProviderError(error);
   }
+  // Only Stripe-hosted Checkout URLs may ever reach staff/customers.
+  const sessionUrl = assertCheckoutSessionUrl(session.url);
 
   const batch = db.batch();
   batch.update(ref, {
     status: "awaiting_payment",
     stripeCheckoutSessionId: session.id,
-    stripeSessionUrl: session.url,
+    stripeSessionUrl: sessionUrl,
     ...(session.payment_intent
       ? {
           stripePaymentIntentId:
@@ -296,19 +295,37 @@ export async function cancelAdminPayment(
 
   if (sessionId) {
     try {
-      await getStripeClient().checkout.sessions.expire(sessionId);
+      await getStripeClient().checkout.sessions.expire(
+        sessionId,
+        {},
+        { idempotencyKey: `${id}:expire` }
+      );
     } catch (expireError) {
       // "Already expired" is the benign race — cancel proceeds. Anything
       // else (e.g. the customer already completed) reconciles via the
-      // refresh path so the caller sees the true state.
-      const session =
-        await getStripeClient().checkout.sessions.retrieve(sessionId);
-      if (session.status === "expired") {
+      // canonical session so the caller sees the true state.
+      let session: Stripe.Checkout.Session;
+      try {
+        session =
+          await getStripeClient().checkout.sessions.retrieve(sessionId);
+      } catch (error) {
+        throw toPaymentProviderError(error);
+      }
+      const decision = canonicalSessionDecision(
+        null,
+        session as unknown as Record<string, unknown>
+      );
+      if (
+        decision.kind === "transition" &&
+        decision.transition === "expired"
+      ) {
         // Fall through — the hosted page is dead either way.
       } else if (session.status === "complete") {
+        const transition =
+          decision.kind === "transition" ? decision.transition : "processing";
         const { paymentId, outcome } = outcomeFromSession(
           session as unknown as Record<string, unknown>,
-          session.payment_status === "paid" ? "paid" : "processing"
+          transition
         );
         await applyOutcome(id, paymentId === id ? outcome : null, "manual_refresh");
         throw new PaymentError(
@@ -316,7 +333,7 @@ export async function cancelAdminPayment(
           409
         );
       } else {
-        throw expireError;
+        throw toPaymentProviderError(expireError);
       }
     }
   }
@@ -389,7 +406,7 @@ async function fetchPaidEnrichment(
   } catch (error) {
     logWarn("payment.enrichment_failed", {
       paymentIntentId,
-      errorName: error instanceof Error ? error.name : "Error",
+      providerCode: toPaymentProviderError(error).code,
     });
     return {};
   }
@@ -408,20 +425,24 @@ export async function refreshAdminPayment(id: string): Promise<void> {
       : null;
   if (!sessionId) return; // Nothing issued yet — nothing to reconcile.
 
-  const session = await getStripeClient().checkout.sessions.retrieve(sessionId);
-  const transition =
-    session.status === "complete"
-      ? session.payment_status === "paid"
-        ? "paid"
-        : "processing"
-      : session.status === "expired"
-        ? "expired"
-        : null;
-  if (!transition) return; // Still open — no state change.
+  let session: Stripe.Checkout.Session;
+  try {
+    session =
+      await getStripeClient().checkout.sessions.retrieve(sessionId);
+  } catch (error) {
+    throw toPaymentProviderError(error);
+  }
+  // Manual refresh has no delivery semantics — an open/unsettled session
+  // is a no-op rather than a retryable failure.
+  const decision = canonicalSessionDecision(
+    null,
+    session as unknown as Record<string, unknown>
+  );
+  if (decision.kind !== "transition") return;
 
   const { paymentId, outcome } = outcomeFromSession(
     session as unknown as Record<string, unknown>,
-    transition
+    decision.transition
   );
   const targetId = paymentId ?? id;
   if (targetId !== id) {
@@ -430,7 +451,7 @@ export async function refreshAdminPayment(id: string): Promise<void> {
   }
 
   const extra =
-    transition === "paid" && outcome.paymentIntentId
+    decision.transition === "paid" && outcome.paymentIntentId
       ? await fetchPaidEnrichment(outcome.paymentIntentId)
       : {};
   const applied = await applyOutcome(id, outcome, "manual_refresh", extra);
@@ -514,26 +535,103 @@ function makeStripeEventStore(): StripeEventStore {
   };
 }
 
+// Cheap pre-transaction dedupe check — a replayed delivery exits before the
+// canonical Stripe fetch. The authoritative recheck still happens inside
+// processStripeEvent's transaction (concurrent deliveries converge there).
+async function isStripeEventProcessed(eventId: string): Promise<boolean> {
+  const snap = await getFirebaseAdminDb()
+    .collection(STRIPE_EVENTS_COLLECTION)
+    .doc(eventId)
+    .get();
+  return snap.exists;
+}
+
 export interface WebhookResult {
-  status: "applied" | "duplicate" | "ignored" | "unknown_payment";
+  status:
+    | "applied"
+    | "duplicate"
+    | "ignored"
+    | "unknown_payment"
+    | "quarantined"
+    | "retry";
   paymentId: string | null;
   toStatus?: string;
 }
 
-// Verifies + processes one webhook delivery. Throws on an invalid signature
-// (the route answers 400) — everything else resolves through
-// processStripeEvent inside a single Firestore transaction.
+// Verifies + processes one webhook delivery.
+//
+// Trust model: the signature proves Stripe sent the event — nothing more.
+// Only the event id/type and the session object id are read from the
+// payload; the session is then re-fetched from Stripe and *canonical* state
+// decides the transition. A payload can therefore never mark a payment
+// paid on its own.
+//
+// Throws on an invalid signature (the route answers 400). Returns "retry"
+// when canonical state has not settled (the route answers 500 so Stripe
+// redelivers). Everything else resolves through processStripeEvent inside
+// a single Firestore transaction.
 export async function handleStripeWebhook(
   rawBody: string,
   signatureHeader: string
 ): Promise<WebhookResult> {
-  const event = getStripeClient().webhooks.constructEvent(
+  const stripe = getStripeClient();
+  const event = stripe.webhooks.constructEvent(
     rawBody,
     signatureHeader,
     getStripeWebhookSecret()
   );
 
-  const resolved = resolveStripeEventOutcome(event);
+  const refs = readStripeEventRefs(event);
+  let resolved: StripeEventOutcome;
+
+  if (!HANDLED_STRIPE_EVENT_TYPES.has(refs.eventType)) {
+    resolved = {
+      eventId: refs.eventId,
+      eventType: refs.eventType,
+      paymentId: null,
+      ignoredReason: "unhandled_event_type",
+    };
+  } else if (!refs.sessionId) {
+    resolved = {
+      eventId: refs.eventId,
+      eventType: refs.eventType,
+      paymentId: null,
+      ignoredReason: "no_session_reference",
+    };
+  } else {
+    if (refs.eventId && (await isStripeEventProcessed(refs.eventId))) {
+      // Replay of a durably processed event — the transaction below sees
+      // the marker and exits as "duplicate" without a provider call.
+      resolved = {
+        eventId: refs.eventId,
+        eventType: refs.eventType,
+        paymentId: null,
+      };
+    } else {
+      // Canonical re-fetch: the event payload only told us which Checkout
+      // Session to look at.
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await stripe.checkout.sessions.retrieve(refs.sessionId);
+      } catch (error) {
+        throw toPaymentProviderError(error);
+      }
+      const resolution = resolveCanonicalEventOutcome(
+        refs,
+        session as unknown as Record<string, unknown>
+      );
+      if (resolution.kind === "retry") {
+        logWarn("stripe_webhook.deferred", {
+          eventType: refs.eventType,
+          paymentId: paymentIdFromSession(
+            session as unknown as Record<string, unknown>
+          ),
+        });
+        return { status: "retry", paymentId: null };
+      }
+      resolved = resolution.resolved;
+    }
+  }
 
   // Paid transitions pick up receipt/card display data before the commit so
   // it lands atomically with the status change.

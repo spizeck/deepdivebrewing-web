@@ -858,6 +858,14 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                 </div>
               </div>
 
+              {shownPayment.reconciliationIssue && (
+                <p role="alert" className="mt-3 rounded-md border border-ember/40 bg-ember/10 px-3 py-2 text-sm text-ember">
+                  Needs attention — Stripe&apos;s report did not match the values
+                  this charge was created with. Verify the payment in the
+                  Stripe Dashboard before treating it as paid.
+                </p>
+              )}
+
               {paymentLinkBlock(shownPayment)}
 
               <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">

@@ -50,11 +50,11 @@ While a payment is **Awaiting payment** (or still setting up), use **Cancel paym
 
 ## Receipts
 
-If you entered the customer's **Receipt email**, Stripe emails them a receipt automatically when the payment succeeds. After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page, plus the card brand and last four digits — the only card details ever stored, and only display metadata.
+The **Receipt email** field pre-fills the customer's email on the Stripe Checkout page and associates it with the payment. Stripe emails a receipt automatically when the payment succeeds **if** automatic receipts for successful payments are enabled in the Stripe Dashboard (Dashboard → Settings → Emails → "Email customers about successful payments"). After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page — usable regardless of email settings — plus the card brand and last four digits, the only card details ever stored, and only as display metadata.
 
 ## Payment detail
 
-Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the Stripe identifiers, receipt link, and an append-only **History** (created, link issued, succeeded/failed/expired, canceled).
+Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the Stripe identifiers, receipt link, and an append-only **History** (created, link issued, succeeded/failed/expired, canceled, flagged-for-review).
 
 ## Test mode
 
@@ -64,4 +64,5 @@ When the app runs with Stripe **test** credentials, a **Test mode** badge appear
 
 - **Payment stays "Awaiting payment" after the customer says they paid** — click **Refresh status**; the app asks Stripe directly.
 - **The link doesn't work** — links expire after about 24 hours or when canceled. Create a fresh payment.
+- **A payment shows "Needs attention"** — Stripe's report contradicted what was created (for example a different amount or currency), so the app refused to mark it paid. Check the session in the Stripe Dashboard and tell an owner.
 - **A charge happened twice** — it shouldn't: retries reuse the same payment record and Stripe session. Report it to an owner with the payment's Stripe session id from the detail view.

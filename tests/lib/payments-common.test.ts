@@ -1,7 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
+  assertCheckoutSessionUrl,
   buildCheckoutSessionSpec,
+  canonicalSessionDecision,
   describePaymentEvent,
   enrichmentFromPaymentIntent,
   formatUsdMinor,
@@ -11,12 +13,16 @@ import {
   outcomeFromSession,
   parseAmountMinor,
   parsePaymentCreateBody,
+  paymentCreateMatchesRecord,
   paymentStatusLabel,
   planStripeEventApply,
   processStripeEvent,
-  resolveStripeEventOutcome,
+  readStripeEventRefs,
+  resolveCanonicalEventOutcome,
   serializePayment,
   suggestedAmountMinor,
+  toPaymentProviderError,
+  PaymentProviderError,
   PAYMENT_MAX_AMOUNT_MINOR,
   type StripeEventStore,
   type StripeEventTx,
@@ -233,9 +239,12 @@ describe("buildCheckoutSessionSpec", () => {
   });
 });
 
-// --- Stripe event resolution ---
+// --- Stripe event references + canonical-session resolution ---
 
-const sessionObject = {
+// Canonical session shape — mirrors a re-fetched Checkout Session. The
+// webhook handler fetches this from Stripe after signature verification;
+// the signed event payload itself only contributes ids.
+const canonicalSession = {
   id: "cs_test_123",
   object: "checkout.session",
   client_reference_id: VALID_ID,
@@ -244,88 +253,195 @@ const sessionObject = {
   status: "complete",
   payment_intent: "pi_123",
   customer: "cus_123",
+  amount_total: 8000,
+  currency: "usd",
   expires_at: 1_800_000_000,
 };
 
-describe("resolveStripeEventOutcome", () => {
-  it("maps a paid checkout.session.completed to a paid outcome", () => {
-    const resolved = resolveStripeEventOutcome({
-      id: "evt_1",
-      type: "checkout.session.completed",
-      data: { object: sessionObject },
+// Event payload embedded object — deliberately carries *wrong* financial
+// fields to prove they are never read: only the session id is extracted.
+const payloadObject = {
+  id: "cs_test_123",
+  object: "checkout.session",
+  client_reference_id: VALID_ID,
+  metadata: { paymentId: VALID_ID },
+  payment_status: "paid",
+  status: "complete",
+  payment_intent: "pi_123",
+  amount_total: 1,
+  currency: "jpy",
+};
+
+const paidEvent = {
+  id: "evt_paid",
+  type: "checkout.session.completed",
+  data: { object: payloadObject },
+};
+
+function resolveEvent(
+  event: { id: string; type: string },
+  canonical: Record<string, unknown>
+) {
+  const refs = readStripeEventRefs({ ...event, data: { object: canonical } });
+  return resolveCanonicalEventOutcome(refs, canonical);
+}
+
+describe("readStripeEventRefs", () => {
+  it("extracts only ids — the payload's financial fields are inert", () => {
+    const refs = readStripeEventRefs(paidEvent);
+    assert.strictEqual(refs.eventId, "evt_paid");
+    assert.strictEqual(refs.eventType, "checkout.session.completed");
+    assert.strictEqual(refs.sessionId, "cs_test_123");
+  });
+
+  it("ignores non-session objects and malformed events", () => {
+    const foreign = readStripeEventRefs({
+      id: "evt_x",
+      type: "customer.created",
+      data: { object: { id: "cus_9", object: "customer" } },
     });
-    assert.strictEqual(resolved.paymentId, VALID_ID);
-    assert.strictEqual(resolved.outcome?.transition, "paid");
-    assert.strictEqual(resolved.outcome?.paymentIntentId, "pi_123");
-    assert.strictEqual(resolved.outcome?.stripeCustomerId, "cus_123");
+    assert.strictEqual(foreign.sessionId, null);
+
+    const empty = readStripeEventRefs({ id: "evt_y", type: "x", data: {} });
+    assert.strictEqual(empty.sessionId, null);
+  });
+});
+
+describe("canonicalSessionDecision", () => {
+  it("pays on canonical complete+paid regardless of event type", () => {
+    for (const type of [
+      "checkout.session.completed",
+      "checkout.session.async_payment_succeeded",
+      "checkout.session.async_payment_failed",
+      "checkout.session.expired",
+    ]) {
+      assert.deepStrictEqual(
+        canonicalSessionDecision(type, canonicalSession),
+        { kind: "transition", transition: "paid" },
+        `${type} must follow canonical paid state`
+      );
+    }
+  });
+
+  it("maps complete+unpaid via the event type's disambiguation", () => {
+    const unpaid = { ...canonicalSession, payment_status: "unpaid" };
+    assert.deepStrictEqual(
+      canonicalSessionDecision("checkout.session.completed", unpaid),
+      { kind: "transition", transition: "processing" }
+    );
+    assert.deepStrictEqual(
+      canonicalSessionDecision("checkout.session.async_payment_failed", unpaid),
+      { kind: "transition", transition: "failed" }
+    );
+    // Manual refresh has no event — unpaid means still processing.
+    assert.deepStrictEqual(canonicalSessionDecision(null, unpaid), {
+      kind: "transition",
+      transition: "processing",
+    });
+  });
+
+  it("defers when the success event races canonical state", () => {
+    const unpaid = { ...canonicalSession, payment_status: "unpaid" };
+    assert.deepStrictEqual(
+      canonicalSessionDecision(
+        "checkout.session.async_payment_succeeded",
+        unpaid
+      ),
+      { kind: "retry" }
+    );
+  });
+
+  it("maps canonical expiry and defers still-open sessions", () => {
+    assert.deepStrictEqual(
+      canonicalSessionDecision("checkout.session.expired", {
+        ...canonicalSession,
+        status: "expired",
+      }),
+      { kind: "transition", transition: "expired" }
+    );
+    // Canonical wins even over an expiry event's claim.
+    assert.deepStrictEqual(
+      canonicalSessionDecision("checkout.session.expired", canonicalSession),
+      { kind: "transition", transition: "paid" }
+    );
+    const open = { ...canonicalSession, status: "open" };
     assert.strictEqual(
-      resolved.outcome?.sessionExpiresAtMillis,
+      canonicalSessionDecision("checkout.session.completed", open).kind,
+      "retry"
+    );
+    assert.deepStrictEqual(canonicalSessionDecision(null, open), {
+      kind: "ignored",
+      reason: "session_open",
+    });
+  });
+});
+
+describe("resolveCanonicalEventOutcome", () => {
+  it("builds the outcome from the canonical session, not the payload", () => {
+    const result = resolveEvent(paidEvent, canonicalSession);
+    assert.strictEqual(result.kind, "resolved");
+    if (result.kind !== "resolved") return;
+    assert.strictEqual(result.resolved.paymentId, VALID_ID);
+    assert.strictEqual(result.resolved.outcome?.transition, "paid");
+    assert.strictEqual(result.resolved.outcome?.paymentIntentId, "pi_123");
+    assert.strictEqual(result.resolved.outcome?.stripeCustomerId, "cus_123");
+    assert.strictEqual(result.resolved.outcome?.amountMinor, 8000);
+    assert.strictEqual(result.resolved.outcome?.currency, "usd");
+    assert.strictEqual(
+      result.resolved.outcome?.sessionExpiresAtMillis,
       1_800_000_000 * 1000
     );
   });
 
-  it("maps an unpaid completion to processing", () => {
-    const resolved = resolveStripeEventOutcome({
-      id: "evt_2",
-      type: "checkout.session.completed",
-      data: { object: { ...sessionObject, payment_status: "unpaid" } },
+  it("a payload claiming paid settles nothing when canonical is unpaid", () => {
+    const result = resolveEvent(paidEvent, {
+      ...canonicalSession,
+      payment_status: "unpaid",
     });
-    assert.strictEqual(resolved.outcome?.transition, "processing");
+    assert.strictEqual(result.kind, "resolved");
+    if (result.kind !== "resolved") return;
+    assert.strictEqual(result.resolved.outcome?.transition, "processing");
   });
 
-  it("maps async outcomes and expiry", () => {
-    const succeeded = resolveStripeEventOutcome({
-      id: "evt_3",
-      type: "checkout.session.async_payment_succeeded",
-      data: { object: sessionObject },
-    });
-    assert.strictEqual(succeeded.outcome?.transition, "paid");
-
-    const failed = resolveStripeEventOutcome({
-      id: "evt_4",
-      type: "checkout.session.async_payment_failed",
-      data: { object: sessionObject },
-    });
-    assert.strictEqual(failed.outcome?.transition, "failed");
-
-    const expired = resolveStripeEventOutcome({
-      id: "evt_5",
-      type: "checkout.session.expired",
-      data: { object: sessionObject },
-    });
-    assert.strictEqual(expired.outcome?.transition, "expired");
+  it("defers instead of settling when canonical has not caught up", () => {
+    const result = resolveEvent(
+      { id: "evt_async", type: "checkout.session.async_payment_succeeded" },
+      { ...canonicalSession, payment_status: "unpaid" }
+    );
+    assert.strictEqual(result.kind, "retry");
   });
 
-  it("ignores unhandled event types and sessions without a payment reference", () => {
-    const unhandled = resolveStripeEventOutcome({
-      id: "evt_6",
-      type: "customer.created",
-      data: { object: sessionObject },
+  it("ignores sessions with no payment reference", () => {
+    const result = resolveEvent(paidEvent, {
+      ...canonicalSession,
+      client_reference_id: null,
+      metadata: {},
     });
-    assert.strictEqual(unhandled.ignoredReason, "unhandled_event_type");
-
-    const noRef = resolveStripeEventOutcome({
-      id: "evt_7",
-      type: "checkout.session.completed",
-      data: {
-        object: { ...sessionObject, client_reference_id: null, metadata: {} },
-      },
-    });
-    assert.strictEqual(noRef.ignoredReason, "no_payment_reference");
+    assert.strictEqual(result.kind, "resolved");
+    if (result.kind !== "resolved") return;
+    assert.strictEqual(result.resolved.ignoredReason, "no_payment_reference");
+    assert.strictEqual(result.resolved.paymentId, null);
   });
 });
 
 // --- Transition planning ---
 
 describe("planStripeEventApply", () => {
+  // Records/outcomes carry the matching snapshot fields a canonical
+  // session always provides — settlement without them is not testable.
   const record = (status: string) => ({
     status,
     stripeCheckoutSessionId: "cs_test_123",
+    amountMinor: 8000,
+    currency: "usd",
     eventCount: 2,
   });
   const outcome = (transition: "paid" | "processing" | "failed" | "expired") => ({
     transition,
+    sessionId: "cs_test_123",
     paymentIntentId: "pi_123",
+    amountMinor: 8000,
+    currency: "usd",
   });
   const NOW = new Date("2026-10-03T12:00:00.000Z");
 
@@ -416,6 +532,49 @@ describe("planStripeEventApply", () => {
     );
     assert.strictEqual(plan.updates.receiptUrl, "https://pay.stripe.com/receipts/x");
   });
+
+  it("quarantines a paid claim when canonical amount/currency/session disagree", () => {
+    for (const [name, mutated] of [
+      ["amount", { ...outcome("paid"), amountMinor: 8001 }],
+      ["currency", { ...outcome("paid"), currency: "eur" }],
+      ["session", { ...outcome("paid"), sessionId: "cs_test_other" }],
+      // Stripe not reporting money facts at all must also fail closed.
+      ["missing amount", { ...outcome("paid"), amountMinor: undefined }],
+      ["missing currency", { ...outcome("paid"), currency: undefined }],
+    ] as const) {
+      const plan = planStripeEventApply(record("awaiting_payment"), mutated, "webhook", NOW);
+      assert.strictEqual(plan.apply, true, `${name}: quarantine still writes`);
+      assert.strictEqual(plan.quarantined !== undefined, true, `${name} quarantined`);
+      assert.strictEqual(plan.updates.status, undefined, `${name}: never paid`);
+      assert.strictEqual(
+        plan.updates.reconciliationIssue,
+        plan.quarantined,
+        `${name}: record flagged`
+      );
+      assert.strictEqual(plan.events[0]?.type, "reconciliation_mismatch");
+    }
+  });
+
+  it("does not duplicate the quarantine audit event on repeat deliveries", () => {
+    const flagged = { ...record("awaiting_payment"), reconciliationIssue: "amount_mismatch" };
+    const plan = planStripeEventApply(
+      flagged,
+      { ...outcome("paid"), amountMinor: 8001 },
+      "webhook",
+      NOW
+    );
+    assert.strictEqual(plan.apply, false);
+    assert.strictEqual(plan.quarantined, "amount_mismatch");
+    assert.strictEqual(plan.events.length, 0);
+  });
+
+  it("a clean settlement clears a stale reconciliation flag", () => {
+    const flagged = { ...record("awaiting_payment"), reconciliationIssue: "amount_mismatch" };
+    const plan = planStripeEventApply(flagged, outcome("paid"), "webhook", NOW);
+    assert.strictEqual(plan.apply, true);
+    assert.strictEqual(plan.updates.status, "paid");
+    assert.strictEqual(plan.updates.reconciliationIssue, null);
+  });
 });
 
 // --- Webhook orchestration ---
@@ -447,17 +606,31 @@ function fakeStore(seed?: Record<string, Record<string, unknown>>) {
 }
 
 describe("processStripeEvent", () => {
-  const paidEvent = {
-    id: "evt_paid",
-    type: "checkout.session.completed",
-    data: { object: sessionObject },
+  // Records carry the same snapshot the canonical session reports — a
+  // paid transition only applies when they agree.
+  const awaitingRecord = {
+    status: "awaiting_payment",
+    stripeCheckoutSessionId: "cs_test_123",
+    amountMinor: 8000,
+    currency: "usd",
+    eventCount: 2,
   };
 
-  it("applies a valid event once and dedupes the replay", async () => {
+  function resolvedFrom(
+    event: { id: string; type: string },
+    canonical: Record<string, unknown> = canonicalSession
+  ) {
+    const result = resolveEvent(event, canonical);
+    assert.strictEqual(result.kind, "resolved");
+    if (result.kind !== "resolved") throw new Error("unreachable");
+    return result.resolved;
+  }
+
+  it("applies a canonical-paid event once and dedupes the replay", async () => {
     const { store, payments, markers } = fakeStore({
-      [VALID_ID]: { status: "awaiting_payment", eventCount: 2 },
+      [VALID_ID]: { ...awaitingRecord },
     });
-    const resolved = resolveStripeEventOutcome(paidEvent);
+    const resolved = resolvedFrom(paidEvent);
 
     const first = await processStripeEvent(resolved, store);
     assert.strictEqual(first.status, "applied");
@@ -468,9 +641,41 @@ describe("processStripeEvent", () => {
     assert.strictEqual(markers.get("evt_paid"), "applied");
   });
 
+  it("a second successful event for the same payment does not settle twice", async () => {
+    const { store, payments } = fakeStore({
+      [VALID_ID]: { ...awaitingRecord, status: "paid", eventCount: 3 },
+    });
+    const resolved = resolvedFrom({
+      id: "evt_async",
+      type: "checkout.session.async_payment_succeeded",
+    });
+    const result = await processStripeEvent(resolved, store);
+    assert.strictEqual(result.status, "ignored");
+    assert.strictEqual(payments.get(VALID_ID)?.status, "paid");
+  });
+
+  it("quarantines — never pays — when canonical amounts disagree", async () => {
+    const { store, payments, markers } = fakeStore({
+      [VALID_ID]: { ...awaitingRecord },
+    });
+    const resolved = resolvedFrom(paidEvent, {
+      ...canonicalSession,
+      amount_total: 9000,
+    });
+    const result = await processStripeEvent(resolved, store);
+    assert.strictEqual(result.status, "quarantined");
+    assert.strictEqual(result.quarantined, "amount_mismatch");
+    assert.strictEqual(payments.get(VALID_ID)?.status, "awaiting_payment");
+    assert.strictEqual(
+      payments.get(VALID_ID)?.reconciliationIssue,
+      "amount_mismatch"
+    );
+    assert.strictEqual(markers.get("evt_paid"), "mismatch");
+  });
+
   it("acknowledges events for unknown payments without touching records", async () => {
     const { store, markers, writes } = fakeStore();
-    const resolved = resolveStripeEventOutcome(paidEvent);
+    const resolved = resolvedFrom(paidEvent);
     const result = await processStripeEvent(resolved, store);
     assert.strictEqual(result.status, "unknown_payment");
     assert.strictEqual(writes.length, 0);
@@ -479,13 +684,13 @@ describe("processStripeEvent", () => {
 
   it("acknowledges ignored event types without payment writes", async () => {
     const { store, writes } = fakeStore({
-      [VALID_ID]: { status: "awaiting_payment" },
+      [VALID_ID]: { ...awaitingRecord },
     });
-    const resolved = resolveStripeEventOutcome({
-      id: "evt_other",
-      type: "customer.created",
-      data: { object: sessionObject },
-    });
+    // Unhandled event types produce a resolved outcome with no transition.
+    const resolved = resolvedFrom(
+      { id: "evt_other", type: "customer.created" },
+      { object: "customer", id: "cus_9" }
+    );
     const result = await processStripeEvent(resolved, store);
     assert.strictEqual(result.status, "ignored");
     assert.strictEqual(writes.length, 0);
@@ -493,13 +698,13 @@ describe("processStripeEvent", () => {
 
   it("does not regress a paid record when a late expired event arrives", async () => {
     const { store, payments } = fakeStore({
-      [VALID_ID]: { status: "paid", eventCount: 3 },
+      [VALID_ID]: { ...awaitingRecord, status: "paid", eventCount: 3 },
     });
-    const resolved = resolveStripeEventOutcome({
-      id: "evt_expired",
-      type: "checkout.session.expired",
-      data: { object: sessionObject },
-    });
+    // Canonical session says expired — the transition is still refused.
+    const resolved = resolvedFrom(
+      { id: "evt_expired", type: "checkout.session.expired" },
+      { ...canonicalSession, status: "expired" }
+    );
     const result = await processStripeEvent(resolved, store);
     assert.strictEqual(result.status, "ignored");
     assert.strictEqual(payments.get(VALID_ID)?.status, "paid");
@@ -584,15 +789,134 @@ describe("describePaymentEvent", () => {
       describePaymentEvent({ type: "payment_canceled" }),
       "Payment canceled by staff"
     );
+    const flagged = describePaymentEvent({
+      type: "reconciliation_mismatch",
+      details: { reason: "amount_mismatch" },
+    });
+    assert.ok(flagged.includes("flagged"));
+    assert.ok(flagged.includes("amount_mismatch"));
   });
 });
 
 describe("outcomeFromSession", () => {
   it("falls back to client_reference_id when metadata is absent", () => {
     const { paymentId } = outcomeFromSession(
-      { ...sessionObject, metadata: null },
+      { ...canonicalSession, metadata: null },
       "paid"
     );
     assert.strictEqual(paymentId, VALID_ID);
+  });
+});
+
+// --- Checkout URL allowlist ---
+
+describe("assertCheckoutSessionUrl", () => {
+  it("accepts Stripe-hosted checkout URLs", () => {
+    const url = "https://checkout.stripe.com/c/pay/cs_test_abc#key";
+    assert.strictEqual(assertCheckoutSessionUrl(url), url);
+    // Live-mode hosted pages share the same origin.
+    assert.strictEqual(
+      assertCheckoutSessionUrl(
+        "https://checkout.stripe.com/c/pay/cs_live_xyz"
+      ),
+      "https://checkout.stripe.com/c/pay/cs_live_xyz"
+    );
+  });
+
+  it("rejects insecure, non-Stripe, and malformed URLs", () => {
+    for (const bad of [
+      "http://checkout.stripe.com/c/pay/cs_test_x",
+      "https://checkout.stripe.com.evil.example/pay",
+      "https://stripe.com.evil.example/checkout",
+      "https://pay.example.com/checkout",
+      "javascript:alert(1)",
+      "not a url",
+      "",
+      null,
+      undefined,
+      42,
+    ]) {
+      assert.throws(
+        () => assertCheckoutSessionUrl(bad),
+        (error) => error instanceof PaymentProviderError,
+        `expected ${String(bad)} rejected`
+      );
+    }
+  });
+});
+
+// --- Idempotent-replay payload matching ---
+
+describe("paymentCreateMatchesRecord", () => {
+  const input = {
+    clientRequestId: VALID_ID,
+    purpose: "brewery_tour_tasting",
+    description: "Brewery Tour + Tasting",
+    amountMinor: 8000,
+    customerName: "Jane Diver",
+    customerEmail: "jane@example.com",
+    tourDate: "2026-10-15",
+    attendeeCount: 4,
+    internalNote: "Cruise group",
+  };
+  const record = {
+    purpose: "brewery_tour_tasting",
+    description: "Brewery Tour + Tasting",
+    amountMinor: 8000,
+    customerName: "Jane Diver",
+    customerEmail: "jane@example.com",
+    tourDate: "2026-10-15",
+    attendeeCount: 4,
+    internalNote: "Cruise group",
+    status: "awaiting_payment",
+  };
+
+  it("an identical retry matches", () => {
+    assert.strictEqual(paymentCreateMatchesRecord(record, input), true);
+  });
+
+  it("any payment-relevant drift conflicts", () => {
+    const drifts: [string, Record<string, unknown>][] = [
+      ["amount", { ...record, amountMinor: 8001 }],
+      ["purpose", { ...record, purpose: "other" }],
+      ["description", { ...record, description: "Other" }],
+      ["customer name", { ...record, customerName: "Joan" }],
+      ["receipt email", { ...record, customerEmail: "joan@example.com" }],
+      ["missing email", { ...record, customerEmail: undefined }],
+      ["tour date", { ...record, tourDate: "2026-10-16" }],
+      ["attendees", { ...record, attendeeCount: 5 }],
+      ["note", { ...record, internalNote: "Walk-in" }],
+    ];
+    for (const [name, stored] of drifts) {
+      assert.strictEqual(
+        paymentCreateMatchesRecord(stored, input),
+        false,
+        `${name} drift must conflict`
+      );
+    }
+  });
+});
+
+// --- Provider error normalization ---
+
+describe("toPaymentProviderError", () => {
+  it("keeps only the provider's machine code — never the raw message", () => {
+    const raw = new Error(
+      "Stripe raw detail: card 4242 declined; request req_123"
+    );
+    (raw as Error & { code?: string }).code = "card_declined";
+    const normalized = toPaymentProviderError(raw);
+    assert.ok(normalized instanceof PaymentProviderError);
+    assert.strictEqual(normalized.code, "card_declined");
+    assert.strictEqual(normalized.status, 502);
+    assert.ok(!normalized.message.includes("4242"));
+    assert.ok(!normalized.message.includes("req_123"));
+  });
+
+  it("handles non-Stripe failures and passes through already-normalized errors", () => {
+    assert.strictEqual(toPaymentProviderError("boom").code, "unexpected_provider_error");
+    assert.strictEqual(toPaymentProviderError(null).code, "unexpected_provider_error");
+    const already = new PaymentProviderError("rate_limit");
+    assert.strictEqual(toPaymentProviderError(already), already);
   });
 });

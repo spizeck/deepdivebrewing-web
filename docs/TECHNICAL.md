@@ -341,10 +341,12 @@ in code are listed.
   identifiers (`stripeCheckoutSessionId`, `stripeSessionUrl`,
   `stripePaymentIntentId`, `stripeChargeId`, `stripeCustomerId`,
   `sessionExpiresAt`), `receiptUrl`, safe card display metadata
-  (`paymentMethodBrand`/`paymentMethodLast4`), and lifecycle timestamps
-  (`paidAt`/`failedAt`/`expiredAt`/`canceledAt`). **Never stored:** PAN,
-  CVC, or raw Stripe payloads — card entry happens only on Stripe's hosted
-  page.
+  (`paymentMethodBrand`/`paymentMethodLast4`), `reconciliationIssue` (set
+  when Stripe's canonical report contradicted the stored snapshot —
+  settlement refused, flag cleared by a later verified `paid`), and
+  lifecycle timestamps (`paidAt`/`failedAt`/`expiredAt`/`canceledAt`).
+  **Never stored:** PAN, CVC, or raw Stripe payloads — card entry happens
+  only on Stripe's hosted page.
 - **History:** `payments/{id}/events` subcollection — append-only
   (`type`, `seq`, `actorUid`/`actorName` for staff actions, `details`,
   `createdAt`); `eventCount` is the next `seq`, same pattern as lead
@@ -358,9 +360,10 @@ in code are listed.
 ### `stripeEvents`
 
 - **Purpose:** webhook dedupe markers — one document per processed Stripe
-  event id (`type`, `paymentId`, `result`, `processedAt`). The webhook
-  transaction creates the marker and applies the payment update atomically,
-  so a replayed delivery exits before touching the record.
+  event id (`type`, `paymentId`, `result`, `processedAt`); `result` is
+  `applied | ignored | unknown_payment | mismatch`. The webhook transaction
+  creates the marker and applies the payment update atomically, so a
+  replayed delivery exits before touching the record.
 - **Visibility:** deny-all (`read, write: if false`); Admin SDK only.
 
 ### Firebase Authentication
@@ -758,17 +761,28 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    Quick-pick tour purposes derive suggestions from the canonical
    `TOUR_PRODUCTS` prices; amounts are always staff-editable.
 3. **Reconcile:** `POST /api/webhooks/stripe` verifies the signature
-   (`STRIPE_WEBHOOK_SECRET`, raw body) → `resolveStripeEventOutcome` maps
+   (`STRIPE_WEBHOOK_SECRET`, raw body). A signed event is treated as a
+   *hint*, not financial truth — `readStripeEventRefs` extracts only the
+   event id/type + session id from
    `checkout.session.{completed,expired,async_payment_succeeded,
-   async_payment_failed}` to `paid|processing|failed|expired` →
-   `processStripeEvent` runs the dedupe-marker + transition inside one
-   Firestore transaction (`planStripeEventApply` is the pure state machine;
-   Stripe-terminal statuses never regress, `canceled` outranks a late
-   `expired`). `paid` additionally enriches from the PaymentIntent's latest
-   charge (`receiptUrl`, brand/last4 — best-effort). Manual
-   `POST .../[id]/refresh` reconciles through the same planner, and
-   `POST .../[id]/cancel` expires the session on Stripe then marks
-   `canceled` (unpaid statuses only).
+   async_payment_failed}`, then the Checkout Session is **re-fetched from
+   Stripe** and canonical `status`/`payment_status`/`amount_total`/
+   `currency` drive the decision (`canonicalSessionDecision`; unsettled
+   sessions defer with a 500 so Stripe redelivers). Before a `paid`
+   transition applies, `reconcilePaymentSnapshot` compares the canonical
+   amount/currency/session id against the stored snapshot — a mismatch is
+   quarantined (`reconciliation_mismatch` audit event +
+   `reconciliationIssue` flag, never silently paid). `processStripeEvent`
+   runs the dedupe-marker + transition inside one Firestore transaction
+   (`planStripeEventApply` is the pure state machine; Stripe-terminal
+   statuses never regress, `canceled` outranks a late `expired`). `paid`
+   additionally enriches from the PaymentIntent's latest charge
+   (`receiptUrl`, brand/last4 — best-effort). Session URLs are pinned to
+   `https://checkout.stripe.com/` (`assertCheckoutSessionUrl`) and Stripe
+   SDK failures cross the boundary only as `PaymentProviderError` (safe
+   code + message). Manual `POST .../[id]/refresh` reconciles through the
+   same canonical planner, and `POST .../[id]/cancel` expires the session
+   on Stripe then marks `canceled` (unpaid statuses only).
 4. **Mode:** `livemode` from the Stripe object is stored per payment; the
    UI badges test-mode payments. No analytics events carry payment data.
 
