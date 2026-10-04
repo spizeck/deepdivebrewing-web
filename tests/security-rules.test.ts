@@ -75,6 +75,26 @@ describe("firestore.rules", () => {
     );
   });
 
+  it("keeps the QuickBooks credential collections fully server-side (Issue #161)", () => {
+    // Each QBO collection must carry its own deny-all — scoped assertions so
+    // the catch-all deny can't mask a missing explicit block.
+    for (const collection of [
+      "qboConnections",
+      "qboOauthStates",
+      "qboWebhookReceipts",
+      "qboConfig",
+      "qboSyncRecords",
+    ]) {
+      const start = rules.indexOf(`match /${collection}/{docId}`);
+      assert.ok(start > -1, `Expected the ${collection} deny-all match`);
+      const section = rules.slice(start, start + 200);
+      assert.ok(
+        section.includes("allow read, write: if false"),
+        `Expected ${collection} to deny all client access`
+      );
+    }
+  });
+
   it("keeps tradeLeads and its subcollections fully server-side (Issues #150, #152)", () => {
     // Scope assertions to the tradeLeads block itself (everything until the
     // next sibling match) so a deny elsewhere in the file can't mask a

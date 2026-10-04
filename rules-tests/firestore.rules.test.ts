@@ -409,3 +409,36 @@ describe("tradeLeads denies all client access", () => {
     );
   });
 });
+
+describe("QuickBooks collections deny all client access (issue #161)", () => {
+  const collections = [
+    "qboConnections",
+    "qboOauthStates",
+    "qboWebhookReceipts",
+    "qboConfig",
+    "qboSyncRecords",
+  ];
+
+  it("denies unauthenticated and non-admin reads and writes", async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore();
+    const userDb = testEnv.authenticatedContext("visitor1").firestore();
+    for (const name of collections) {
+      await assertFails(getDoc(doc(anonDb, name, "doc1")));
+      await assertFails(getDocs(collection(anonDb, name)));
+      await assertFails(setDoc(doc(anonDb, name, "doc1"), { x: 1 }));
+      await assertFails(getDoc(doc(userDb, name, "doc1")));
+      await assertFails(setDoc(doc(userDb, name, "doc1"), { x: 1 }));
+    }
+  });
+
+  it("denies even active admins — these collections are server-only", async () => {
+    await seedAdminRecord("admin1", "admin", "active");
+    const db = adminContext("admin1", "admin").firestore();
+    for (const name of collections) {
+      await assertFails(getDoc(doc(db, name, "doc1")));
+      await assertFails(setDoc(doc(db, name, "doc1"), { x: 1 }));
+      await assertFails(updateDoc(doc(db, name, "doc1"), { x: 2 }));
+      await assertFails(deleteDoc(doc(db, name, "doc1")));
+    }
+  });
+});

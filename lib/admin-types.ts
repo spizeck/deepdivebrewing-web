@@ -39,7 +39,13 @@ export interface AdminAuditRecord {
     | "cancel_invitation"
     | "update_admin"
     | "revoke_admin"
-    | "refresh_claims";
+    | "refresh_claims"
+    // QuickBooks Online integration lifecycle (issue #161). Metadata carries
+    // environment/outcome only — never token material or provider payloads.
+    | "qbo_connected"
+    | "qbo_disconnected"
+    | "qbo_connection_checked"
+    | "qbo_mapping_updated";
   targetUid?: string;
   targetEmail?: string;
   oldRole?: AdminRole | null;
