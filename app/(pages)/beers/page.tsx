@@ -74,38 +74,40 @@ export default async function BeersPage() {
 
       <BeersFilterGrid beers={beers} />
 
-      <section className="mt-12 rounded-lg border border-stone bg-paper p-6">
-        <h2 className="text-xl font-bold tracking-tight">Food Pairing Ideas</h2>
-        <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-          <li>
-            <span className="font-medium text-ink">NEIPA:</span> spicy dishes,
-            grilled fish, and rich cheeses.
-          </li>
-          <li>
-            <span className="font-medium text-ink">American Amber:</span>
-            burgers, barbecue, roasted chicken, and aged gouda.
-          </li>
-          <li>
-            <span className="font-medium text-ink">Pale Lager:</span> shellfish,
-            ceviche, salads, and light fried foods.
-          </li>
-          <li>
-            <span className="font-medium text-ink">Tropical Wheat:</span>
-            citrus-forward dishes, seafood, and island-style lunches.
-          </li>
-        </ul>
-      </section>
+      <div className="mt-12 grid gap-6 lg:grid-cols-2">
+        <section className="rounded-lg border border-stone bg-paper p-6">
+          <h2 className="text-xl font-bold tracking-tight">Food Pairing Ideas</h2>
+          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+            <li>
+              <span className="font-medium text-ink">NEIPA:</span> spicy dishes,
+              grilled fish, and rich cheeses.
+            </li>
+            <li>
+              <span className="font-medium text-ink">American Amber:</span>
+              burgers, barbecue, roasted chicken, and aged gouda.
+            </li>
+            <li>
+              <span className="font-medium text-ink">Pale Lager:</span> shellfish,
+              ceviche, salads, and light fried foods.
+            </li>
+            <li>
+              <span className="font-medium text-ink">Tropical Wheat:</span>
+              citrus-forward dishes, seafood, and island-style lunches.
+            </li>
+          </ul>
+        </section>
 
-      <section className="mt-8 rounded-lg border border-stone bg-paper p-6">
-        <h2 className="text-xl font-bold tracking-tight">For Partners</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Interested in carrying Deep Dive Brewing Co? Start with our trade
-          inquiry form and we&rsquo;ll help you find the right mix for your venue.
-        </p>
-        <Link href="/trade" className="mt-3 inline-block text-sm font-medium text-ocean hover:opacity-85">
-          Submit a trade inquiry &rarr;
-        </Link>
-      </section>
+        <section className="rounded-lg border border-stone bg-paper p-6">
+          <h2 className="text-xl font-bold tracking-tight">For Partners</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Interested in carrying Deep Dive Brewing Co? Start with our trade
+            inquiry form and we&rsquo;ll help you find the right mix for your venue.
+          </p>
+          <Link href="/trade" className="mt-3 inline-block text-sm font-medium text-ocean hover:opacity-85">
+            Submit a trade inquiry &rarr;
+          </Link>
+        </section>
+      </div>
     </main>
   );
 }
