@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/site-header";
 import IntroSection from "@/components/home/IntroSection";
+import { Reveal } from "@/components/reveal";
 import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
 import { TourInquiryCta } from "@/components/tour-inquiry-cta";
@@ -73,9 +74,9 @@ export default async function Home() {
           className="object-cover"
         />
         <div className="absolute inset-0 bg-ink/60" />
-        <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center animate-hero-fade">
+        <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
           <h1
-            className="text-4xl font-festival tracking-tight text-paper sm:text-5xl md:text-6xl"
+            className="animate-hero-fade text-4xl font-festival tracking-tight text-paper sm:text-5xl md:text-6xl"
             style={
               {
                 textShadow: "2px 2px 4px rgba(11, 15, 20, 0.8)",
@@ -86,10 +87,10 @@ export default async function Home() {
             <br />
             Brewing Co
           </h1>
-          <p className="mt-4 max-w-lg text-lg text-paper/90">
+          <p className="animate-hero-fade animate-delay-1 mt-4 max-w-lg text-lg text-paper/90">
             Craft beer, brewed on Saba.
           </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-4">
+          <div className="animate-hero-fade animate-delay-2 mt-8 flex flex-wrap justify-center gap-4">
             <Button asChild className="h-11 min-h-[44px] px-6">
               <Link href="/beers">Explore Our Beers</Link>
             </Button>
@@ -141,7 +142,7 @@ export default async function Home() {
       <HeroVideo />
 
       {/* Featured beers teaser */}
-      <section className="animate-fade-in animate-delay-3 border-t border-stone">
+      <Reveal as="section" className="border-t border-stone">
         <div className="mx-auto max-w-300 px-6 py-20 md:py-30">
           <div className="flex items-end justify-between">
             <h2 className="text-3xl font-bold tracking-tight">Our Beers</h2>
@@ -156,10 +157,10 @@ export default async function Home() {
             <BeerCarousel beers={featuredBeers} imageUrls={imageUrls} />
           </div>
         </div>
-      </section>
+      </Reveal>
 
       {/* Where to find us teaser */}
-      <section className="animate-fade-in animate-delay-4 border-t border-stone">
+      <Reveal as="section" className="border-t border-stone">
         <div className="mx-auto max-w-300 px-6 py-20 md:py-30">
           <div className="mx-auto max-w-180 text-center">
             <h2 className="text-3xl font-bold tracking-tight">
@@ -188,7 +189,7 @@ export default async function Home() {
             </div>
           </div>
         </div>
-      </section>
+      </Reveal>
       </main>
     </>
   );
