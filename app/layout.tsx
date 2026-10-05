@@ -151,8 +151,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
+        {/* Sets the html.js flag before first paint. CSS scopes
+            JS-dependent start states (e.g. .scroll-fade-in's hidden state)
+            under html.js, so no-JS sessions render content visible instead
+            of permanently faded out. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "document.documentElement.classList.add('js')",
+          }}
+        />
         {/* Renders unconditionally: a client-side transition into /admin*
             from a GTM-carrying public page must force a document load so no
             live container survives inside admin. */}

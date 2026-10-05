@@ -79,7 +79,10 @@ export function SiteNav() {
         frame = 0;
         const y = window.scrollY;
         const dy = y - lastY;
-        lastY = y;
+        // Only commit the baseline once the accumulated movement crosses
+        // the threshold — otherwise dy is a per-frame delta and a slow
+        // 1-2px/frame scroll never registers at all.
+        if (Math.abs(dy) > SCROLL_DELTA_THRESHOLD) lastY = y;
         setHidden((prev) => {
           if (openRef.current) return false;
           if (y <= RETREAT_SCROLL_THRESHOLD) return false;
