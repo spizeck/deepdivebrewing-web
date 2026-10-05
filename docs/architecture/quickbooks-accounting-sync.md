@@ -64,18 +64,26 @@ existing):**
   refunds, happen in the **Stripe Dashboard — the app never learns of
   them** (no `charge.refunded` subscription).
 
-## 2. Existing Stripe → QBO behavior — NOT YET DETERMINED
+## 2. Existing Stripe → QBO behavior — RESOLVED (#178)
 
-**This is the load-bearing unknown.** Per ops context, the production
-company already has Stripe-related banking/integration activity, but the
-exact mechanism is not visible to this codebase, and production QBO
-secrets (`QBO_CLIENT_SECRET`, `QBO_TOKEN_ENCRYPTION_KEY`) are Vercel
-`sensitive` env vars — not retrievable for a programmatic read. Nothing
-in the app can currently enumerate which integrations the company has or
-which records they create.
+The decisive question is answered: see
+[Two Stripe lanes](#two-stripe-lanes--the-decisive-finding-178-resolved)
+below — an existing Ollie/Spreedly lane books wholesale revenue in QBO,
+while DDB-admin payments book nothing. The inspection checklist below is
+retained for how the answer was reached and what remains open.
 
-**Required manual inspection (Chad, ~15 min in the QBO UI) before any
-write is enabled:**
+The lane-level revenue question is **resolved** — see the two-lane
+finding below: Ollie/Spreedly invoices book wholesale revenue and tax in
+QBO, while a proven live DDB-admin payment left no QBO record. How it
+was reached: production QBO and Stripe secrets are Vercel `sensitive`
+env vars — unretrievable outside production compute — so the books were
+inspected manually in the QBO and Stripe UIs.
+
+The remaining checks below cover configuration and payout detail — they
+inform mapping choices and the #181/#184 follow-ups, but they do not
+re-open the revenue-ownership decision.
+
+**Remaining pre-flight checks (informative, not revenue-gating):**
 
 1. **Apps → My Apps / connected apps** — is there a Stripe integration
    (e.g. "Stripe for QuickBooks", "Synder", "A2X", a custom connector)?
@@ -99,10 +107,67 @@ write is enabled:**
    tax at all (Curaçao OB regime), and are tour/tasting sales taxable?
    What TaxCodes did discovery return for the prod company?
 
-Until items 1–5 are answered in writing, treat the model below as
-*conditional*: it is correct if the existing Stripe path supplies only
-cash-side records (deposits, fees), and it must change if the existing
-path already posts revenue.
+Items 2–5 already have partial answers from the manual inspection
+(`Stripe Balance` clearing account exists; payouts arrive via
+Undeposited-Funds transfers and may be mixed-source; fee bookkeeping is
+partly manual). Item 6 stays pending with #184.
+
+### Production pre-flight findings — status
+
+Tracked in issue #178. Evidence gathered programmatically so far
+(read-only; production QBO and Stripe secrets are Vercel `sensitive`
+env vars — unretrievable outside production compute, so the
+integration/ledger questions below can only be answered by inspection
+in the QBO and Stripe UIs):
+
+| Finding | Status |
+| --- | --- |
+| Production connection live and healthy (`Deep Dive Brews, BV`, country CW) | ✅ verified (Firestore `qboConnections/production`, connection-check audit logs) |
+| All six accounting mappings unset (`qboConfig/accountingMapping` absent) | ✅ verified |
+| No sync records exist (`qboSyncRecords` empty) | ✅ verified |
+| Real Stripe payments settle through the tool (`checkout.session.completed` → `paid` applied in prod) | ✅ verified (`stripeEvents`, runtime logs) |
+| `Account` webhook notifications received for the production realm | ✅ verified (`qboWebhookReceipts`) |
+| Account/Item/Customer/TaxCode discovery queries succeed (one page each; result counts not logged) | ✅ verified (`qbo.api.entities` logs) |
+| Which integration/feed creates Stripe-related entries today | ✅ **resolved (#178)** — see "Two Stripe lanes" below |
+| Whether a Stripe clearing/merchant-fee account exists and what it receives | ✅ resolved — the company has a dedicated `Stripe Balance` account, plus Undeposited Funds, a credit-card/merchant-fee expense account, and the Mercury bank account |
+| Whether per-charge revenue records already exist in the books | ✅ resolved — **two lanes**: Ollie invoices book wholesale revenue/tax; DDB-admin payments book nothing (proven: a live settled $5.00 payment has no QBO record) |
+| Payout gross/net/fee split and bank-feed matching behavior | ✅ partially — Stripe payouts arrive into QBO as transfers involving Undeposited Funds; payouts can be **mixed-source** (Ollie + DDB on the same Stripe account); fee bookkeeping is partly manual |
+| CW tax configuration and required `GlobalTaxCalculation` value | ⏳ pending — QBO tax settings + accountant (#184); launch posture stays no-tax-posted |
+| QBO home currency / multicurrency vs USD card sales | ⏳ pending — QBO company settings; flagged before enabling writes |
+
+### Two Stripe lanes — the decisive finding (#178 resolved)
+
+Manual inspection of the production books established that **the same
+Stripe account serves multiple source systems**:
+
+- **Lane A — Ollie / Spreedly wholesale.** Ollie creates QBO Invoices
+  (revenue + tax already booked in QBO), then collects via Stripe.
+  The Stripe charges carry Ollie metadata (e.g. an `order_id` matching
+  the QBO invoice number and `connect_agent` identifying the external
+  system). **DDB must never post revenue for these** — Ollie owns that
+  lane end to end.
+- **Lane B — DDB admin payments.** A live $5.00 payment created
+  through `/admin/payments` (purpose `other`, internal payment id in
+  Stripe metadata) settled with a real Charge (fee $0.45, net $4.55)
+  and has **no QBO record at all**. The DDB integration must post this
+  revenue leg itself.
+
+Existing invoice payments in the books deposit to **Undeposited
+Funds**, and Stripe payouts were observed arriving as transfers
+involving Undeposited Funds — but the company also has a dedicated
+**`Stripe Balance`** account intentionally used to model money
+remaining inside Stripe (including a retained balance for
+refunds/fees). DDB Sales Receipts deposit to the **configured Stripe
+clearing/balance account**, not Undeposited Funds and never directly
+to the bank. Because payouts mix Ollie and DDB charges, payout-level
+reconciliation is a separate design problem (#181) — never per-payment
+concern of this integration.
+
+Classification rule: a payment qualifies for posting only through
+**positive DDB identity** — it must be a canonical record in the app's
+own `payments` collection (whose Stripe ids the tool itself issued and
+verified), never inferred from amount/date matching, the absence of
+`connect_agent`, or "not Ollie" heuristics.
 
 ## 3. Double-counting risks
 
@@ -164,16 +229,19 @@ each settled payment to an existing QBO record; flag unmatched).
 
 ## 5. Recommended model
 
-**Per settled Stripe payment: one Sales Receipt, gross, into a Stripe
-clearing account. The app writes nothing else — no deposits, no fee
-entries, no journals.**
+**Per settled DDB-admin payment: one Sales Receipt, gross, into the
+configured Stripe clearing/balance account. The app writes nothing else
+— no deposits, no fee entries, no journals, and nothing at all for
+Ollie or other non-DDB Stripe activity.** Only payments with positive
+DDB identity (a canonical `payments` record the tool itself issued and
+verified through Stripe) qualify — see the classification rule in §2.
 
 | Element | Decision |
 | --- | --- |
 | QBO entity per payment | `SalesReceipt` |
 | Amount | **Gross** in QBO decimal currency units — `amountMinor` is integer **cents**, so the boundary must convert (`amountMinor / 100`, e.g. `10000` → `100.0`). The same conversion applies to RefundReceipts |
 | Transaction date | `TxnDate` = the payment's **`paidAt`** settlement date (refund's `refundedAt` for RefundReceipts) — never the worker's processing date, so delayed retries and backfills land in the correct accounting period |
-| Cash target | `DepositToAccountRef` = mapped **Stripe clearing account** — *not* a bank account, *not* Undeposited Funds unless inspection says UF is how the existing feed clears |
+| Cash target | `DepositToAccountRef` = mapped **Stripe clearing/balance account** (the company's `Stripe Balance` account is the expected choice) — *not* a bank account, *not* Undeposited Funds, and never hardcoded |
 | Income split | Line `ItemRef` by `purpose` → mapped income item |
 | Customer | One generic customer (mapped fallback) — see §6 |
 | Payment method | Optional `PaymentMethodRef` ("Stripe") if a suitable method exists — nice-to-have, not required |
