@@ -200,6 +200,14 @@ test("mobile menu traps Tab focus while open", async ({ page }) => {
   await page.keyboard.press("Shift+Tab");
   await expect(lastLink).toBeFocused();
 
+  // Crossing into the lg breakpoint closes the menu so the trap can never
+  // apply to a menu that is no longer rendered.
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await expect(menu).not.toBeAttached();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await toggle.press("Enter");
   await page.keyboard.press("Escape");
   await expect(menu).not.toBeAttached();
   await expect(toggle).toBeFocused();
