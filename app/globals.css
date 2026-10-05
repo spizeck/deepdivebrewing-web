@@ -191,24 +191,23 @@
 }
 
 /* Scroll-triggered fade-in — toggled by components/reveal.tsx, the shared
-   primitive for scroll reveals (Issue #164). The hidden start state only
-   applies under html.js (set by the inline script in app/layout): sessions
-   without JS render the content visible rather than permanently faded out. */
+   primitive for scroll reveals (Issue #164). Content renders visible in the
+   SSR'd document; the hidden start state is applied by the Reveal effect
+   itself via `reveal-armed`, so sessions without JS — or where hydration
+   never establishes the observer — keep the content visible. */
 .scroll-fade-in {
   transition:
     opacity var(--motion-reveal) var(--ease-standard),
     transform var(--motion-reveal) var(--ease-standard);
 }
 
-html.js .scroll-fade-in {
+.scroll-fade-in.reveal-armed {
   opacity: 0;
   transform: translateY(20px);
 }
 
-/* Must out-specify `html.js .scroll-fade-in` (0,2,1) — the html.js prefix
-   keeps this at (0,3,1). */
-html.js .scroll-fade-in.fade-in-visible,
-.scroll-fade-in.fade-in-visible {
+/* Must out-specify `.scroll-fade-in.reveal-armed` (0,2,0). */
+.scroll-fade-in.reveal-armed.fade-in-visible {
   opacity: 1;
   transform: translateY(0);
 }
@@ -226,7 +225,7 @@ html.js .scroll-fade-in.fade-in-visible,
     animation-delay: 0s;
   }
 
-  html.js .scroll-fade-in {
+  .scroll-fade-in.reveal-armed {
     opacity: 1;
     transform: none;
     transition: none;
