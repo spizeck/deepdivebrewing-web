@@ -179,7 +179,9 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
 
 test("mobile menu traps Tab focus while open", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto("/beers");
+  // /privacy is text-only: resizing mid-test can't abort in-flight image
+  // requests the way the beer-card grid on /beers does.
+  await page.goto("/privacy");
 
   const toggle = page.locator("button[aria-controls]");
   await toggle.press("Enter");
