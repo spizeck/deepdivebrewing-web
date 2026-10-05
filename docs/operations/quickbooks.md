@@ -1,13 +1,15 @@
 # QuickBooks Online Integration
 
-Operational guide for the QuickBooks Online (QBO) connection foundation
-(issue #161). This covers connecting the brewery's QuickBooks company,
-keeping sandbox and production strictly separated, and operating the
-integration day to day.
+Operational guide for the QuickBooks Online (QBO) integration
+(issues #161, #179). This covers connecting the brewery's QuickBooks
+company, keeping sandbox and production strictly separated, the
+DDB-payment Sales Receipt sync, and operating the integration day to
+day.
 
-**Scope:** connection foundation only — OAuth, token lifecycle, webhook
-receipts, entity discovery, and accounting-mapping configuration. No
-bookkeeping is posted yet (see
+**Scope:** OAuth + token lifecycle, webhook receipts, entity discovery,
+accounting-mapping configuration, and one bookkeeping write — gross
+Sales Receipts for settled DDB-admin payments. Everything else (refunds,
+payouts, fees, journals) remains deferred (see
 [What is deliberately not built](#what-is-deliberately-not-built)).
 
 ## Architecture at a glance
@@ -185,30 +187,79 @@ misconfiguration fails closed instead of posting to the wrong books.
   by content identity; notifications for a realm other than the
   connected company are recorded but flagged ignored.
 
+## Sales Receipt sync (DDB payments only)
+
+Implemented in #179 per the
+[accounting design](../architecture/quickbooks-accounting-sync.md).
+Exactly one thing is posted to QuickBooks: **one gross Sales Receipt per
+settled DDB-admin payment, deposited to the mapped Stripe clearing
+account.**
+
+### What qualifies
+
+A payment qualifies only through **positive DDB identity** — a canonical
+record in the app's own `payments` collection that reached `paid`
+through the normal Stripe-verified path. The worker re-verifies the
+canonical Checkout Session before writing (session belongs to the same
+internal payment id, `complete` + `paid`, amount and currency match the
+stored record).
+
+Ollie/Spreedly wholesale charges and every other foreign Stripe
+activity can never qualify: they have no `payments/` record, no
+checkout-session metadata pointing at one, and no sync record is ever
+enqueued for them. Ollie owns wholesale invoicing end to end — posting
+for it would double-count revenue.
+
+### What posts
+
+| Field | Value |
+| --- | --- |
+| Entity | `SalesReceipt` — never Invoice + Payment, never a Deposit |
+| Amount | **Gross** customer charge (`amountMinor / 100`). Stripe fee/net are not part of this leg |
+| Date | `TxnDate` = the payment's `paidAt`, not processing time |
+| Account | `DepositToAccountRef` = mapped Stripe clearing/balance account (e.g. `Stripe Balance`) — never Undeposited Funds, never the bank, never hardcoded |
+| Item | `ItemRef` = mapped income item by purpose: tour (`brewery_tour`, `additional_guests`, `private_tour`), tasting (`brewery_tour_tasting`), other (`other`) |
+| Customer | `CustomerRef` = mapped generic customer |
+| Tax | No `TaxCodeRef`; `GlobalTaxCalculation: "NotApplicable"` sent for non-US companies, omitted for US (the field is required there and rejected here). Tax policy is #184 |
+| Correlation | `PrivateNote` carries `ddb:<paymentId>` + Stripe PI/charge refs; `DocNumber` = `DDB-…` derived from the payment id |
+
+### Lifecycle and retry
+
+- On a canonical `paid` commit (webhook or manual refresh) the app
+  enqueues a durable `qboSyncRecords/{environment}:stripe_payment:{paymentId}`
+  record and attempts the write inline.
+- `synced` — done; replays return the stored entity id. `failed` —
+  transient provider/Stripe/token failure, safe to retry.
+  `needs_attention` — a human must fix something first (mapping missing,
+  purpose unmapped, canonical mismatch, QBO validation rejection).
+- A `syncing` claim carries a short lease; a stale claim is reclaimed,
+  and the worker always queries for the `ddb:<paymentId>` correlation
+  marker before creating — a write that landed but whose response was
+  lost is adopted, never duplicated.
+- There is **no automatic retry sweep yet** (#183). To requeue a
+  `failed` or `needs_attention` record after fixing the cause, set its
+  `status` back to `pending` in Firestore — the next trigger or manual
+  call picks it up.
+- QBO failures never affect the payment: it stays `paid`, and nothing
+  customer-facing implies the card charge failed.
+
+### No backfill
+
+Only payments that reach `paid` **after** this code is deployed produce
+sync records. Historical paid payments — including the live `$5.00`
+pre-flight test — are never posted automatically. Any future backfill
+is an explicit, separately reviewed admin action.
+
 ## What is deliberately not built
 
-No bookkeeping exists yet — by design. The following are deferred until
-the accounting policy is chosen and PR #156 (the Stripe payment tool) is
-merged:
-
-- Stripe → QBO Sales Receipt / Invoice + Payment / Deposit creation
-- Journal entries, refunds, payout and bank-feed reconciliation
-- Automated tax mapping beyond the optional tax-code selection
-- Any entity writes to QuickBooks at all — every current API call is
-  read-only
-
-The accounting model that work must follow is designed in
-[QuickBooks Accounting Sync — Design](../architecture/quickbooks-accounting-sync.md)
-— read it before posting anything; it records the double-counting risks
-and the pre-flight inspection that must happen first.
-
-The seam for that work is `enqueueAccountingTransaction()`
-(`lib/qbo-sync.ts`): a future producer hands it a
-`QuickBooksSyncCandidate` (amount, currency, date, customer hints,
-purpose, external refs). The sync record's document id is the
-deterministic `sourceType:sourceId` identity, so retries and replays can
-never post the same financial event twice — QBO entity ids recorded
-later are correlation references, not the dedupe mechanism.
+- Refund posting (`RefundReceipt` mirroring the original lines) — #180;
+  Stripe Dashboard refunds remain invisible to the app
+- Stripe payout posting, Mercury deposit creation, clearing/balance
+  reconciliation, and fee accounting — #181 (mixed Ollie+DDB payouts
+  make this a distinct design problem)
+- Automatic retry sweep / admin sync-status surface — #183
+- Tax posting — #184 (Curaçao tax policy undecided)
+- Journal entries or any other entity writes
 
 ## Troubleshooting
 

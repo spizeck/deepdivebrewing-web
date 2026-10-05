@@ -3,6 +3,19 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { getStripeClient } from "@/lib/stripe";
 import {
+  buildQboSyncRecordDoc,
+  postPaidPaymentToQbo,
+  qboStripePaymentCandidate,
+} from "@/lib/qbo-sync";
+import { getQboEnvironment } from "@/lib/qbo-config";
+import {
+  normalizeQboSyncCandidate,
+  qboSyncIdFor,
+  QBO_STRIPE_PAYMENT_SOURCE_TYPE,
+  QBO_SYNC_RECORDS_COLLECTION,
+  type QboEnvironment,
+} from "@/lib/qbo-common";
+import {
   getStripeWebhookSecret,
   resolveCheckoutReturnBaseUrl,
 } from "@/lib/stripe-config";
@@ -365,6 +378,52 @@ export async function cancelAdminPayment(
 
 // --- Reconciliation (manual refresh + webhook shared path) ---
 
+// Durable QBO enqueue inside the `paid` commit transaction: creates the
+// sync record atomically with the settlement write so a process exit
+// between commit and post-commit work can never strand a paid payment
+// with no accounting-export record (a replayed webhook would skip the
+// already-marked event).
+//
+// The record's document id is the deterministic source identity, so a
+// later enqueue or worker attempt on the same payment converges on this
+// same record. The function performs a transaction READ — callers must
+// invoke it before issuing any writes in the transaction — and returns
+// the create to apply alongside the payment writes, or null when the
+// record already exists or QBO is not configured. A skipped create is
+// never a failure: accounting export must not roll back a settled
+// charge, and the post-commit helper retries the enqueue anyway.
+async function qboSyncCreateForPaidCommit(
+  tx: FirebaseFirestore.Transaction,
+  paymentId: string,
+  settledPayment: Record<string, unknown>
+): Promise<{
+  ref: FirebaseFirestore.DocumentReference;
+  doc: Record<string, unknown>;
+} | null> {
+  let environment: QboEnvironment;
+  let doc: Record<string, unknown>;
+  try {
+    environment = getQboEnvironment();
+    doc = buildQboSyncRecordDoc(
+      environment,
+      normalizeQboSyncCandidate(
+        qboStripePaymentCandidate(settledPayment, paymentId)
+      )
+    );
+  } catch {
+    // Unconfigured environment or a malformed candidate — the payment
+    // commit proceeds regardless; the post-commit enqueue logs it.
+    return null;
+  }
+  const ref = getFirebaseAdminDb()
+    .collection(QBO_SYNC_RECORDS_COLLECTION)
+    .doc(
+      qboSyncIdFor(environment, QBO_STRIPE_PAYMENT_SOURCE_TYPE, paymentId)
+    );
+  if ((await tx.get(ref)).exists) return null;
+  return { ref, doc };
+}
+
 // Applies a Stripe outcome to the stored record inside a transaction —
 // same planner the webhook uses, so manual refresh and webhook delivery
 // can never diverge.
@@ -376,7 +435,7 @@ async function applyOutcome(
 ): Promise<boolean> {
   if (!outcome) return false;
   const ref = getPaymentsCollection().doc(id);
-  return getFirebaseAdminDb().runTransaction(async (tx) => {
+  const applied = await getFirebaseAdminDb().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw new PaymentNotFoundError();
     const record = (snap.data() ?? {}) as Record<string, unknown>;
@@ -385,6 +444,12 @@ async function applyOutcome(
     const base =
       typeof record.eventCount === "number" ? record.eventCount : 0;
     const updates = { ...plan.updates, ...(extraUpdates ?? {}) };
+    // #179 — the durable sync record commits atomically with the paid
+    // transition. The read must run before this transaction's writes.
+    const syncCreate =
+      updates.status === "paid"
+        ? await qboSyncCreateForPaidCommit(tx, id, { ...record, ...updates })
+        : null;
     tx.update(ref, {
       ...updates,
       eventCount: base + plan.events.length,
@@ -395,8 +460,17 @@ async function applyOutcome(
         eventDoc(draft, base + index, null)
       );
     });
+    if (syncCreate) tx.create(syncCreate.ref, syncCreate.doc);
     return true;
   });
+  if (applied && outcome.transition === "paid") {
+    // #179 — post the QBO revenue leg for this settled DDB payment.
+    // Best-effort post-commit: the helper is idempotent and swallows its
+    // own errors, so an accounting-export hiccup can never roll the
+    // payment back.
+    await postPaidPaymentToQbo(id);
+  }
+  return applied;
 }
 
 // Best-effort receipt/card enrichment for a `paid` transition. Failures are
@@ -919,6 +993,17 @@ function makeStripeEventStore(): StripeEventStore {
             const record = cache.get(paymentId);
             const base =
               typeof record?.eventCount === "number" ? record.eventCount : 0;
+            // #179 — same atomic durable enqueue as applyOutcome: the
+            // sync record lands in the paid commit so a later crash or
+            // replay can never leave the payment without one. The read
+            // must run before this transaction's writes.
+            const syncCreate =
+              updates.status === "paid"
+                ? await qboSyncCreateForPaidCommit(tx, paymentId, {
+                    ...(record ?? {}),
+                    ...updates,
+                  })
+                : null;
             tx.update(payments.doc(paymentId), {
               ...updates,
               eventCount: base + events.length,
@@ -932,6 +1017,7 @@ function makeStripeEventStore(): StripeEventStore {
                 eventDoc(draft, base + index, null)
               );
             });
+            if (syncCreate) tx.create(syncCreate.ref, syncCreate.doc);
           },
           markStripeEventProcessed: async (eventId, result, meta) => {
             tx.set(markers.doc(eventId), {
@@ -1062,5 +1148,15 @@ export async function handleStripeWebhook(
     paymentId: result.paymentId,
     toStatus: result.toStatus,
   });
+  if (
+    result.status === "applied" &&
+    result.toStatus === "paid" &&
+    result.paymentId
+  ) {
+    // #179 — same post-commit seam as applyOutcome: enqueue + attempt the
+    // Sales Receipt inline. Never throws; failure lands on the durable
+    // sync record for retry.
+    await postPaidPaymentToQbo(result.paymentId);
+  }
   return result;
 }

@@ -14,10 +14,12 @@ import {
   QBO_TOKEN_URL,
   qboApiBaseUrl,
 } from "@/lib/qbo-config";
-import type {
-  QboDiscoveryEntityType,
-  QboEntitySummary,
-  QboEnvironment,
+import {
+  qboSalesReceiptDocNumber,
+  qboSalesReceiptMarker,
+  type QboDiscoveryEntityType,
+  type QboEntitySummary,
+  type QboEnvironment,
 } from "@/lib/qbo-common";
 
 // --- OAuth state ---
@@ -490,6 +492,14 @@ export const QBO_QUERY_PAGE_SIZE = 1000;
 // Safety bound so a misbehaving provider can never page forever.
 export const QBO_QUERY_MAX_PAGES = 10;
 
+// Every Intuit request is bounded. An unbounded fetch would let a stalled
+// connection hold a worker's sync claim (or a token-refresh lease) open
+// until the runtime kills it — and a successor reclaiming the claim would
+// have no way to know the first request was still in flight. Twenty
+// seconds is comfortably above Intuit's normal latency and comfortably
+// below the sync-claim lease.
+export const QBO_REQUEST_TIMEOUT_MS = 20_000;
+
 export function qboEntityQueryStatement(
   type: QboDiscoveryEntityType,
   startPosition?: number,
@@ -559,6 +569,177 @@ export function canonicalizeQboQueryEntities(
       type: entityType,
       detail,
       active: r.Active !== false,
+    });
+  }
+  return out;
+}
+
+// --- Sales Receipt writes (issue #179) ---
+
+// Everything needed to construct one gross Sales Receipt for a settled
+// DDB-admin payment. All ids come from the validated accounting mapping
+// — never hard-coded account/item/customer ids.
+export interface QboSalesReceiptSpec {
+  /** Internal payment id — the durable source identity. */
+  sourceId: string;
+  /** Gross charge amount in integer minor units (cents). */
+  amountMinor: number;
+  /** Uppercase ISO-4217 code recorded on the payment (today: USD). */
+  currency: string;
+  /** Settlement instant (payment `paidAt`), epoch ms. */
+  paidAtMs: number;
+  description?: string;
+  clearingAccountId: string;
+  incomeItemId: string;
+  customerId: string;
+  paymentIntentId?: string;
+  chargeId?: string;
+  /** `"NotApplicable"` for non-US companies (QBO requires the field on
+   *  sales transactions there); undefined for US companies, which reject
+   *  it. Tax posting itself stays disabled — see design §10. */
+  globalTaxCalculation?: "NotApplicable";
+}
+
+const QBO_PRIVATE_NOTE_MAX = 500;
+const QBO_LINE_DESCRIPTION_MAX = 500;
+
+// Builds the POST /salesreceipt body. The gross customer charge is posted
+// (never Stripe net — fees are #181) as a single SalesItemLineDetail line
+// against the mapped item, deposited to the mapped Stripe clearing/
+// balance account. No TaxCodeRef is ever sent: tax policy for the CW
+// company is an open accountant question (#184).
+export function buildQboSalesReceiptPayload(
+  spec: QboSalesReceiptSpec
+): Record<string, unknown> {
+  const gross = spec.amountMinor / 100;
+  const refs = [
+    `Deep Dive Brewing payment ${qboSalesReceiptMarker(spec.sourceId)}`,
+    spec.paymentIntentId ? `Stripe PI ${spec.paymentIntentId}` : null,
+    spec.chargeId ? `charge ${spec.chargeId}` : null,
+  ].filter((part): part is string => part !== null);
+
+  return {
+    TxnDate: new Date(spec.paidAtMs).toISOString().slice(0, 10),
+    CurrencyRef: { value: spec.currency },
+    CustomerRef: { value: spec.customerId },
+    DepositToAccountRef: { value: spec.clearingAccountId },
+    DocNumber: qboSalesReceiptDocNumber(spec.sourceId),
+    PrivateNote: refs.join("; ").slice(0, QBO_PRIVATE_NOTE_MAX),
+    ...(spec.globalTaxCalculation
+      ? { GlobalTaxCalculation: spec.globalTaxCalculation }
+      : {}),
+    Line: [
+      {
+        Amount: gross,
+        DetailType: "SalesItemLineDetail",
+        ...(spec.description
+          ? { Description: spec.description.slice(0, QBO_LINE_DESCRIPTION_MAX) }
+          : {}),
+        SalesItemLineDetail: {
+          ItemRef: { value: spec.incomeItemId },
+          Qty: 1,
+          UnitPrice: gross,
+        },
+      },
+    ],
+  };
+}
+
+// Canonical shape returned by POST /salesreceipt — only the provider
+// entity id crosses the boundary (it is a correlation reference, never
+// the dedupe key).
+export function canonicalizeQboSalesReceiptCreated(payload: unknown): {
+  id: string;
+} {
+  const receipt =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).SalesReceipt
+      : undefined;
+  const id =
+    typeof receipt === "object" && receipt !== null
+      ? (receipt as Record<string, unknown>).Id
+      : undefined;
+  if (typeof id !== "string" && typeof id !== "number") {
+    throw new QboError(
+      "QuickBooks returned a malformed sales receipt response.",
+      "unexpected"
+    );
+  }
+  return { id: String(id) };
+}
+
+const QBO_TXN_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// Query statement for provider-side recovery: receipts posted to the
+// mapped generic customer on the payment's own settlement date. The
+// `TxnDate =` equality filter is the load-bearing bound — a landed
+// receipt always carries the TxnDate we posted (paidAt), so the window
+// stays small no matter how many receipts the generic customer
+// accumulates. PrivateNote is not queryable server-side, so callers
+// match the correlation marker locally; pagination is retained as a
+// backstop for a busy settlement day. The sort uses TxnDate (a
+// documented sortable SalesReceipt field) rather than
+// MetaData.CreateTime, whose sortability is not documented.
+export function qboSalesReceiptCorrelationQuery(
+  customerId: string,
+  txnDate: string,
+  startPosition = 1,
+  maxResults = QBO_QUERY_PAGE_SIZE
+): string {
+  const safe = customerId.replace(/[^A-Za-z0-9_-]/g, "");
+  if (!QBO_TXN_DATE_PATTERN.test(txnDate)) {
+    throw new QboError(
+      "Sales receipt recovery query requires a YYYY-MM-DD transaction date.",
+      "unexpected"
+    );
+  }
+  return `select Id, PrivateNote, TxnDate from SalesReceipt where CustomerRef = '${safe}' and TxnDate = '${txnDate}' orderby TxnDate desc startposition ${startPosition} maxresults ${maxResults}`;
+}
+
+// Raw row count in a SalesReceipt QueryResponse page — the pagination
+// signal for the correlation lookup (same contract as qboQueryRowCount
+// for discovery entities: canonicalization may drop malformed rows, so
+// the raw count decides whether another page may exist).
+export function qboSalesReceiptRowCount(payload: unknown): number {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  if (typeof response !== "object" || response === null) return 0;
+  const rows = (response as Record<string, unknown>).SalesReceipt;
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+export interface QboSalesReceiptRef {
+  id: string;
+  privateNote?: string;
+}
+
+export function canonicalizeQboSalesReceiptRefs(
+  payload: unknown
+): QboSalesReceiptRef[] {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>).SalesReceipt
+      : undefined;
+  if (!Array.isArray(rows)) return [];
+  const out: QboSalesReceiptRef[] = [];
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const r = row as Record<string, unknown>;
+    const id =
+      typeof r.Id === "string" || typeof r.Id === "number"
+        ? String(r.Id)
+        : "";
+    if (!id) continue;
+    out.push({
+      id,
+      privateNote:
+        typeof r.PrivateNote === "string" ? r.PrivateNote : undefined,
     });
   }
   return out;
