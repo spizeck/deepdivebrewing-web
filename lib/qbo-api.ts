@@ -11,8 +11,10 @@ import {
   qboErrorForHttpStatus,
   qboQueryRowCount,
   qboSalesReceiptCorrelationQuery,
+  qboSalesReceiptRowCount,
   QBO_QUERY_MAX_PAGES,
   QBO_QUERY_PAGE_SIZE,
+  QBO_REQUEST_TIMEOUT_MS,
   toQboError,
 } from "@/lib/qbo-protocol";
 import type {
@@ -56,7 +58,14 @@ async function qboApiFetch(
     Authorization: `Bearer ${input.accessToken}`,
     Accept: "application/json",
   };
-  const init: RequestInit = { method: input.method ?? "GET", headers };
+  const init: RequestInit = {
+    method: input.method ?? "GET",
+    headers,
+    // Bounded so a stalled request cannot outlive the caller's sync
+    // claim; an aborted create is ambiguous (the write may still land)
+    // and is recovered by the correlation-marker lookup on retry.
+    signal: AbortSignal.timeout(QBO_REQUEST_TIMEOUT_MS),
+  };
   if (input.body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(input.body);
@@ -194,7 +203,9 @@ export async function createQboSalesReceipt(input: {
 // Provider-side recovery lookup: find a Sales Receipt already carrying
 // this payment's correlation marker. Runs before every create so a
 // retry after an ambiguous outcome (write landed, response lost) adopts
-// the existing receipt instead of posting a second one.
+// the existing receipt instead of posting a second one. Pages through
+// the customer's receipts — a single page could miss a receipt with an
+// older or backdated TxnDate.
 export async function findQboSalesReceiptForMarker(input: {
   environment: QboEnvironment;
   realmId: string;
@@ -202,23 +213,40 @@ export async function findQboSalesReceiptForMarker(input: {
   customerId: string;
   marker: string;
 }): Promise<QboSalesReceiptCreateResult | null> {
-  const { payload, correlationId } = await qboApiFetch({
-    environment: input.environment,
-    realmId: input.realmId,
-    accessToken: input.accessToken,
-    url: buildQboQueryUrl(
-      input.environment,
-      input.realmId,
-      qboSalesReceiptCorrelationQuery(input.customerId)
-    ),
-  });
-  const match = canonicalizeQboSalesReceiptRefs(payload).find((ref) =>
-    ref.privateNote?.includes(input.marker)
-  );
+  let correlationId: string | undefined;
+  for (let page = 0; page < QBO_QUERY_MAX_PAGES; page++) {
+    const { payload, correlationId: tid } = await qboApiFetch({
+      environment: input.environment,
+      realmId: input.realmId,
+      accessToken: input.accessToken,
+      url: buildQboQueryUrl(
+        input.environment,
+        input.realmId,
+        qboSalesReceiptCorrelationQuery(
+          input.customerId,
+          page * QBO_QUERY_PAGE_SIZE + 1,
+          QBO_QUERY_PAGE_SIZE
+        )
+      ),
+    });
+    correlationId ??= tid;
+    const match = canonicalizeQboSalesReceiptRefs(payload).find((ref) =>
+      ref.privateNote?.includes(input.marker)
+    );
+    if (match) {
+      logInfo("qbo.api.salesreceipt_lookup", {
+        environment: input.environment,
+        found: true,
+        correlationId,
+      });
+      return { id: match.id, correlationId };
+    }
+    if (qboSalesReceiptRowCount(payload) < QBO_QUERY_PAGE_SIZE) break;
+  }
   logInfo("qbo.api.salesreceipt_lookup", {
     environment: input.environment,
-    found: Boolean(match),
+    found: false,
     correlationId,
   });
-  return match ? { id: match.id, correlationId } : null;
+  return null;
 }

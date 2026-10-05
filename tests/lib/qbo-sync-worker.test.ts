@@ -34,6 +34,9 @@ const state = {
   createError: null as unknown,
   createCalls: [] as Record<string, unknown>[],
   retrieveCalls: [] as string[],
+  // Milliseconds the canonical Stripe retrieve "consumes" — tests advance
+  // the mocked clock by this much to exercise the claim-lease fence.
+  retrieveDelayMs: 0,
 };
 
 mock.module("@/lib/stripe", {
@@ -43,6 +46,7 @@ mock.module("@/lib/stripe", {
         sessions: {
           retrieve: async (id: string) => {
             state.retrieveCalls.push(id);
+            if (state.retrieveDelayMs) mock.timers.tick(state.retrieveDelayMs);
             if (state.sessionError) throw state.sessionError;
             return state.session;
           },
@@ -145,6 +149,7 @@ function reset(seed: Record<string, Record<string, unknown>> = {}) {
   state.createError = null;
   state.createCalls = [];
   state.retrieveCalls = [];
+  state.retrieveDelayMs = 0;
 }
 
 async function post(paymentId: string) {
@@ -405,6 +410,24 @@ describe("processQboSyncRecord — gates and failures", () => {
     assert.strictEqual(result.outcome, "needs_attention");
     assert.strictEqual(syncDoc()?.status, "needs_attention");
     assert.strictEqual(syncDoc()?.lastErrorCode, "validation");
+  });
+
+  it("refuses to start the QBO create when the claim lease is nearly exhausted", async () => {
+    seedPending();
+    mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    try {
+      // Canonical re-verification consumes all but the last seconds of
+      // the 2-minute claim — the create must not begin this late, or a
+      // successor could reclaim the record while the POST is in flight.
+      state.retrieveDelayMs = 95_000;
+      const result = await process(SYNC_ID);
+      assert.strictEqual(result.outcome, "failed");
+      assert.strictEqual(syncDoc()?.lastErrorCode, "lease_expiring");
+      assert.strictEqual(state.createCalls.length, 0);
+    } finally {
+      state.retrieveDelayMs = 0;
+      mock.timers.reset();
+    }
   });
 
   it("records invalid_grant reconnect state as retryable, not lost", async () => {

@@ -492,6 +492,14 @@ export const QBO_QUERY_PAGE_SIZE = 1000;
 // Safety bound so a misbehaving provider can never page forever.
 export const QBO_QUERY_MAX_PAGES = 10;
 
+// Every Intuit request is bounded. An unbounded fetch would let a stalled
+// connection hold a worker's sync claim (or a token-refresh lease) open
+// until the runtime kills it — and a successor reclaiming the claim would
+// have no way to know the first request was still in flight. Twenty
+// seconds is comfortably above Intuit's normal latency and comfortably
+// below the sync-claim lease.
+export const QBO_REQUEST_TIMEOUT_MS = 20_000;
+
 export function qboEntityQueryStatement(
   type: QboDiscoveryEntityType,
   startPosition?: number,
@@ -660,16 +668,34 @@ export function canonicalizeQboSalesReceiptCreated(payload: unknown): {
   return { id: String(id) };
 }
 
-// Query statement for provider-side recovery: recent receipts posted to
-// the mapped generic customer. PrivateNote is not queryable server-side,
-// so the statement bounds the window and callers match the correlation
-// marker locally. A landed-but-untracked write is always recent at retry
-// time, so the most recent receipts are sufficient.
+// Query statement for provider-side recovery: receipts posted to the
+// mapped generic customer, newest first. PrivateNote is not queryable
+// server-side, so the statement fetches pages and callers match the
+// correlation marker locally — pagination is required because a receipt
+// with an older/backdated TxnDate could fall outside a single page.
+// TxnDate is a documented sortable SalesReceipt field; MetaData.CreateTime
+// is not, so the sort stays on TxnDate.
 export function qboSalesReceiptCorrelationQuery(
-  customerId: string
+  customerId: string,
+  startPosition = 1,
+  maxResults = QBO_QUERY_PAGE_SIZE
 ): string {
   const safe = customerId.replace(/[^A-Za-z0-9_-]/g, "");
-  return `select Id, PrivateNote, TxnDate from SalesReceipt where CustomerRef = '${safe}' orderby TxnDate desc maxresults 25`;
+  return `select Id, PrivateNote, TxnDate from SalesReceipt where CustomerRef = '${safe}' orderby TxnDate desc startposition ${startPosition} maxresults ${maxResults}`;
+}
+
+// Raw row count in a SalesReceipt QueryResponse page — the pagination
+// signal for the correlation lookup (same contract as qboQueryRowCount
+// for discovery entities: canonicalization may drop malformed rows, so
+// the raw count decides whether another page may exist).
+export function qboSalesReceiptRowCount(payload: unknown): number {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  if (typeof response !== "object" || response === null) return 0;
+  const rows = (response as Record<string, unknown>).SalesReceipt;
+  return Array.isArray(rows) ? rows.length : 0;
 }
 
 export interface QboSalesReceiptRef {

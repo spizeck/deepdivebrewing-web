@@ -304,17 +304,15 @@ coupled to QBO availability — see §13.
 | Dashboard refund (outside the app) | **gap** — see §8 | **gap** — see §8 |
 | Stripe payout arrives | none | none — existing path owns cash |
 
-The enqueue happens inside the same code path that commits the status
-transition (`applyOutcome`/`commitRefund`), best-effort after the
-Firestore commit so a QBO-side hiccup can never roll back a payment
-transition.
-
-**Implemented trigger (#179):** `postPaidPaymentToQbo(paymentId)` runs
-after every `paid` commit — inside `applyOutcome` (manual refresh and
-the cancel-race path) and after `processStripeEvent` in the webhook
-handler. It builds the `stripe_payment` candidate from the canonical
-`payments` record, enqueues it, and attempts the write inline. The
-helper never throws and never touches the payment record.
+**Implemented trigger (#179):** the durable `stripe_payment` sync record
+is created inside the *same Firestore transaction* that commits `paid`
+(both `applyOutcome` and the webhook's `updatePayment` path), so a
+process exit between commit and post-commit work can never strand a
+settled payment with no record. After the commit,
+`postPaidPaymentToQbo(paymentId)` runs the independent ensure + inline
+write attempt — it builds the candidate from the canonical `payments`
+record, enqueues if the record somehow does not exist, and attempts the
+write. The helper never throws and never touches the payment record.
 
 ## 8. Refund model
 
@@ -431,10 +429,16 @@ deterministic internal identity, QBO ids as correlation only.
   `already_synced` no-op. `needs_attention` → terminal until a human
   requeues.
 - **Provider-side recovery (implemented):** QBO offers no idempotency
-  key on create, so before every `POST /salesreceipt` the worker queries
-  the customer's recent receipts for the `ddb:<paymentId>` PrivateNote
-  marker. A write that landed but whose response was lost is adopted —
-  the record stores its entity id and marks `synced`.
+  key on create, so before every `POST /salesreceipt` the worker pages
+  through the customer's receipts (newest `TxnDate` first) looking for
+  the `ddb:<paymentId>` PrivateNote marker. A write that landed but
+  whose response was lost is adopted — the record stores its entity id
+  and marks `synced`.
+- **Lease fencing (implemented):** every Intuit request is bounded by a
+  20-second timeout, and the worker refuses to start a create with less
+  than ~30 seconds of claim lease left. A bounded create therefore can
+  never still be in flight when a successor reclaims the record; an
+  aborted-but-landed write is caught by the marker lookup on retry.
 - The QBO-side correlation written into the Sales Receipt
   (`PrivateNote` = `ddb:<paymentId>` + Stripe PI/charge refs,
   `DocNumber` = `DDB-…` truncated to 21 chars) gives a findable,
@@ -443,13 +447,16 @@ deterministic internal identity, QBO ids as correlation only.
 
 ## 13. Failure / retry behavior
 
-- **Enqueue is best-effort, post-commit**: if it throws, the payment is
-  still `paid`; a sweeper finds payments with no sync record and enqueues
-  them (reconciliation job or on-demand admin action).
-- **Trigger mechanism (implemented, #179):** enqueue + inline write
-  attempt inside the request that committed `paid` — no cron exists in
-  this repo today (`vercel.json` has no `crons`). A bounded sweep route
-  for `pending`/`failed` stragglers remains #183.
+- **Sync record creation is atomic with the paid commit (implemented,
+  #179):** the record lands in the same transaction as the settlement
+  write, so the "paid payment with no sync record" hole cannot occur
+  for payments settled after this shipped. The post-commit enqueue is
+  an idempotent ensure, not the durability mechanism.
+- **Trigger mechanism (implemented, #179):** in-commit create + inline
+  write attempt inside the request that committed `paid` — no cron
+  exists in this repo today (`vercel.json` has no `crons`). A bounded
+  sweep route for `pending`/`failed` stragglers remains #183 (it also
+  covers the theoretical case of a pre-#179 paid payment).
 - **Attempts/backoff:** `attempts` counter + `lastAttemptAt` exist on
   the record; transient `QboError`s (`unavailable`/`rate_limited`,
   token `refresh_failed`, Stripe fetch failures) land in `failed` —

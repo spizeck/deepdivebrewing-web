@@ -62,6 +62,38 @@ export type QboEnqueueResult =
   | { syncId: string; outcome: "pending" }
   | { syncId: string; outcome: "duplicate" };
 
+// The durable record body for a fresh sync record — shared between the
+// standalone enqueue path and the atomic in-commit create the payments
+// seam performs inside the `paid` transition transaction.
+export function buildQboSyncRecordDoc(
+  environment: QboEnvironment,
+  normalized: QuickBooksSyncCandidate
+): Record<string, unknown> {
+  const syncId = qboSyncIdFor(
+    environment,
+    normalized.sourceType,
+    normalized.sourceId
+  );
+  return {
+    syncId,
+    sourceType: normalized.sourceType,
+    sourceId: normalized.sourceId,
+    status: "pending",
+    environment,
+    realmId: null,
+    qboEntityType: null,
+    qboEntityId: null,
+    attempts: 0,
+    lastAttemptAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    idempotencyKey: syncId,
+    candidate: persistableQboSyncCandidate(normalized),
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
 // Enqueues a financial event for future QBO export. Idempotent: replaying
 // the same source identity returns `duplicate` and leaves the existing
 // record (including its current status) untouched.
@@ -82,24 +114,7 @@ export async function enqueueAccountingTransaction(
   const outcome = await getFirebaseAdminDb().runTransaction(async (tx) => {
     const existing = await tx.get(ref);
     if (existing.exists) return "duplicate" as const;
-    tx.create(ref, {
-      syncId,
-      sourceType: normalized.sourceType,
-      sourceId: normalized.sourceId,
-      status: "pending",
-      environment,
-      realmId: null,
-      qboEntityType: null,
-      qboEntityId: null,
-      attempts: 0,
-      lastAttemptAt: null,
-      lastErrorCode: null,
-      lastErrorMessage: null,
-      idempotencyKey: syncId,
-      candidate: persistableQboSyncCandidate(normalized),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    tx.create(ref, buildQboSyncRecordDoc(environment, normalized));
     return "pending" as const;
   });
 
@@ -115,6 +130,16 @@ export async function enqueueAccountingTransaction(
 // Long enough for token refresh + two QBO calls; short enough that a
 // crashed worker does not strand the record.
 const SYNC_CLAIM_LEASE_MS = 2 * 60 * 1000;
+
+// Minimum claim lease remaining before a Sales Receipt create may start.
+// QBO offers no create-time idempotency key, so a create must never be
+// in flight when the lease could lapse — a successor reclaiming the
+// record would not know the POST was still running and could create a
+// second receipt. With every provider call bounded by
+// QBO_REQUEST_TIMEOUT_MS, a create started with this margin always
+// resolves before the lease expires; a landed-but-aborted write is then
+// adopted by the next attempt's marker lookup instead of duplicated.
+const SYNC_CREATE_MIN_LEASE_MS = 30_000;
 
 interface QboSyncRecordDoc {
   sourceType?: string;
@@ -240,7 +265,8 @@ async function finalizeSyncClaim(
 async function runSyncWrite(
   sourceType: string | undefined,
   sourceId: string | undefined,
-  environment: QboEnvironment
+  environment: QboEnvironment,
+  leaseUntilMs: number
 ): Promise<SyncWriteResult> {
   if (sourceType !== QBO_STRIPE_PAYMENT_SOURCE_TYPE || !sourceId) {
     return attention(
@@ -412,6 +438,15 @@ async function runSyncWrite(
       };
     }
 
+    // The create is the only unrecoverable-side-effect call in the path —
+    // refuse to start it unless enough lease remains for the bounded
+    // request to resolve before a successor could reclaim the record.
+    if (Date.now() > leaseUntilMs - SYNC_CREATE_MIN_LEASE_MS) {
+      return failure(
+        "lease_expiring",
+        "The sync claim nearly expired before the QuickBooks write — retry later."
+      );
+    }
     const created = await createQboSalesReceipt({
       environment,
       realmId,
@@ -506,7 +541,12 @@ export async function processQboSyncRecord(
       return { outcome: "in_progress" };
   }
 
-  const result = await runSyncWrite(claim.sourceType, claim.sourceId, environment);
+  const result = await runSyncWrite(
+    claim.sourceType,
+    claim.sourceId,
+    environment,
+    leaseUntilMs
+  );
   await finalizeSyncClaim(syncId, leaseUntilMs, result);
 
   if (result.kind === "synced") {
@@ -539,10 +579,71 @@ export async function processQboSyncRecord(
 
 // --- Producer seam (#179) ---
 
+// Builds the sync candidate from a settled payment record. Shared by the
+// post-commit helper and the atomic in-commit create the payments seam
+// performs inside the `paid` transition transaction — pass the merged
+// post-update record there so paidAt/externalRefs are already populated.
+export function qboStripePaymentCandidate(
+  payment: Record<string, unknown>,
+  paymentId: string
+): QuickBooksSyncCandidate {
+  const paidAtMs = timestampMillis(payment.paidAt);
+  const externalRefs: Record<string, string> = {};
+  if (
+    typeof payment.stripeCheckoutSessionId === "string" &&
+    payment.stripeCheckoutSessionId
+  ) {
+    externalRefs.checkoutSessionId = payment.stripeCheckoutSessionId;
+  }
+  if (
+    typeof payment.stripePaymentIntentId === "string" &&
+    payment.stripePaymentIntentId
+  ) {
+    externalRefs.paymentIntentId = payment.stripePaymentIntentId;
+  }
+  if (typeof payment.stripeChargeId === "string" && payment.stripeChargeId) {
+    externalRefs.chargeId = payment.stripeChargeId;
+  }
+  return {
+    sourceType: QBO_STRIPE_PAYMENT_SOURCE_TYPE,
+    sourceId: paymentId,
+    amountMinorUnits:
+      typeof payment.amountMinor === "number" ? payment.amountMinor : 0,
+    currency:
+      typeof payment.currency === "string" && payment.currency
+        ? payment.currency
+        : "usd",
+    transactionDate: new Date(paidAtMs ?? Date.now()).toISOString(),
+    customerName:
+      typeof payment.customerName === "string"
+        ? payment.customerName
+        : undefined,
+    customerEmail:
+      typeof payment.customerEmail === "string"
+        ? payment.customerEmail
+        : undefined,
+    purpose:
+      typeof payment.purpose === "string" ? payment.purpose : undefined,
+    description:
+      typeof payment.description === "string"
+        ? payment.description
+        : undefined,
+    externalRefs: Object.keys(externalRefs).length ? externalRefs : undefined,
+    tourDate:
+      typeof payment.tourDate === "string" ? payment.tourDate : undefined,
+    attendeeCount:
+      typeof payment.attendeeCount === "number"
+        ? payment.attendeeCount
+        : undefined,
+  };
+}
+
 // Called after a canonical `paid` commit (webhook or manual refresh).
-// Enqueues the durable record, then attempts the write inline — the
-// record's status captures the outcome either way, and a later sweep or
-// retry (#183) picks up anything left pending/failed.
+// The durable sync record is normally created inside the commit
+// transaction itself; this helper is the independent ensure + inline
+// processing attempt — a record committed without an in-tx create still
+// gets enqueued here, and anything left pending/failed is picked up by a
+// later sweep or retry (#183).
 //
 // NEVER throws and NEVER touches the payment record: accounting export
 // must not roll back a settled charge or block the response path.
@@ -562,55 +663,9 @@ export async function postPaidPaymentToQbo(paymentId: string): Promise<void> {
       logInfo("qbo.sync.skipped", { reason: "not_ddb_settled", paymentId });
       return;
     }
-    const paidAtMs = timestampMillis(payment.paidAt);
-    const externalRefs: Record<string, string> = {};
-    if (
-      typeof payment.stripeCheckoutSessionId === "string" &&
-      payment.stripeCheckoutSessionId
-    ) {
-      externalRefs.checkoutSessionId = payment.stripeCheckoutSessionId;
-    }
-    if (
-      typeof payment.stripePaymentIntentId === "string" &&
-      payment.stripePaymentIntentId
-    ) {
-      externalRefs.paymentIntentId = payment.stripePaymentIntentId;
-    }
-    if (typeof payment.stripeChargeId === "string" && payment.stripeChargeId) {
-      externalRefs.chargeId = payment.stripeChargeId;
-    }
-    const { syncId } = await enqueueAccountingTransaction({
-      sourceType: QBO_STRIPE_PAYMENT_SOURCE_TYPE,
-      sourceId: paymentId,
-      amountMinorUnits:
-        typeof payment.amountMinor === "number" ? payment.amountMinor : 0,
-      currency:
-        typeof payment.currency === "string" && payment.currency
-          ? payment.currency
-          : "usd",
-      transactionDate: new Date(paidAtMs ?? Date.now()).toISOString(),
-      customerName:
-        typeof payment.customerName === "string"
-          ? payment.customerName
-          : undefined,
-      customerEmail:
-        typeof payment.customerEmail === "string"
-          ? payment.customerEmail
-          : undefined,
-      purpose:
-        typeof payment.purpose === "string" ? payment.purpose : undefined,
-      description:
-        typeof payment.description === "string"
-          ? payment.description
-          : undefined,
-      externalRefs: Object.keys(externalRefs).length ? externalRefs : undefined,
-      tourDate:
-        typeof payment.tourDate === "string" ? payment.tourDate : undefined,
-      attendeeCount:
-        typeof payment.attendeeCount === "number"
-          ? payment.attendeeCount
-          : undefined,
-    });
+    const { syncId } = await enqueueAccountingTransaction(
+      qboStripePaymentCandidate(payment, paymentId)
+    );
     await processQboSyncRecord(syncId);
   } catch (error) {
     // A deployment without QBO configured hits this on every paid

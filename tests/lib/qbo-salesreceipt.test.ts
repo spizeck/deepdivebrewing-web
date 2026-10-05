@@ -10,6 +10,7 @@ import {
   canonicalizeQboSalesReceiptCreated,
   canonicalizeQboSalesReceiptRefs,
   qboSalesReceiptCorrelationQuery,
+  qboSalesReceiptRowCount,
 } from "@/lib/qbo-protocol";
 import { QboError } from "@/lib/qbo-errors";
 
@@ -176,11 +177,27 @@ describe("canonicalizeQboSalesReceiptCreated", () => {
 });
 
 describe("sales receipt correlation lookup", () => {
-  it("queries recent receipts for the mapped customer", () => {
-    const query = qboSalesReceiptCorrelationQuery("cust'7");
+  it("queries recent receipts for the mapped customer with pagination", () => {
+    const query = qboSalesReceiptCorrelationQuery("cust'7", 101, 50);
     assert.ok(query.includes("SalesReceipt"));
     assert.ok(query.includes("CustomerRef = 'cust7'")); // sanitized id
     assert.ok(query.includes("PrivateNote"));
+    assert.ok(query.includes("startposition 101"));
+    assert.ok(query.includes("maxresults 50"));
+    // TxnDate is the documented sortable field — MetaData.CreateTime is
+    // not, so the recovery window orders by it.
+    assert.ok(query.includes("orderby TxnDate"));
+  });
+
+  it("counts raw SalesReceipt rows for the pagination signal", () => {
+    assert.strictEqual(
+      qboSalesReceiptRowCount({
+        QueryResponse: { SalesReceipt: [{ Id: "1" }, { Id: "2" }] },
+      }),
+      2
+    );
+    assert.strictEqual(qboSalesReceiptRowCount({ QueryResponse: {} }), 0);
+    assert.strictEqual(qboSalesReceiptRowCount(null), 0);
   });
 
   it("canonicalizes id + privateNote refs for marker matching", () => {

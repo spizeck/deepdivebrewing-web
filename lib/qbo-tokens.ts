@@ -18,6 +18,7 @@ import {
   QBO_REFRESH_LEASE_MS,
   QBO_REFRESH_WAIT_ATTEMPTS,
   QBO_REFRESH_WAIT_DELAY_MS,
+  QBO_REQUEST_TIMEOUT_MS,
   type QboTokenEndpointRequest,
   type QboTokenSet,
 } from "@/lib/qbo-protocol";
@@ -90,6 +91,9 @@ export async function requestQboTokens(
       method: "POST",
       headers: request.headers,
       body: request.body,
+      // Bounded so a stalled token endpoint cannot hold the refresh
+      // lease (or a sync claim) open indefinitely.
+      signal: AbortSignal.timeout(QBO_REQUEST_TIMEOUT_MS),
     });
   } catch {
     throw new QboError(

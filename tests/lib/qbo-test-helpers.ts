@@ -23,6 +23,7 @@ interface FakeSnapshot {
 
 export interface FakeDocRef {
   path: string;
+  collection(name: string): { doc(id?: string): FakeDocRef };
   get(): Promise<FakeSnapshot>;
   update(data: Doc): Promise<void>;
   set(data: Doc): Promise<void>;
@@ -32,11 +33,12 @@ interface FakeTx {
   get(ref: FakeDocRef): Promise<FakeSnapshot>;
   create(ref: FakeDocRef, data: Doc): void;
   update(ref: FakeDocRef, data: Doc): void;
+  set(ref: FakeDocRef, data: Doc): void;
 }
 
 export interface FakeFirestore {
   db: {
-    collection(name: string): { doc(id: string): FakeDocRef };
+    collection(name: string): { doc(id?: string): FakeDocRef };
     runTransaction<T>(fn: (tx: FakeTx) => T | Promise<T>): Promise<T>;
   };
   /** Live document contents keyed by "collection/docId". Tests may read
@@ -116,11 +118,20 @@ export function createFakeFirestore(): FakeFirestore {
       applyWrite(ref.path, data);
     },
     update: (ref, data) => applyWrite(ref.path, data),
+    set: (ref, data) => applyWrite(ref.path, data),
   };
+
+  let autoIdCounter = 0;
+  // Stand-in for Firestore's client-generated document id — unique per
+  // test run and clearly synthetic.
+  const autoId = () => `__auto_${++autoIdCounter}`;
 
   function docRef(path: string): FakeDocRef {
     return {
       path,
+      collection: (name: string) => ({
+        doc: (id?: string) => docRef(`${path}/${name}/${id ?? autoId()}`),
+      }),
       get: () =>
         failGet.has(path)
           ? Promise.reject(new Error(`Simulated Firestore failure: ${path}`))
@@ -132,7 +143,7 @@ export function createFakeFirestore(): FakeFirestore {
 
   const db = {
     collection: (name: string) => ({
-      doc: (id: string) => docRef(`${name}/${id}`),
+      doc: (id?: string) => docRef(`${name}/${id ?? autoId()}`),
     }),
     runTransaction: <T>(fn: (t: FakeTx) => T | Promise<T>) =>
       Promise.resolve(fn(tx)),
