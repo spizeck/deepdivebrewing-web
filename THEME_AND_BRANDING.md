@@ -327,7 +327,9 @@ nearest token instead.
   pattern: content fades up once it enters the viewport via
   IntersectionObserver (one-shot, no re-triggering). Use it for
   editorial section reveals — not for content that must be instantly
-  scannable (forms, dense listings, FAQs). Reduced-motion sessions get
+  scannable (forms, dense listings, FAQs) or sits above the fold, since
+  the hidden state is armed only when the component's effect runs
+  (fail-visible if JS never hydrates). Reduced-motion sessions get
   instant visibility with no movement.
 * `animate-hero-fade` + `animate-delay-*` classes handle page-load reveals;
   stagger is used sparingly on the homepage hero only.
