@@ -138,11 +138,21 @@ export function SiteNav() {
       }
     }
 
+    // The mobile menu unrenders at the lg breakpoint; an open state that
+    // survives into desktop widths would keep trapping Tab inside the nav
+    // with no menu visible, so close it as the viewport widens.
+    const desktopMedia = window.matchMedia("(min-width: 64rem)");
+    function onDesktopChange(event: MediaQueryListEvent) {
+      if (event.matches) setOpen(false);
+    }
+
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
+    desktopMedia.addEventListener("change", onDesktopChange);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
+      desktopMedia.removeEventListener("change", onDesktopChange);
     };
   }, [open]);
 
