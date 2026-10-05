@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
-import { SiteHeader } from "@/components/site-header";
+import { SiteNav } from "@/components/site-nav";
 import IntroSection from "@/components/home/IntroSection";
 import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
@@ -59,7 +59,7 @@ export default async function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(breweryJsonLd) }}
       />
-      <SiteHeader />
+      <SiteNav />
       <main id="main-content" tabIndex={-1}>
         {/* Hero — full viewport, grain photo, extends behind header */}
         <section className="relative h-screen w-full overflow-hidden">
@@ -96,7 +96,7 @@ export default async function Home() {
             <Button
               variant="outline"
               asChild
-              className="h-11 min-h-[44px] border-paper/30 px-6 text-paper hover:bg-paper/10"
+              className="h-11 min-h-[44px] border-paper/40 bg-transparent px-6 text-paper hover:bg-paper/10 hover:text-paper"
             >
               <Link
                 href="/where-to-buy"
@@ -115,7 +115,7 @@ export default async function Home() {
             <TourInquiryCta
               ctaLocation="homepage_hero"
               variant="outline"
-              className="h-11 min-h-[44px] border-paper/30 px-6 text-paper hover:bg-paper/10"
+              className="h-11 min-h-[44px] border-paper/40 bg-transparent px-6 text-paper hover:bg-paper/10 hover:text-paper"
             >
               Book a Brewery Tour
             </TourInquiryCta>

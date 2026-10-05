@@ -3,7 +3,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 import Link from "next/link";
-import { SiteHeaderDefault } from "@/components/site-header-default";
+import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
 
 // Root error boundary: an unhandled render error in any page lands here with
@@ -33,11 +33,11 @@ export default function Error({
 
   return (
     <>
-      <SiteHeaderDefault />
+      <SiteNav />
       <main
         id="main-content"
         tabIndex={-1}
-        className="mx-auto max-w-300 px-6 pb-20 pt-15 text-center md:pb-30"
+        className="mx-auto max-w-300 px-6 pb-20 pt-24 text-center md:pb-30"
       >
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
           Something went wrong
