@@ -298,7 +298,7 @@ coupled to QBO availability — see §13.
 
 | Payment-tool transition | Sync record | QBO write |
 | --- | --- | --- |
-| `paid` (via `checkout.session.completed`/async or manual refresh) | `stripe_payment` enqueue at the `paid` commit | `SalesReceipt` (gross → clearing) |
+| `paid` (via `checkout.session.completed`/async or manual refresh) | `stripe_payment` enqueue at the `paid` commit | `SalesReceipt` (gross → clearing) — **implemented (#179)** |
 | `refunded` (via `commitRefund`) | `stripe_refund` enqueue at the `refunded` commit | `RefundReceipt` referencing the original receipt's lines |
 | `processing`, `failed`, `expired`, `canceled`, `created`, `awaiting_payment` | none | none — no money moved |
 | Dashboard refund (outside the app) | **gap** — see §8 | **gap** — see §8 |
@@ -308,6 +308,13 @@ The enqueue happens inside the same code path that commits the status
 transition (`applyOutcome`/`commitRefund`), best-effort after the
 Firestore commit so a QBO-side hiccup can never roll back a payment
 transition.
+
+**Implemented trigger (#179):** `postPaidPaymentToQbo(paymentId)` runs
+after every `paid` commit — inside `applyOutcome` (manual refresh and
+the cancel-race path) and after `processStripeEvent` in the webhook
+handler. It builds the `stripe_payment` candidate from the canonical
+`payments` record, enqueues it, and attempts the write inline. The
+helper never throws and never touches the payment record.
 
 ## 8. Refund model
 
@@ -417,53 +424,61 @@ deterministic internal identity, QBO ids as correlation only.
 
 - A replayed `paid` transition, a redelivered Stripe webhook, or a
   retried worker run hits the existing `qboSyncRecords` document and
-  returns `duplicate` — never a second Sales Receipt.
-- Worker behavior on an existing record: `synced` → no-op; `syncing`
-  (stale lease) → re-check whether a QBO write actually landed
-  (query by a stored doc number/private note correlation) before
-  writing again; `failed` → retry per §13.
-- The QBO-side correlation written into the Sales Receipt (e.g.
-  `PrivateNote`/`DocNumber` containing `paymentId` + `paymentIntentId`)
-  gives a findable, human-auditable back-reference — belt to the
-  Firestore-dedupe suspenders, not a replacement.
+  returns `duplicate`/`already_synced` — never a second Sales Receipt.
+- **Implemented worker behavior (#179):** a Firestore transaction claims
+  `pending`/`failed`/stale-`syncing` records under a 2-minute
+  `syncingLeaseUntil` lease — one claimant at a time. `synced` →
+  `already_synced` no-op. `needs_attention` → terminal until a human
+  requeues.
+- **Provider-side recovery (implemented):** QBO offers no idempotency
+  key on create, so before every `POST /salesreceipt` the worker queries
+  the customer's recent receipts for the `ddb:<paymentId>` PrivateNote
+  marker. A write that landed but whose response was lost is adopted —
+  the record stores its entity id and marks `synced`.
+- The QBO-side correlation written into the Sales Receipt
+  (`PrivateNote` = `ddb:<paymentId>` + Stripe PI/charge refs,
+  `DocNumber` = `DDB-…` truncated to 21 chars) gives a findable,
+  human-auditable back-reference — belt to the Firestore-dedupe
+  suspenders, not a replacement.
 
 ## 13. Failure / retry behavior
 
 - **Enqueue is best-effort, post-commit**: if it throws, the payment is
   still `paid`; a sweeper finds payments with no sync record and enqueues
   them (reconciliation job or on-demand admin action).
-- **Trigger mechanism (open design point):** no cron exists in this repo
-  today (`vercel.json` has no `crons`). Options: (a) Vercel Cron hitting
-  an authenticated sweep route — preferred, bounded, observable; (b)
-  fire-and-forget processing inside the Stripe webhook request —
-  simplest but dies with the request on hard failure; (c) enqueue-then-
-  sweep hybrid: attempt inline, sweep hourly for stragglers. Decide in
-  the implementation issue.
+- **Trigger mechanism (implemented, #179):** enqueue + inline write
+  attempt inside the request that committed `paid` — no cron exists in
+  this repo today (`vercel.json` has no `crons`). A bounded sweep route
+  for `pending`/`failed` stragglers remains #183.
 - **Attempts/backoff:** `attempts` counter + `lastAttemptAt` exist on
-  the record; bounded retries on transient `QboError`s
-  (`unavailable`/`rate-limited`), straight to `needs_attention` on
-  `validation` (bad mapping, deleted entity) — human fixes config, then
-  a retry action re-queues.
-- **`invalid_grant` / reauthorization_required:** sync pauses cleanly;
-  pending records accumulate safely until reconnect.
-- **QBO write succeeded but response lost:** the worst case — a
-  `syncing` record with no recorded `qboEntityId` must be reconciled by
-  querying for the correlation reference (§12) before re-posting.
+  the record; transient `QboError`s (`unavailable`/`rate_limited`,
+  token `refresh_failed`, Stripe fetch failures) land in `failed` —
+  retryable. `validation`/`permission_denied`/`configuration`,
+  unmapped purposes, missing mappings, and canonical-state mismatches
+  go straight to `needs_attention` — human fixes config, then a retry
+  action re-queues (manual `pending` reset until #183 ships).
+- **`invalid_grant` / reauthorization_required:** sync pauses cleanly
+  (`failed` + `authorization_expired`); records accumulate safely until
+  reconnect.
+- **QBO write succeeded but response lost:** handled — the correlation
+  query in §12 adopts the landed receipt instead of re-posting.
 
 ## 14. Rollout plan
 
-1. **Pre-flight gate (blocking):** Chad completes §2 inspection; answers
-   recorded in the implementation issue. If an existing revenue leg is
-   found → pivot to Option D before any write work.
-2. Create the **Stripe clearing account** in QBO (manual, accountant
-   confirms type — typically Other Current Asset or Bank).
+1. ~~**Pre-flight gate (blocking)**~~ — resolved by #178: the two-lane
+   evidence confirmed DDB payments have no QBO record.
+2. ~~Create the **Stripe clearing account** in QBO~~ — exists (`Stripe
+   Balance`, intentionally holds retained funds).
 3. Configure mappings (clearing + 3 items + generic customer; tax code
-   left unset).
-4. Implement the sync worker behind the existing seam; **shadow mode
-   first** (compute + log what would post, no writes) for a soak period.
-5. Enable writes for **new** payments only; verify the first payout
-   reconciliation with the accountant.
-6. Optional: backfill prior settled payments via a bounded admin action.
+   left unset). Until configured, sync records land in `needs_attention`
+   — writes are inert by construction, which provides the intended
+   rollout safety without a separate shadow mode.
+4. ~~Implement the sync worker behind the existing seam~~ — implemented
+   in #179 (inline attempt at the `paid` commit; durable record).
+5. Verify the first real Sales Receipt + the first mixed-source payout
+   reconciliation with the accountant before calling the lane done.
+6. Optional: backfill prior settled payments via a bounded admin action
+   — explicitly not part of #179.
 7. Refund sync after refund coverage (incl. Dashboard-refund gap) is
    decided.
 8. Only then consider: fee automation, recon reports, per-customer

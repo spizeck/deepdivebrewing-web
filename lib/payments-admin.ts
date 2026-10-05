@@ -2,6 +2,7 @@ import "server-only";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { getStripeClient } from "@/lib/stripe";
+import { postPaidPaymentToQbo } from "@/lib/qbo-sync";
 import {
   getStripeWebhookSecret,
   resolveCheckoutReturnBaseUrl,
@@ -376,7 +377,7 @@ async function applyOutcome(
 ): Promise<boolean> {
   if (!outcome) return false;
   const ref = getPaymentsCollection().doc(id);
-  return getFirebaseAdminDb().runTransaction(async (tx) => {
+  const applied = await getFirebaseAdminDb().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw new PaymentNotFoundError();
     const record = (snap.data() ?? {}) as Record<string, unknown>;
@@ -397,6 +398,14 @@ async function applyOutcome(
     });
     return true;
   });
+  if (applied && outcome.transition === "paid") {
+    // #179 — post the QBO revenue leg for this settled DDB payment.
+    // Best-effort post-commit: the helper is idempotent and swallows its
+    // own errors, so an accounting-export hiccup can never roll the
+    // payment back.
+    await postPaidPaymentToQbo(id);
+  }
+  return applied;
 }
 
 // Best-effort receipt/card enrichment for a `paid` transition. Failures are
@@ -1062,5 +1071,15 @@ export async function handleStripeWebhook(
     paymentId: result.paymentId,
     toStatus: result.toStatus,
   });
+  if (
+    result.status === "applied" &&
+    result.toStatus === "paid" &&
+    result.paymentId
+  ) {
+    // #179 — same post-commit seam as applyOutcome: enqueue + attempt the
+    // Sales Receipt inline. Never throws; failure lands on the durable
+    // sync record for retry.
+    await postPaidPaymentToQbo(result.paymentId);
+  }
   return result;
 }

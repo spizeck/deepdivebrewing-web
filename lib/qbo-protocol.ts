@@ -14,10 +14,12 @@ import {
   QBO_TOKEN_URL,
   qboApiBaseUrl,
 } from "@/lib/qbo-config";
-import type {
-  QboDiscoveryEntityType,
-  QboEntitySummary,
-  QboEnvironment,
+import {
+  qboSalesReceiptDocNumber,
+  qboSalesReceiptMarker,
+  type QboDiscoveryEntityType,
+  type QboEntitySummary,
+  type QboEnvironment,
 } from "@/lib/qbo-common";
 
 // --- OAuth state ---
@@ -559,6 +561,147 @@ export function canonicalizeQboQueryEntities(
       type: entityType,
       detail,
       active: r.Active !== false,
+    });
+  }
+  return out;
+}
+
+// --- Sales Receipt writes (issue #179) ---
+
+// Everything needed to construct one gross Sales Receipt for a settled
+// DDB-admin payment. All ids come from the validated accounting mapping
+// — never hard-coded account/item/customer ids.
+export interface QboSalesReceiptSpec {
+  /** Internal payment id — the durable source identity. */
+  sourceId: string;
+  /** Gross charge amount in integer minor units (cents). */
+  amountMinor: number;
+  /** Uppercase ISO-4217 code recorded on the payment (today: USD). */
+  currency: string;
+  /** Settlement instant (payment `paidAt`), epoch ms. */
+  paidAtMs: number;
+  description?: string;
+  clearingAccountId: string;
+  incomeItemId: string;
+  customerId: string;
+  paymentIntentId?: string;
+  chargeId?: string;
+  /** `"NotApplicable"` for non-US companies (QBO requires the field on
+   *  sales transactions there); undefined for US companies, which reject
+   *  it. Tax posting itself stays disabled — see design §10. */
+  globalTaxCalculation?: "NotApplicable";
+}
+
+const QBO_PRIVATE_NOTE_MAX = 500;
+const QBO_LINE_DESCRIPTION_MAX = 500;
+
+// Builds the POST /salesreceipt body. The gross customer charge is posted
+// (never Stripe net — fees are #181) as a single SalesItemLineDetail line
+// against the mapped item, deposited to the mapped Stripe clearing/
+// balance account. No TaxCodeRef is ever sent: tax policy for the CW
+// company is an open accountant question (#184).
+export function buildQboSalesReceiptPayload(
+  spec: QboSalesReceiptSpec
+): Record<string, unknown> {
+  const gross = spec.amountMinor / 100;
+  const refs = [
+    `Deep Dive Brewing payment ${qboSalesReceiptMarker(spec.sourceId)}`,
+    spec.paymentIntentId ? `Stripe PI ${spec.paymentIntentId}` : null,
+    spec.chargeId ? `charge ${spec.chargeId}` : null,
+  ].filter((part): part is string => part !== null);
+
+  return {
+    TxnDate: new Date(spec.paidAtMs).toISOString().slice(0, 10),
+    CurrencyRef: { value: spec.currency },
+    CustomerRef: { value: spec.customerId },
+    DepositToAccountRef: { value: spec.clearingAccountId },
+    DocNumber: qboSalesReceiptDocNumber(spec.sourceId),
+    PrivateNote: refs.join("; ").slice(0, QBO_PRIVATE_NOTE_MAX),
+    ...(spec.globalTaxCalculation
+      ? { GlobalTaxCalculation: spec.globalTaxCalculation }
+      : {}),
+    Line: [
+      {
+        Amount: gross,
+        DetailType: "SalesItemLineDetail",
+        ...(spec.description
+          ? { Description: spec.description.slice(0, QBO_LINE_DESCRIPTION_MAX) }
+          : {}),
+        SalesItemLineDetail: {
+          ItemRef: { value: spec.incomeItemId },
+          Qty: 1,
+          UnitPrice: gross,
+        },
+      },
+    ],
+  };
+}
+
+// Canonical shape returned by POST /salesreceipt — only the provider
+// entity id crosses the boundary (it is a correlation reference, never
+// the dedupe key).
+export function canonicalizeQboSalesReceiptCreated(payload: unknown): {
+  id: string;
+} {
+  const receipt =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).SalesReceipt
+      : undefined;
+  const id =
+    typeof receipt === "object" && receipt !== null
+      ? (receipt as Record<string, unknown>).Id
+      : undefined;
+  if (typeof id !== "string" && typeof id !== "number") {
+    throw new QboError(
+      "QuickBooks returned a malformed sales receipt response.",
+      "unexpected"
+    );
+  }
+  return { id: String(id) };
+}
+
+// Query statement for provider-side recovery: recent receipts posted to
+// the mapped generic customer. PrivateNote is not queryable server-side,
+// so the statement bounds the window and callers match the correlation
+// marker locally. A landed-but-untracked write is always recent at retry
+// time, so the most recent receipts are sufficient.
+export function qboSalesReceiptCorrelationQuery(
+  customerId: string
+): string {
+  const safe = customerId.replace(/[^A-Za-z0-9_-]/g, "");
+  return `select Id, PrivateNote, TxnDate from SalesReceipt where CustomerRef = '${safe}' orderby TxnDate desc maxresults 25`;
+}
+
+export interface QboSalesReceiptRef {
+  id: string;
+  privateNote?: string;
+}
+
+export function canonicalizeQboSalesReceiptRefs(
+  payload: unknown
+): QboSalesReceiptRef[] {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>).SalesReceipt
+      : undefined;
+  if (!Array.isArray(rows)) return [];
+  const out: QboSalesReceiptRef[] = [];
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const r = row as Record<string, unknown>;
+    const id =
+      typeof r.Id === "string" || typeof r.Id === "number"
+        ? String(r.Id)
+        : "";
+    if (!id) continue;
+    out.push({
+      id,
+      privateNote:
+        typeof r.PrivateNote === "string" ? r.PrivateNote : undefined,
     });
   }
   return out;

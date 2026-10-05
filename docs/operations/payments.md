@@ -163,6 +163,20 @@ card refunds can be asynchronous (`pending`), but reconciliation is driven
 by the next staff refund request checking canonical `Refund.status`, so
 a webhook subscription would add surface without changing the outcome.
 
+## QuickBooks posting (settled payments)
+
+Every canonical `paid` commit — webhook-applied or manual-refresh — also
+hands the payment to the QuickBooks sync (`postPaidPaymentToQbo`,
+`lib/qbo-sync.ts`): a durable `qboSyncRecords` entry keyed
+`{environment}:stripe_payment:{paymentId}` and an inline attempt to post
+one gross Sales Receipt to the mapped Stripe clearing account. The
+export is strictly downstream: it is best-effort, idempotent, and can
+never change the payment's status. Only payments originating in this
+tool qualify — Ollie/Spreedly and other foreign Stripe activity have no
+`payments/` record and never reach the seam. Model, mappings, failure
+behavior, and the no-backfill rule are in
+[quickbooks.md](./quickbooks.md#sales-receipt-sync-ddb-payments-only).
+
 ## Stripe API versions
 
 Two API versions coexist deliberately — the webhook endpoint is pinned to

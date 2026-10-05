@@ -4,10 +4,13 @@ import {
   buildQboQueryUrl,
   canonicalizeCompanyInfo,
   canonicalizeQboQueryEntities,
+  canonicalizeQboSalesReceiptCreated,
+  canonicalizeQboSalesReceiptRefs,
   qboApiUrl,
   qboEntityQueryStatement,
   qboErrorForHttpStatus,
   qboQueryRowCount,
+  qboSalesReceiptCorrelationQuery,
   QBO_QUERY_MAX_PAGES,
   QBO_QUERY_PAGE_SIZE,
   toQboError,
@@ -151,4 +154,71 @@ export async function queryQboEntities(input: {
     correlationId,
   });
   return out;
+}
+
+// --- Sales Receipt writes (issue #179) ---
+
+export interface QboSalesReceiptCreateResult {
+  id: string;
+  correlationId?: string;
+}
+
+// Creates one Sales Receipt. The only bookkeeping write in the entire
+// integration — callers supply a fully-built, mapping-resolved payload
+// from buildQboSalesReceiptPayload; this boundary validates nothing about
+// accounting, only transport and response shape. QBO offers no
+// idempotency key on create, so retry dedupe is the sync record plus the
+// correlation-marker query below.
+export async function createQboSalesReceipt(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  payload: Record<string, unknown>;
+}): Promise<QboSalesReceiptCreateResult> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    path: "/salesreceipt",
+    method: "POST",
+    body: input.payload,
+  });
+  const created = canonicalizeQboSalesReceiptCreated(payload);
+  logInfo("qbo.api.salesreceipt_created", {
+    environment: input.environment,
+    correlationId,
+  });
+  return { ...created, correlationId };
+}
+
+// Provider-side recovery lookup: find a Sales Receipt already carrying
+// this payment's correlation marker. Runs before every create so a
+// retry after an ambiguous outcome (write landed, response lost) adopts
+// the existing receipt instead of posting a second one.
+export async function findQboSalesReceiptForMarker(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  customerId: string;
+  marker: string;
+}): Promise<QboSalesReceiptCreateResult | null> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    url: buildQboQueryUrl(
+      input.environment,
+      input.realmId,
+      qboSalesReceiptCorrelationQuery(input.customerId)
+    ),
+  });
+  const match = canonicalizeQboSalesReceiptRefs(payload).find((ref) =>
+    ref.privateNote?.includes(input.marker)
+  );
+  logInfo("qbo.api.salesreceipt_lookup", {
+    environment: input.environment,
+    found: Boolean(match),
+    correlationId,
+  });
+  return match ? { id: match.id, correlationId } : null;
 }

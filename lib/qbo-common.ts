@@ -272,3 +272,51 @@ export function persistableQboSyncCandidate(
     Object.entries(candidate).filter(([, value]) => value !== undefined)
   ) as QuickBooksSyncCandidate;
 }
+
+// --- Sales Receipt write model (issue #179) ---
+
+// The only source type the sync worker posts today — a settled payment
+// from the app's own `payments` collection. Positive identity is
+// structural: only records the tool itself issued can carry this type.
+export const QBO_STRIPE_PAYMENT_SOURCE_TYPE = "stripe_payment";
+export const QBO_SALES_RECEIPT_ENTITY_TYPE = "SalesReceipt";
+
+// Maps a payment-tool `purpose` onto the income-item mapping field, per
+// the accounting design doc. This is the QBO side's bookkeeping decision
+// — the producer only supplies the purpose string. An unrecognized
+// purpose returns null so the worker fails closed instead of posting to
+// an arbitrary item.
+export function qboIncomeItemKeyForPurpose(
+  purpose: string | undefined
+): keyof QboAccountingMapping | null {
+  switch (purpose) {
+    // Tour-family purposes post to tour income — `additional_guests` and
+    // `private_tour` are tour volume, per the design doc.
+    case "brewery_tour":
+    case "additional_guests":
+    case "private_tour":
+      return "tourIncomeItemId";
+    case "brewery_tour_tasting":
+      return "tastingIncomeItemId";
+    case "other":
+      return "otherIncomeItemId";
+    default:
+      return null;
+  }
+}
+
+// Human-auditable correlation marker embedded in the Sales Receipt's
+// PrivateNote. Provider-side recovery (design §12 — a write that landed
+// but whose response was lost) matches on this token, so a retried sync
+// adopts the existing receipt instead of posting a duplicate.
+export function qboSalesReceiptMarker(sourceId: string): string {
+  return `ddb:${sourceId}`;
+}
+
+// QBO DocNumber is limited to 21 characters. Deriving a stable, readable
+// number from the source id gives QBO users a searchable back-reference
+// and a second dedupe handle where custom transaction numbers are on.
+export function qboSalesReceiptDocNumber(sourceId: string): string {
+  const clean = sourceId.replace(/[^A-Za-z0-9]/g, "");
+  return `DDB-${clean.slice(-17)}`.slice(0, 21);
+}
