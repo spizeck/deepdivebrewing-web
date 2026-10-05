@@ -177,6 +177,34 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
   await expect(menu).not.toBeAttached();
 });
 
+test("mobile menu traps Tab focus while open", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/beers");
+
+  const toggle = page.locator("button[aria-controls]");
+  await toggle.press("Enter");
+
+  const menu = page.getByRole("navigation", { name: "Mobile" });
+  const lastLink = menu.getByRole("link", { name: "Trade" });
+  const brandLink = page.getByRole("link", {
+    name: "Deep Dive Brewing Co",
+  });
+
+  // Tab past the final link must wrap to the first nav control instead of
+  // escaping to page content behind the open menu.
+  await lastLink.focus();
+  await page.keyboard.press("Tab");
+  await expect(brandLink).toBeFocused();
+
+  // Shift+Tab from the first control wraps back to the final link.
+  await page.keyboard.press("Shift+Tab");
+  await expect(lastLink).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(menu).not.toBeAttached();
+  await expect(toggle).toBeFocused();
+});
+
 test("trade form exposes labels, autocomplete, and required state", async ({
   page,
 }) => {

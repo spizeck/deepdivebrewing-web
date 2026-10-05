@@ -101,7 +101,8 @@ export function SiteNav() {
   }, []);
 
   // While the menu is open: Escape dismisses and restores focus to the
-  // toggle; a press outside the pill dismisses it.
+  // toggle; Tab/Shift+Tab cycle within the pill so focus cannot escape to
+  // page content behind the open menu; a press outside the pill dismisses it.
   useEffect(() => {
     if (!open) return;
 
@@ -109,6 +110,25 @@ export function SiteNav() {
       if (event.key === "Escape") {
         setOpen(false);
         menuButtonRef.current?.focus();
+        return;
+      }
+      if (event.key !== "Tab" || !containerRef.current) return;
+
+      const focusables = Array.from(
+        containerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.getClientRects().length > 0);
+      if (focusables.length < 2) return;
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     }
 
