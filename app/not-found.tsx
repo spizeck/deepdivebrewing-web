@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteNav } from "@/components/site-nav";
+import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
@@ -20,18 +21,30 @@ export default function NotFound() {
         tabIndex={-1}
         className="mx-auto max-w-300 px-6 pb-20 pt-24 text-center md:pb-30"
       >
-        <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        <BrandMark
+          tone="black"
+          size={72}
+          decorative
+          className="mx-auto opacity-80"
+        />
+        <p className="mt-6 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           404
         </p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
           This page could not be found
         </h1>
         <p className="mx-auto mt-3 max-w-180 text-muted-foreground">
-          The link may be outdated or the page may have moved.
+          The link may be outdated or the page may have moved. The beers,
+          however, are right where we left them.
         </p>
-        <Button asChild className="mt-8 h-11 min-h-[44px] px-6">
-          <Link href="/">Back to homepage</Link>
-        </Button>
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <Button asChild className="h-11 min-h-[44px] px-6">
+            <Link href="/">Back to homepage</Link>
+          </Button>
+          <Button asChild variant="outline" className="h-11 min-h-[44px] px-6">
+            <Link href="/beers">Browse our beers</Link>
+          </Button>
+        </div>
       </main>
     </>
   );
