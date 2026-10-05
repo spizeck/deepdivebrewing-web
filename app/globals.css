@@ -205,6 +205,9 @@ html.js .scroll-fade-in {
   transform: translateY(20px);
 }
 
+/* Must out-specify `html.js .scroll-fade-in` (0,2,1) — the html.js prefix
+   keeps this at (0,3,1). */
+html.js .scroll-fade-in.fade-in-visible,
 .scroll-fade-in.fade-in-visible {
   opacity: 1;
   transform: translateY(0);
