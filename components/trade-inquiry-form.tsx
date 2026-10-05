@@ -235,14 +235,14 @@ export function TradeInquiryForm() {
       </div>
 
       {/* Rendered only when there's an error — an always-mounted empty live
-          region is an invisible dead element for sighted users. role=alert
+          region is an invisible dead element for sighted users. role=status
           announces it the moment it appears; focus moves here so keyboard
           users land on the message (entered values are preserved). */}
       {status === "error" && (
         <div
           ref={statusRef}
           tabIndex={-1}
-          role="alert"
+          role="status"
           className="rounded-lg border border-ember/40 bg-ember/5 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ember/50"
         >
           <p className="text-sm font-medium text-ember">
