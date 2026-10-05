@@ -158,7 +158,7 @@ export default async function Home() {
             <h2 className="text-3xl font-bold tracking-tight">Our Beers</h2>
             <Link
               href="/beers"
-              className="text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
+              className="inline-flex min-h-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85"
             >
               View all &rarr;
             </Link>

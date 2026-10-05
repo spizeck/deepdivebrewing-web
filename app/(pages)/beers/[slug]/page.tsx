@@ -97,7 +97,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
       <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
         <Link
           href="/beers"
-          className="transition-opacity duration-200 hover:opacity-85"
+          className="inline-flex min-h-[44px] items-center transition-opacity duration-200 hover:opacity-85"
         >
           Our Beers
         </Link>
