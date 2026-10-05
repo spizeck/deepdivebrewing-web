@@ -72,16 +72,18 @@ below — an existing Ollie/Spreedly lane books wholesale revenue in QBO,
 while DDB-admin payments book nothing. The inspection checklist below is
 retained for how the answer was reached and what remains open.
 
-**This is the load-bearing unknown.** Per ops context, the production
-company already has Stripe-related banking/integration activity, but the
-exact mechanism is not visible to this codebase, and production QBO
-secrets (`QBO_CLIENT_SECRET`, `QBO_TOKEN_ENCRYPTION_KEY`) are Vercel
-`sensitive` env vars — not retrievable for a programmatic read. Nothing
-in the app can currently enumerate which integrations the company has or
-which records they create.
+The lane-level revenue question is **resolved** — see the two-lane
+finding below: Ollie/Spreedly invoices book wholesale revenue and tax in
+QBO, while a proven live DDB-admin payment left no QBO record. How it
+was reached: production QBO and Stripe secrets are Vercel `sensitive`
+env vars — unretrievable outside production compute — so the books were
+inspected manually in the QBO and Stripe UIs.
 
-**Required manual inspection (Chad, ~15 min in the QBO UI) before any
-write is enabled:**
+The remaining checks below cover configuration and payout detail — they
+inform mapping choices and the #181/#184 follow-ups, but they do not
+re-open the revenue-ownership decision.
+
+**Remaining pre-flight checks (informative, not revenue-gating):**
 
 1. **Apps → My Apps / connected apps** — is there a Stripe integration
    (e.g. "Stripe for QuickBooks", "Synder", "A2X", a custom connector)?
@@ -105,10 +107,10 @@ write is enabled:**
    tax at all (Curaçao OB regime), and are tour/tasting sales taxable?
    What TaxCodes did discovery return for the prod company?
 
-Until items 1–5 are answered in writing, treat the model below as
-*conditional*: it is correct if the existing Stripe path supplies only
-cash-side records (deposits, fees), and it must change if the existing
-path already posts revenue.
+Items 2–5 already have partial answers from the manual inspection
+(`Stripe Balance` clearing account exists; payouts arrive via
+Undeposited-Funds transfers and may be mixed-source; fee bookkeeping is
+partly manual). Item 6 stays pending with #184.
 
 ### Production pre-flight findings — status
 
