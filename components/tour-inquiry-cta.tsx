@@ -229,6 +229,7 @@ export function TourInquiryCta({
               min={1}
               step={1}
               inputMode="numeric"
+              autoComplete="off"
               placeholder="Number of people"
               value={partySize}
               onChange={(event) => setPartySize(event.target.value)}

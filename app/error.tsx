@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 import Link from "next/link";
 import { SiteNav } from "@/components/site-nav";
+import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 
 // Root error boundary: an unhandled render error in any page lands here with
@@ -39,7 +40,13 @@ export default function Error({
         tabIndex={-1}
         className="mx-auto max-w-300 px-6 pb-20 pt-[calc(5.75rem+env(safe-area-inset-top))] text-center md:pb-30"
       >
-        <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+        <BrandMark
+          tone="black"
+          size={72}
+          decorative
+          className="mx-auto opacity-80"
+        />
+        <h1 className="mt-6 text-3xl font-bold tracking-tight md:text-4xl">
           Something went wrong
         </h1>
         <p className="mx-auto mt-3 max-w-180 text-muted-foreground">

@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BrandMark } from "@/components/brand-mark";
 import { trackEvent } from "@/lib/analytics";
 import { TRADE_LEAD_ISLANDS, TRADE_VENUE_TYPES } from "@/lib/trade-leads-common";
 
@@ -49,6 +51,9 @@ export function TradeInquiryForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Enter-to-submit can re-fire while a request is in flight even though
+    // the button is disabled — guard so a second press never double-posts.
+    if (status === "submitting") return;
     setStatus("submitting");
     setErrorMessage("");
 
@@ -102,7 +107,13 @@ export function TradeInquiryForm() {
         aria-live="polite"
         className="rounded-lg border border-moss/30 bg-moss/5 p-8 text-center outline-none focus-visible:ring-2 focus-visible:ring-moss/50"
       >
-        <p className="font-semibold text-ink">Thanks for reaching out.</p>
+        <BrandMark
+          tone="black"
+          size={48}
+          decorative
+          className="mx-auto opacity-80"
+        />
+        <p className="mt-4 font-semibold text-ink">Thanks for reaching out.</p>
         <p className="mt-2 text-sm text-muted-foreground">
           Your inquiry is in our inbox. The Deep Dive team will follow up.
         </p>
@@ -111,7 +122,11 @@ export function TradeInquiryForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form
+      onSubmit={handleSubmit}
+      aria-busy={status === "submitting"}
+      className="space-y-6"
+    >
       {/* Honeypot: hidden from humans and assistive technology */}
       <div className="sr-only" aria-hidden="true">
         <label htmlFor="website">Website</label>
@@ -219,19 +234,36 @@ export function TradeInquiryForm() {
         />
       </div>
 
-      <div
-        ref={statusRef}
-        tabIndex={-1}
-        role="status"
-        aria-live="polite"
-        className="outline-none focus-visible:ring-2 focus-visible:ring-ember/50"
-      >
-        {status === "error" && (
-          <p className="text-sm text-ember">
+      {/* Rendered only when there's an error — an always-mounted empty live
+          region is an invisible dead element for sighted users. role=alert
+          announces it the moment it appears; focus moves here so keyboard
+          users land on the message (entered values are preserved). */}
+      {status === "error" && (
+        <div
+          ref={statusRef}
+          tabIndex={-1}
+          role="alert"
+          className="rounded-lg border border-ember/40 bg-ember/5 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ember/50"
+        >
+          <p className="text-sm font-medium text-ember">
+            We couldn&rsquo;t send your inquiry
+          </p>
+          <p className="mt-1 text-sm text-ember/90">
             {errorMessage || "Something went wrong. Please try again."}
           </p>
-        )}
-      </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your details are still here — try sending again, or reach us via
+            the{" "}
+            <Link
+              href="/contact"
+              className="font-medium text-ocean underline underline-offset-2 transition-opacity duration-200 hover:opacity-85"
+            >
+              contact page
+            </Link>{" "}
+            if it keeps happening.
+          </p>
+        </div>
+      )}
 
       <Button type="submit" disabled={status === "submitting"} className="h-11 min-h-[44px] px-6">
         {status === "submitting" ? "Sending..." : "Send inquiry"}
