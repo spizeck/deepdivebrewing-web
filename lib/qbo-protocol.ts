@@ -668,20 +668,32 @@ export function canonicalizeQboSalesReceiptCreated(payload: unknown): {
   return { id: String(id) };
 }
 
+const QBO_TXN_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 // Query statement for provider-side recovery: receipts posted to the
-// mapped generic customer, newest first. PrivateNote is not queryable
-// server-side, so the statement fetches pages and callers match the
-// correlation marker locally — pagination is required because a receipt
-// with an older/backdated TxnDate could fall outside a single page.
-// TxnDate is a documented sortable SalesReceipt field; MetaData.CreateTime
-// is not, so the sort stays on TxnDate.
+// mapped generic customer on the payment's own settlement date. The
+// `TxnDate =` equality filter is the load-bearing bound — a landed
+// receipt always carries the TxnDate we posted (paidAt), so the window
+// stays small no matter how many receipts the generic customer
+// accumulates. PrivateNote is not queryable server-side, so callers
+// match the correlation marker locally; pagination is retained as a
+// backstop for a busy settlement day. The sort uses TxnDate (a
+// documented sortable SalesReceipt field) rather than
+// MetaData.CreateTime, whose sortability is not documented.
 export function qboSalesReceiptCorrelationQuery(
   customerId: string,
+  txnDate: string,
   startPosition = 1,
   maxResults = QBO_QUERY_PAGE_SIZE
 ): string {
   const safe = customerId.replace(/[^A-Za-z0-9_-]/g, "");
-  return `select Id, PrivateNote, TxnDate from SalesReceipt where CustomerRef = '${safe}' orderby TxnDate desc startposition ${startPosition} maxresults ${maxResults}`;
+  if (!QBO_TXN_DATE_PATTERN.test(txnDate)) {
+    throw new QboError(
+      "Sales receipt recovery query requires a YYYY-MM-DD transaction date.",
+      "unexpected"
+    );
+  }
+  return `select Id, PrivateNote, TxnDate from SalesReceipt where CustomerRef = '${safe}' and TxnDate = '${txnDate}' orderby TxnDate desc startposition ${startPosition} maxresults ${maxResults}`;
 }
 
 // Raw row count in a SalesReceipt QueryResponse page — the pagination

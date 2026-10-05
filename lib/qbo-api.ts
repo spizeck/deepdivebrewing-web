@@ -211,6 +211,8 @@ export async function findQboSalesReceiptForMarker(input: {
   realmId: string;
   accessToken: string;
   customerId: string;
+  /** The receipt's posted TxnDate (YYYY-MM-DD) — the payment's paidAt. */
+  txnDate: string;
   marker: string;
 }): Promise<QboSalesReceiptCreateResult | null> {
   let correlationId: string | undefined;
@@ -224,6 +226,7 @@ export async function findQboSalesReceiptForMarker(input: {
         input.realmId,
         qboSalesReceiptCorrelationQuery(
           input.customerId,
+          input.txnDate,
           page * QBO_QUERY_PAGE_SIZE + 1,
           QBO_QUERY_PAGE_SIZE
         )

@@ -429,11 +429,12 @@ deterministic internal identity, QBO ids as correlation only.
   `already_synced` no-op. `needs_attention` → terminal until a human
   requeues.
 - **Provider-side recovery (implemented):** QBO offers no idempotency
-  key on create, so before every `POST /salesreceipt` the worker pages
-  through the customer's receipts (newest `TxnDate` first) looking for
-  the `ddb:<paymentId>` PrivateNote marker. A write that landed but
-  whose response was lost is adopted — the record stores its entity id
-  and marks `synced`.
+  key on create, so before every `POST /salesreceipt` the worker queries
+  the generic customer's receipts filtered to the payment's `TxnDate`
+  (its `paidAt`), paginating for the `ddb:<paymentId>` PrivateNote
+  marker. The date bound keeps the window small no matter how many
+  receipts accumulate. A write that landed but whose response was lost
+  is adopted — the record stores its entity id and marks `synced`.
 - **Lease fencing (implemented):** every Intuit request is bounded by a
   20-second timeout, and the worker refuses to start a create with less
   than ~30 seconds of claim lease left. A bounded create therefore can

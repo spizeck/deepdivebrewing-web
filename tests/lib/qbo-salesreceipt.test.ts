@@ -177,16 +177,36 @@ describe("canonicalizeQboSalesReceiptCreated", () => {
 });
 
 describe("sales receipt correlation lookup", () => {
-  it("queries recent receipts for the mapped customer with pagination", () => {
-    const query = qboSalesReceiptCorrelationQuery("cust'7", 101, 50);
+  it("queries the customer's receipts on the settlement date, paginated", () => {
+    const query = qboSalesReceiptCorrelationQuery(
+      "cust'7",
+      "2026-02-05",
+      101,
+      50
+    );
     assert.ok(query.includes("SalesReceipt"));
     assert.ok(query.includes("CustomerRef = 'cust7'")); // sanitized id
     assert.ok(query.includes("PrivateNote"));
+    // The TxnDate equality filter bounds the window to the payment's own
+    // settlement date — a landed receipt always carries the posted
+    // TxnDate (paidAt), no matter how many receipts the customer has.
+    assert.ok(query.includes("TxnDate = '2026-02-05'"));
     assert.ok(query.includes("startposition 101"));
     assert.ok(query.includes("maxresults 50"));
     // TxnDate is the documented sortable field — MetaData.CreateTime is
     // not, so the recovery window orders by it.
     assert.ok(query.includes("orderby TxnDate"));
+  });
+
+  it("rejects a malformed transaction date rather than building a bad query", () => {
+    assert.throws(
+      () => qboSalesReceiptCorrelationQuery("cust-1", "02/05/2026"),
+      (e) => e instanceof QboError
+    );
+    assert.throws(
+      () => qboSalesReceiptCorrelationQuery("cust-1", "2026-02-05' OR '1'='1"),
+      (e) => e instanceof QboError
+    );
   });
 
   it("counts raw SalesReceipt rows for the pagination signal", () => {

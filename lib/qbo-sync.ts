@@ -426,6 +426,7 @@ async function runSyncWrite(
       realmId,
       accessToken,
       customerId: mapping.fallbackCustomerId,
+      txnDate: new Date(paidAtMs).toISOString().slice(0, 10),
       marker: qboSalesReceiptMarker(sourceId),
     });
     if (existing) {
