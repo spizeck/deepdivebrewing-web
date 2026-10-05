@@ -25,11 +25,13 @@ interface RevealProps extends React.HTMLAttributes<HTMLElement> {
 /**
  * Shared scroll-reveal primitive (Issue #164) — the site's single
  * scroll-triggered motion pattern. Content fades/rises into place once it
- * enters the viewport (`scroll-fade-in` → `fade-in-visible` in globals.css).
+ * enters the viewport (`scroll-fade-in` → `reveal-armed` → `fade-in-visible`
+ * in globals.css).
  *
  * Reveals are one-shot and never block interaction: the element stays in the
- * SSR'd document from first paint, and reduced-motion sessions skip straight
- * to the visible state (no movement, no wait).
+ * SSR'd document from first paint, the hidden state is only armed once this
+ * effect runs (JS-disabled or failed hydration leaves content visible), and
+ * reduced-motion sessions skip straight to the visible state.
  */
 export function Reveal({
   as = "div",
@@ -49,6 +51,16 @@ export function Reveal({
       el.classList.add("fade-in-visible");
       return;
     }
+
+    // Arm the hidden start state only once this effect is live. The SSR'd
+    // element renders visible, so sessions where JS never runs or hydration
+    // fails before this effect never reach the hidden state — they stay
+    // visible. Suppressing the transition while arming prevents the style
+    // flip itself animating a fade-out for elements already in view.
+    el.style.transition = "none";
+    el.classList.add("reveal-armed");
+    el.getBoundingClientRect();
+    el.style.transition = "";
 
     const observer = new IntersectionObserver(
       ([entry]) => {

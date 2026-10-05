@@ -262,3 +262,22 @@ test("decorative hero media is hidden from assistive technology", async ({
     await expect(video).toHaveAttribute("aria-hidden", "true");
   }
 });
+
+test("scroll-revealed content stays visible without JavaScript", async ({
+  browser,
+}) => {
+  // The hidden start state is armed by the Reveal effect, so a session where
+  // JS never runs (or hydration fails before it does) renders SSR content
+  // visible rather than permanently faded out.
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto("/");
+
+  const firstReveal = page.locator(".scroll-fade-in").first();
+  await expect(firstReveal).toHaveCount(1);
+  const opacity = await firstReveal.evaluate(
+    (el) => getComputedStyle(el).opacity
+  );
+  expect(opacity).toBe("1");
+  await context.close();
+});
