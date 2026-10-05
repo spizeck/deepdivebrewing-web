@@ -107,47 +107,49 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
         </span>
       </nav>
 
-      <div className="flex flex-col gap-8 lg:flex-row lg:gap-12">
-        {/* Beer image */}
-        <div className="w-full lg:w-2/5">
-          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-stone/50">
-            <Image
-              src={beerImageUrl(beer.images.heroPath)}
-              alt={beer.name}
-              fill
-              quality={80}
-              className="object-cover"
-              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 40vw"
-            />
-          </div>
-        </div>
+      {/* Title block */}
+      <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+        {beer.name}
+      </h1>
 
-        {/* Beer details */}
-        <div className="w-full lg:w-3/5">
-          <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-            {beer.name}
-          </h1>
+      <p className="mt-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        {beer.style}
+      </p>
 
-          <p className="mt-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            {beer.style}
-          </p>
+      {/* Specs */}
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Badge variant="secondary">{beer.abv}% ABV</Badge>
+        <Badge variant="outline">{beer.status}</Badge>
+        {beer.ibu && <Badge variant="outline">{beer.ibu} IBU</Badge>}
+        {beer.srm && <Badge variant="outline">SRM {beer.srm}</Badge>}
+      </div>
 
-          {/* Specs */}
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Badge variant="secondary">{beer.abv}% ABV</Badge>
-            <Badge variant="outline">{beer.status}</Badge>
-            {beer.ibu && <Badge variant="outline">{beer.ibu} IBU</Badge>}
-            {beer.srm && <Badge variant="outline">SRM {beer.srm}</Badge>}
-          </div>
+      {/* Full-width hero image — the 16:9 hero assets are composed for
+          banner crops: a modest 4:3 on mobile keeps the can visible, 2:1
+          on wider screens gives an editorial page header. */}
+      <div className="relative mt-10 aspect-[4/3] w-full overflow-hidden rounded-lg bg-stone/50 sm:aspect-[2/1]">
+        <Image
+          src={beerImageUrl(beer.images.heroPath)}
+          alt={beer.name}
+          fill
+          priority
+          quality={80}
+          className="object-cover"
+          sizes="(max-width: 1200px) 100vw, 1200px"
+        />
+      </div>
 
+      {/* Beer details — editorial two-column body */}
+      <div className="mt-10 grid gap-10 lg:grid-cols-5">
+        <div className="lg:col-span-3">
           {/* Description */}
-          <p className="mt-6 text-muted-foreground">
+          <p className="text-lg leading-relaxed text-muted-foreground">
             {beer.descriptionShort}
           </p>
 
           {/* Tasting notes */}
           {beer.tastingNotes.length > 0 && (
-            <div className="mt-6">
+            <div className="mt-8">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-ink">
                 Tasting Notes
               </h2>
@@ -160,9 +162,11 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
               </div>
             </div>
           )}
+        </div>
 
-          {/* Where to find */}
-          <div className="mt-8 border-t border-stone pt-6">
+        {/* Where to find */}
+        <aside className="lg:col-span-2">
+          <div className="rounded-lg border border-stone bg-stone/40 p-6">
             <p className="text-sm text-muted-foreground">
               Want to try this beer?
             </p>
@@ -180,7 +184,7 @@ export default async function BeerDetailPage({ params }: BeerDetailPageProps) {
               See where to buy &rarr;
             </Link>
           </div>
-        </div>
+        </aside>
       </div>
     </main>
   );
