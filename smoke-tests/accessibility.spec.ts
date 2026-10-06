@@ -184,19 +184,29 @@ test("nav pill keeps compact geometry and 44px targets across widths", async ({
   const toggle = page.locator("button[aria-controls]");
   const brand = page.getByRole("link", { name: "Deep Dive Brewing Co" });
 
-  // Desktop: the pill hugs brand + links instead of stretching to a
-  // max-width bar. The bound is a fraction of the viewport, not a pixel
-  // snapshot — the old stretched pill was 896px at this width.
+  // Desktop: the brand and link list float as two separate pills with
+  // open space between them rather than one stretched bar — the wrapper
+  // is transparent at lg, so assert on the two pill surfaces themselves.
+  // Bounds are fractions of the viewport, not pixel snapshots.
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/beers");
 
-  let box = await pill.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box!.width).toBeLessThan(0.7 * 1280);
+  const brandPill = page
+    .getByRole("link", { name: "Deep Dive Brewing Co" })
+    .locator("..");
+  const navPill = page.getByRole("navigation", { name: "Main" });
+  const brandPillBox = await brandPill.boundingBox();
+  const navPillBox = await navPill.boundingBox();
+  expect(brandPillBox!.width).toBeLessThan(0.35 * 1280);
+  expect(navPillBox!.width).toBeLessThan(0.4 * 1280);
+  expect(
+    navPillBox!.x - (brandPillBox!.x + brandPillBox!.width)
+  ).toBeGreaterThan(80);
+  expect(
+    Math.abs(brandPillBox!.height - navPillBox!.height)
+  ).toBeLessThanOrEqual(2);
 
-  const desktopLink = page
-    .getByRole("navigation", { name: "Main" })
-    .getByRole("link", { name: "Where to Buy" });
+  const desktopLink = navPill.getByRole("link", { name: "Where to Buy" });
   const linkBox = await desktopLink.boundingBox();
   expect(linkBox!.height).toBeGreaterThanOrEqual(44);
 
@@ -207,7 +217,7 @@ test("nav pill keeps compact geometry and 44px targets across widths", async ({
     await page.setViewportSize({ width, height: 812 });
     await page.goto("/beers");
 
-    box = await pill.boundingBox();
+    const box = await pill.boundingBox();
     expect(box!.y).toBeGreaterThanOrEqual(12);
     expect(box!.x).toBeGreaterThanOrEqual(8);
     expect(box!.x + box!.width).toBeLessThanOrEqual(width - 8);

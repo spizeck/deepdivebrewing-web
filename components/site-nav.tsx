@@ -176,15 +176,16 @@ export function SiteNav() {
       <div
         ref={containerRef}
         className={cn(
-          "mx-auto max-w-3xl border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md lg:w-fit lg:max-w-none",
+          "mx-auto max-w-3xl border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md",
+          "lg:flex lg:w-full lg:max-w-300 lg:items-center lg:justify-between lg:gap-6 lg:border-0 lg:bg-transparent lg:px-6 lg:shadow-none lg:backdrop-blur-none",
           "motion-safe:transition-[border-radius] motion-safe:duration-200",
           open ? "rounded-3xl" : "rounded-full"
         )}
       >
         {/* Narrow padding scale below 400px keeps the pill's inset and the
-            brand/toggle row from colliding; lg switches to a compact
-            content-sized pill with a shorter profile. */}
-        <div className="flex h-14 items-center justify-between gap-1.5 pl-3.5 pr-1.5 min-[400px]:gap-2 min-[400px]:pl-4 min-[400px]:pr-2 sm:gap-3 sm:pl-5 sm:pr-2.5 lg:h-13 lg:gap-6">
+            brand/toggle row from colliding. At lg the row itself becomes
+            the floating brand pill; the link list floats separately. */}
+        <div className="flex h-14 items-center justify-between gap-1.5 pl-3.5 pr-1.5 min-[400px]:gap-2 min-[400px]:pl-4 min-[400px]:pr-2 sm:gap-3 sm:pl-5 sm:pr-2.5 lg:h-13 lg:rounded-full lg:border lg:border-paper/15 lg:bg-ink/85 lg:pl-4 lg:pr-5 lg:shadow-[0_1px_3px_rgba(11,15,20,0.35)] lg:backdrop-blur-md">
           <Link
             href="/"
             className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full pr-2 font-festival text-[clamp(0.9rem,calc(6vw-0.3rem),1.25rem)] leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl"
@@ -194,25 +195,6 @@ export function SiteNav() {
               Deep Dive Brewing Co
             </span>
           </Link>
-
-          <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                aria-current={isActive(link.href) ? "page" : undefined}
-                className={cn(
-                  "whitespace-nowrap rounded-full px-3.5 py-3 text-sm font-medium transition-colors duration-150",
-                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80",
-                  isActive(link.href)
-                    ? "bg-paper/15 text-paper"
-                    : "text-paper/75 hover:bg-paper/10 hover:text-paper active:bg-paper/15"
-                )}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
 
           {/* The button keeps a 44px target and focus ring; the visible
               circle is a smaller, lighter nested disc so the control reads
@@ -250,6 +232,31 @@ export function SiteNav() {
             </span>
           </button>
         </div>
+
+        {/* Desktop nav floats as its own pill on the opposite end of the
+            content column, so the wordmark and links stop competing for
+            one long strip. */}
+        <nav
+          aria-label="Main"
+          className="hidden h-13 items-center gap-1 rounded-full border border-paper/15 bg-ink/85 px-1 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md lg:flex"
+        >
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              aria-current={isActive(link.href) ? "page" : undefined}
+              className={cn(
+                "whitespace-nowrap rounded-full px-3.5 py-3 text-sm font-medium transition-colors duration-150",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80",
+                isActive(link.href)
+                  ? "bg-paper/15 text-paper"
+                  : "text-paper/75 hover:bg-paper/10 hover:text-paper active:bg-paper/15"
+              )}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
 
         {open && (
           <nav
