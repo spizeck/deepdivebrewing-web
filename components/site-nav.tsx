@@ -33,10 +33,10 @@ const SCROLL_DELTA_THRESHOLD = 8;
  * into view. Transforms are the only animated property and run under
  * `motion-safe:`, so reduced-motion sessions get an instant snap instead.
  *
- * The mobile menu is a disclosure inside the same floating object: the pill
- * opens into a rounded panel (mounted only while open), Escape closes and
- * returns focus to the toggle, outside presses dismiss it, and navigation
- * closes it.
+ * The mobile menu is a floating panel below the pill, not an expansion of
+ * it: the shell keeps its geometry while the panel reveals and dismisses
+ * as one object. Escape closes and returns focus to the toggle, outside
+ * presses dismiss it, and navigation closes it.
  */
 export function SiteNav() {
   const pathname = usePathname();
@@ -173,13 +173,13 @@ export function SiteNav() {
         hidden && "-translate-y-[calc(100%+1.5rem)]"
       )}
     >
+      {/* Anchors the floating mobile panel to the pill's box so the shell
+          itself never has to grow to host the open menu. */}
       <div
         ref={containerRef}
         className={cn(
-          "mx-auto max-w-3xl border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md",
-          "lg:flex lg:w-full lg:max-w-300 lg:items-center lg:justify-between lg:gap-6 lg:border-0 lg:bg-transparent lg:px-6 lg:shadow-none lg:backdrop-blur-none",
-          "motion-safe:transition-[border-radius] motion-safe:duration-200",
-          open ? "rounded-3xl" : "rounded-full"
+          "relative mx-auto max-w-3xl rounded-full border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md",
+          "lg:flex lg:w-full lg:max-w-300 lg:items-center lg:justify-between lg:gap-6 lg:border-0 lg:bg-transparent lg:px-6 lg:shadow-none lg:backdrop-blur-none"
         )}
       >
         {/* Narrow padding scale below 400px keeps the pill's inset and the
@@ -261,12 +261,38 @@ export function SiteNav() {
           ))}
         </nav>
 
-        {open && (
-          <nav
-            id={menuId}
-            aria-label="Mobile"
-            className="border-t border-paper/10 px-2 pb-3 pt-2 lg:hidden"
-          >
+        {/* Mobile nav — a separate floating surface below the pill, not an
+            expansion of it. The shell keeps its geometry; the panel reveals
+            as one object with a 2px settle while opacity only softens the
+            move (0.92→1 in, 1→0.92 out) — it never fades from nothing, and
+            the close reads as a dismissal rather than a retreat upward. The
+            material itself (ink/border/shadow/radius) is constant in both
+            states so nothing appears to develop mid-transition;
+            `visibility` joins the transition list so the panel hides
+            exactly when the exit finishes (discrete flip at the end on
+            close, at the start on open) instead of fading to transparent.
+            Always mounted so the same transition runs in reverse on close;
+            inert + pointer-events-none keep the hidden panel out of the
+            tab order and out from under taps. The scrollable region is
+            bounded by the viewport minus the pill's top offset + bar so
+            the last link stays reachable on very short viewports. */}
+        <nav
+          id={menuId}
+          aria-label="Mobile"
+          inert={!open}
+          className={cn(
+            // -inset-x-px aligns the panel's painted edges with the pill's
+            // border box rather than its (1px-inset) padding box.
+            "absolute -inset-x-px top-full mt-2 max-h-[calc(100dvh_-_7rem_-_env(safe-area-inset-top))] overflow-y-auto rounded-3xl border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md",
+            "motion-safe:transition-[opacity,translate,visibility] motion-safe:ease-out lg:hidden",
+            open
+              ? "visible translate-y-0 opacity-100 motion-safe:duration-[180ms]"
+              : "invisible pointer-events-none -translate-y-0.5 opacity-[0.92] motion-safe:duration-[140ms]"
+          )}
+        >
+          {/* Contiguous min-h rows keep the menu dense while every link
+              retains a comfortable tap target. */}
+          <div className="flex flex-col px-2 py-2">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
@@ -276,7 +302,7 @@ export function SiteNav() {
                 onClick={() => setOpen(false)}
                 aria-current={isActive(link.href) ? "page" : undefined}
                 className={cn(
-                  "flex min-h-[48px] items-center rounded-xl px-4 text-base font-medium animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none",
+                  "flex min-h-[48px] items-center rounded-xl px-4 text-base font-medium",
                   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80",
                   isActive(link.href)
                     ? "bg-paper/15 text-paper"
@@ -286,8 +312,8 @@ export function SiteNav() {
                 {link.label}
               </Link>
             ))}
-          </nav>
-        )}
+          </div>
+        </nav>
       </div>
     </header>
   );

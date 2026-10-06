@@ -164,6 +164,17 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
   // menu"), so locate it by its stable aria-controls hook instead.
   const toggle = page.locator("button[aria-controls]");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+  // The menu is a floating panel below the pill, not an expansion of it —
+  // opening must not move or resize the shell (no accordion growth). The
+  // panel stays mounted and inert when closed, so locate it by attribute:
+  // inert subtrees leave the accessibility tree, which role queries read.
+  const shell = page.locator("header > div").first();
+  const panel = page.locator('nav[aria-label="Mobile"]');
+  const closedBox = await shell.boundingBox();
+  await expect(panel).toHaveAttribute("inert", "");
+  await expect(panel).not.toBeVisible();
+
   await toggle.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(toggle).toHaveAccessibleName("Close menu");
@@ -171,18 +182,65 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
   const menu = page.getByRole("navigation", { name: "Mobile" });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("link", { name: "Beers" })).toBeVisible();
+  await expect(panel).not.toHaveAttribute("inert", "");
+
+  const openBox = await shell.boundingBox();
+  expect(
+    openBox,
+    "shell geometry must not change when the menu opens"
+  ).toEqual(closedBox);
+  const panelBox = await panel.boundingBox();
+  expect(
+    panelBox!.y,
+    "menu panel must sit below the pill"
+  ).toBeGreaterThanOrEqual(openBox!.y + openBox!.height);
 
   await page.keyboard.press("Escape");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(menu).not.toBeAttached();
+  await expect(panel).not.toBeVisible();
+  await expect(panel).toHaveAttribute("inert", "");
+
+  // The closed panel's links are inert: Tab from the toggle must not land
+  // inside the hidden menu.
+  await page.keyboard.press("Tab");
+  expect(
+    await panel.evaluate((el) => el.contains(document.activeElement))
+  ).toBe(false);
 
   // Selecting the current route's link never changes pathname, but the
   // menu must still close — otherwise it stays open over the same page.
   await toggle.press("Enter");
-  await expect(menu).toBeAttached();
+  await expect(menu).toBeVisible();
   await menu.getByRole("link", { name: "Beers" }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(menu).not.toBeAttached();
+  await expect(panel).not.toBeVisible();
+});
+
+test("mobile menu opens and closes instantly under reduced motion", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/beers");
+
+  const toggle = page.locator("button[aria-controls]");
+  const panel = page.locator('nav[aria-label="Mobile"]');
+
+  // No decorative transition runs: the panel switches states promptly.
+  expect(
+    await panel.evaluate((el) => getComputedStyle(el).transitionDuration)
+  ).toBe("0s");
+
+  await toggle.press("Enter");
+  await expect(panel).toBeVisible();
+  await expect(
+    panel.getByRole("link", { name: "Beers" })
+  ).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(panel).not.toBeVisible();
+  // Escape still returns focus to the toggle under reduced motion.
+  await expect(toggle).toBeFocused();
 });
 
 test("nav pill keeps compact geometry and 44px targets across widths", async ({
@@ -308,15 +366,18 @@ test("mobile menu traps Tab focus while open", async ({ page }) => {
   await expect(lastLink).toBeFocused();
 
   // Crossing into the lg breakpoint closes the menu so the trap can never
-  // apply to a menu that is no longer rendered.
+  // apply to a menu that is no longer rendered. The panel stays mounted
+  // but inert — hidden from both the accessibility tree and the tab order.
+  const panel = page.locator('nav[aria-label="Mobile"]');
   await page.setViewportSize({ width: 1024, height: 800 });
-  await expect(menu).not.toBeAttached();
+  await expect(panel).toHaveAttribute("inert", "");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
 
   await page.setViewportSize({ width: 375, height: 812 });
   await toggle.press("Enter");
   await page.keyboard.press("Escape");
-  await expect(menu).not.toBeAttached();
+  await expect(panel).not.toBeVisible();
+  await expect(panel).toHaveAttribute("inert", "");
   await expect(toggle).toBeFocused();
 });
 
