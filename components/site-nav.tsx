@@ -190,7 +190,9 @@ export function SiteNav() {
             className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full pr-2 font-festival text-[clamp(0.9rem,calc(6vw-0.3rem),1.25rem)] leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl"
           >
             <BrandMark tone="white" size={30} decorative />
-            Deep Dive Brewing Co
+            <span className="inline-block translate-y-[0.1em]">
+              Deep Dive Brewing Co
+            </span>
           </Link>
 
           <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
