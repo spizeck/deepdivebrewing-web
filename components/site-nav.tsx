@@ -188,6 +188,9 @@ export function SiteNav() {
         <div className="flex h-14 items-center justify-between gap-1.5 pl-3.5 pr-1.5 min-[400px]:gap-2 min-[400px]:pl-4 min-[400px]:pr-2 sm:gap-3 sm:pl-5 sm:pr-2.5 lg:h-13 lg:rounded-full lg:border lg:border-paper/15 lg:bg-ink/85 lg:pl-4 lg:pr-5 lg:shadow-[0_1px_3px_rgba(11,15,20,0.35)] lg:backdrop-blur-md">
           <Link
             href="/"
+            // Selecting a link to the current route never changes
+            // pathname, so close the menu on selection too.
+            onClick={() => setOpen(false)}
             className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full pr-2 font-festival text-[clamp(0.9rem,calc(6vw-0.3rem),1.25rem)] leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl"
           >
             <BrandMark tone="white" size={30} decorative />
@@ -268,6 +271,9 @@ export function SiteNav() {
               <Link
                 key={link.href}
                 href={link.href}
+                // Selecting the current route never changes pathname,
+                // so close the menu on selection too.
+                onClick={() => setOpen(false)}
                 aria-current={isActive(link.href) ? "page" : undefined}
                 className={cn(
                   "flex min-h-[48px] items-center rounded-xl px-4 text-base font-medium animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none",

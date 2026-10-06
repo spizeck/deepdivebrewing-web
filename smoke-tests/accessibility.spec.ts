@@ -175,6 +175,14 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
   await page.keyboard.press("Escape");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(menu).not.toBeAttached();
+
+  // Selecting the current route's link never changes pathname, but the
+  // menu must still close — otherwise it stays open over the same page.
+  await toggle.press("Enter");
+  await expect(menu).toBeAttached();
+  await menu.getByRole("link", { name: "Beers" }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).not.toBeAttached();
 });
 
 test("nav pill keeps compact geometry and 44px targets across widths", async ({
