@@ -24,7 +24,6 @@ for (const width of widths) {
   const page = await context.newPage();
   await page.goto(`${baseUrl}/beers`, { waitUntil: "networkidle" });
   const toggle = page.locator("button[aria-controls]");
-  const panel = page.locator('nav[aria-label="Mobile"]');
 
   async function burst(label, action, count, gapMs) {
     await action();
