@@ -233,6 +233,27 @@ test("nav pill keeps compact geometry and 44px targets across widths", async ({
   );
 });
 
+test("nav pill retreats on slow downward scroll and restores on upward", async ({
+  page,
+}) => {
+  // /privacy is long enough to scroll well past the retreat threshold.
+  await page.goto("/privacy");
+  const header = page.locator("header");
+  const headerTop = () =>
+    header.evaluate((el) => el.getBoundingClientRect().top);
+
+  // Sub-threshold increments: each scroll event moves less than the
+  // direction-change delta, so only accumulated movement may retreat the
+  // pill — a per-frame baseline never fires here.
+  for (let y = 0; y <= 400; y += 4) {
+    await page.evaluate((v) => window.scrollTo(0, v), y);
+  }
+  await expect.poll(headerTop).toBeLessThan(0);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(headerTop).toBeGreaterThanOrEqual(0);
+});
+
 test("mobile menu traps Tab focus while open", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   // /privacy is text-only: resizing mid-test can't abort in-flight image
