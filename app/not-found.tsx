@@ -18,7 +18,7 @@ export default function NotFound() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="mx-auto max-w-300 px-6 pb-20 pt-24 text-center md:pb-30"
+        className="mx-auto max-w-300 px-6 pb-20 pt-[calc(5.75rem+env(safe-area-inset-top))] text-center md:pb-30"
       >
         <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           404

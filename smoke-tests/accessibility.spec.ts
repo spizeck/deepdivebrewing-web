@@ -177,6 +177,62 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
   await expect(menu).not.toBeAttached();
 });
 
+test("nav pill keeps compact geometry and 44px targets across widths", async ({
+  page,
+}) => {
+  const pill = page.locator("header > div");
+  const toggle = page.locator("button[aria-controls]");
+  const brand = page.getByRole("link", { name: "Deep Dive Brewing Co" });
+
+  // Desktop: the pill hugs brand + links instead of stretching to a
+  // max-width bar. The bound is a fraction of the viewport, not a pixel
+  // snapshot — the old stretched pill was 896px at this width.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/beers");
+
+  let box = await pill.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeLessThan(0.7 * 1280);
+
+  const desktopLink = page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Where to Buy" });
+  const linkBox = await desktopLink.boundingBox();
+  expect(linkBox!.height).toBeGreaterThanOrEqual(44);
+
+  // Mobile: the pill floats clear of the viewport edges, the toggle keeps
+  // its 44px target inside the pill, and the wordmark never collides with
+  // the toggle (360px and below used to clip it).
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 812 });
+    await page.goto("/beers");
+
+    box = await pill.boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(12);
+    expect(box!.x).toBeGreaterThanOrEqual(8);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width - 8);
+
+    const toggleBox = await toggle.boundingBox();
+    expect(toggleBox!.width).toBeGreaterThanOrEqual(44);
+    expect(toggleBox!.height).toBeGreaterThanOrEqual(44);
+    expect(toggleBox!.x + toggleBox!.width).toBeLessThanOrEqual(
+      box!.x + box!.width
+    );
+
+    const brandBox = await brand.boundingBox();
+    expect(brandBox!.x + brandBox!.width).toBeLessThanOrEqual(toggleBox!.x);
+  }
+
+  // Narrowest supported width: the wordmark shrinks instead of clipping.
+  await page.setViewportSize({ width: 320, height: 812 });
+  await page.goto("/beers");
+  const brandBox = await brand.boundingBox();
+  const toggleBox = await toggle.boundingBox();
+  expect(brandBox!.x + brandBox!.width).toBeLessThanOrEqual(
+    toggleBox!.x + 2
+  );
+});
+
 test("mobile menu traps Tab focus while open", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   // /privacy is text-only: resizing mid-test can't abort in-flight image

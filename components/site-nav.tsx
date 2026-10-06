@@ -162,7 +162,7 @@ export function SiteNav() {
       // rather than leaving focus on an off-screen control.
       onFocusCapture={() => setHidden(false)}
       className={cn(
-        "fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4",
+        "fixed inset-x-0 top-0 z-50 px-2 pt-[calc(1rem+env(safe-area-inset-top))] min-[400px]:px-3 sm:px-5",
         "motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out",
         hidden && "-translate-y-[calc(100%+1.5rem)]"
       )}
@@ -170,15 +170,18 @@ export function SiteNav() {
       <div
         ref={containerRef}
         className={cn(
-          "mx-auto max-w-3xl border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md lg:max-w-4xl",
+          "mx-auto max-w-3xl border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md lg:w-fit lg:max-w-none",
           "motion-safe:transition-[border-radius] motion-safe:duration-200",
           open ? "rounded-3xl" : "rounded-full"
         )}
       >
-        <div className="flex h-14 items-center justify-between gap-3 pl-5 pr-2.5">
+        {/* Narrow padding scale below 400px keeps the pill's inset and the
+            brand/toggle row from colliding; lg switches to a compact
+            content-sized pill with a shorter profile. */}
+        <div className="flex h-14 items-center justify-between gap-1.5 pl-3.5 pr-1.5 min-[400px]:gap-2 min-[400px]:pl-4 min-[400px]:pr-2 sm:gap-3 sm:pl-5 sm:pr-2.5 lg:h-13 lg:gap-6">
           <Link
             href="/"
-            className="flex items-center gap-2.5 whitespace-nowrap rounded-full py-1 pr-2 font-festival text-xl leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl"
+            className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full pr-2 font-festival text-[clamp(0.9rem,calc(6vw-0.3rem),1.25rem)] leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl"
           >
             <BrandMark tone="white" size={30} decorative />
             Deep Dive Brewing Co
@@ -191,7 +194,7 @@ export function SiteNav() {
                 href={link.href}
                 aria-current={isActive(link.href) ? "page" : undefined}
                 className={cn(
-                  "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium transition-colors duration-150",
+                  "whitespace-nowrap rounded-full px-3.5 py-3 text-sm font-medium transition-colors duration-150",
                   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80",
                   isActive(link.href)
                     ? "bg-paper/15 text-paper"
@@ -203,6 +206,10 @@ export function SiteNav() {
             ))}
           </nav>
 
+          {/* The button keeps a 44px target and focus ring; the visible
+              circle is a smaller, lighter nested disc so the control reads
+              as a disclosure affordance instead of a button inside a
+              button. Hover/active styling lives on the disc via `group`. */}
           <button
             ref={menuButtonRef}
             type="button"
@@ -211,25 +218,27 @@ export function SiteNav() {
             aria-expanded={open}
             aria-controls={menuId}
             className={cn(
-              "flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-paper/15 bg-paper/10 text-paper hover:bg-paper/15 active:bg-paper/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 lg:hidden",
+              "group flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 lg:hidden",
               pressableClasses
             )}
           >
-            <span className="relative block h-5 w-5">
-              <Menu
-                aria-hidden="true"
-                className={cn(
-                  "absolute inset-0 h-5 w-5 motion-safe:transition-all motion-safe:duration-200",
-                  open ? "rotate-90 opacity-0" : "rotate-0 opacity-100"
-                )}
-              />
-              <X
-                aria-hidden="true"
-                className={cn(
-                  "absolute inset-0 h-5 w-5 motion-safe:transition-all motion-safe:duration-200",
-                  open ? "rotate-0 opacity-100" : "-rotate-90 opacity-0"
-                )}
-              />
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-paper/15 bg-paper/5 transition-colors duration-150 group-hover:border-paper/25 group-hover:bg-paper/10 group-active:bg-paper/15">
+              <span className="relative block h-4.5 w-4.5">
+                <Menu
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0 h-4.5 w-4.5 motion-safe:transition-all motion-safe:duration-200",
+                    open ? "rotate-90 opacity-0" : "rotate-0 opacity-100"
+                  )}
+                />
+                <X
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0 h-4.5 w-4.5 motion-safe:transition-all motion-safe:duration-200",
+                    open ? "rotate-0 opacity-100" : "-rotate-90 opacity-0"
+                  )}
+                />
+              </span>
             </span>
           </button>
         </div>
