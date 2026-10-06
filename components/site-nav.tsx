@@ -83,6 +83,12 @@ export function SiteNav() {
         // the threshold — otherwise dy is a per-frame delta and a slow
         // 1-2px/frame scroll never registers at all.
         if (Math.abs(dy) > SCROLL_DELTA_THRESHOLD) lastY = y;
+        // A control focused inside the header keeps it revealed — retreating
+        // here would move the focus-visible outline off-screen.
+        if (containerRef.current?.contains(document.activeElement)) {
+          setHidden(false);
+          return;
+        }
         setHidden((prev) => {
           if (openRef.current) return false;
           if (y <= RETREAT_SCROLL_THRESHOLD) return false;

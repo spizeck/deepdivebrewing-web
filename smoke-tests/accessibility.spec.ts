@@ -252,6 +252,16 @@ test("nav pill retreats on slow downward scroll and restores on upward", async (
 
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect.poll(headerTop).toBeGreaterThanOrEqual(0);
+
+  // Keyboard focus inside the header pins it: retreating while focused
+  // would move the focus-visible outline off-screen. Wait past the rAF
+  // batching and retreat transition before asserting the pin held.
+  await page
+    .getByRole("link", { name: "Deep Dive Brewing Co" })
+    .focus();
+  await page.evaluate(() => window.scrollTo(0, 600));
+  await page.waitForTimeout(500);
+  expect(await headerTop()).toBeGreaterThanOrEqual(0);
 });
 
 test("mobile menu traps Tab focus while open", async ({ page }) => {
