@@ -102,6 +102,16 @@
   --sidebar-accent-foreground: #0B0F14;
   --sidebar-border: #E6E7E3;
   --sidebar-ring: #334E68;
+
+  /* Motion tokens — the shared DDB motion language
+     (THEME_AND_BRANDING.md → Motion & Animation). Durations stay calm:
+     press feedback is the fastest thing on the site, reveals the slowest.
+     One easing curve for everything that moves. */
+  --motion-press: 150ms;
+  --motion-ui: 200ms;
+  --motion-reveal: 600ms;
+  --motion-hero: 800ms;
+  --ease-standard: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 @layer base {
@@ -145,7 +155,7 @@
 }
 
 .animate-fade-in {
-  animation: fade-in-up 600ms ease both;
+  animation: fade-in-up var(--motion-reveal) var(--ease-standard) both;
 }
 
 .animate-delay-1 {
@@ -177,17 +187,27 @@
 }
 
 .animate-hero-fade {
-  animation: hero-fade 800ms ease 200ms both;
+  animation: hero-fade var(--motion-hero) var(--ease-standard) 200ms both;
 }
 
-/* Scroll-triggered fade-in animation */
+/* Scroll-triggered fade-in — toggled by components/reveal.tsx, the shared
+   primitive for scroll reveals (Issue #164). Content renders visible in the
+   SSR'd document; the hidden start state is applied by the Reveal effect
+   itself via `reveal-armed`, so sessions without JS — or where hydration
+   never establishes the observer — keep the content visible. */
 .scroll-fade-in {
+  transition:
+    opacity var(--motion-reveal) var(--ease-standard),
+    transform var(--motion-reveal) var(--ease-standard);
+}
+
+.scroll-fade-in.reveal-armed {
   opacity: 0;
   transform: translateY(20px);
-  transition: opacity 600ms ease, transform 600ms ease;
 }
 
-.scroll-fade-in.fade-in-visible {
+/* Must out-specify `.scroll-fade-in.reveal-armed` (0,2,0). */
+.scroll-fade-in.reveal-armed.fade-in-visible {
   opacity: 1;
   transform: translateY(0);
 }
@@ -205,7 +225,7 @@
     animation-delay: 0s;
   }
 
-  .scroll-fade-in {
+  .scroll-fade-in.reveal-armed {
     opacity: 1;
     transform: none;
     transition: none;
@@ -376,8 +396,16 @@
   margin-right: 0;
   padding: 0.55em 1em;
   transition:
-    background-color 150ms ease,
-    border-color 150ms ease;
+    background-color var(--motion-press) ease,
+    border-color var(--motion-press) ease,
+    transform var(--motion-press) ease;
+}
+
+/* Same press acknowledgement as site controls (scale 0.98, motion-safe). */
+@media (prefers-reduced-motion: no-preference) {
+  #klaro .cm-btn:active {
+    transform: scale(0.98);
+  }
 }
 
 #klaro .cm-btn:hover {

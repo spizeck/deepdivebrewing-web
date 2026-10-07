@@ -222,8 +222,12 @@ gs://deepdivebrewing-web.firebasestorage.app/beers/
 * **Purpose**: Full-width hero image on individual beer detail pages (e.g., `/beers/neipa`)
 * **Format**: JPG, optimized for web
 * **File size target**: Under 400KB
-* **Behavior**: Grows with screen width, maintains aspect ratio
+* **Behavior**: Rendered as a full-width page banner — `aspect-[4/3]` on
+  mobile (keeps the can in frame) easing to `aspect-[2/1]` on wider
+  screens, `object-cover` centered
 * **Responsive**: Will be served at different sizes based on viewport
+* **Composition**: Cans/subjects should sit near the horizontal center and
+  survive modest top/bottom crops at the 2:1 banner ratio
 
 ### Naming Convention
 
@@ -302,6 +306,40 @@ When in doubt, add more space rather than less.
 * Loading states: Simple fade-in (300ms ease)
 * Page transitions: None (or instant)
 * Scroll-triggered reveals: Simple fade-in (600ms ease)
+
+### Shared motion tokens
+
+All motion derives from the tokens in `:root` (`app/globals.css`) so timing
+and easing stay consistent site-wide:
+
+* `--motion-press` (150ms) — control press/hover acknowledgement
+* `--motion-ui` (200ms) — small UI transitions (menus, chips, borders)
+* `--motion-reveal` (600ms) — fade/rise reveals and page-load fades
+* `--motion-hero` (800ms) — the homepage hero reveal only
+* `--ease-standard` — single shared easing curve for anything that moves
+
+Do not introduce per-component one-off durations or easings; pick the
+nearest token instead.
+
+### Motion primitives
+
+* `components/reveal.tsx` (`<Reveal>`) is the single scroll-triggered
+  pattern: content fades up once it enters the viewport via
+  IntersectionObserver (one-shot, no re-triggering). Use it for
+  editorial section reveals — not for content that must be instantly
+  scannable (forms, dense listings, FAQs) or sits above the fold, since
+  the hidden state is armed only when the component's effect runs
+  (fail-visible if JS never hydrates). Reduced-motion sessions get
+  instant visibility with no movement.
+* `animate-hero-fade` + `animate-delay-*` classes handle page-load reveals;
+  stagger is used sparingly on the homepage hero only.
+* Dialogs, menus, and disclosure motion come from `tw-animate-css`
+  utilities already wired into shadcn/Radix primitives — use the shared
+  components rather than hand-rolled keyframes.
+* All motion must respect `prefers-reduced-motion`: transforms are gated
+  by `motion-safe:`/`motion-reduce:` Tailwind variants or an explicit
+  `matchMedia("(prefers-reduced-motion: reduce)")` check, and the global
+  media query in `globals.css` collapses durations to near-instant.
 
 ### Interactive feedback
 
