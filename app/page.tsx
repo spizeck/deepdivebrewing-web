@@ -61,16 +61,19 @@ export default async function Home() {
       />
       <SiteNav />
       <main id="main-content" tabIndex={-1}>
-        {/* Hero — full viewport, grain photo, extends behind header */}
+        {/* Hero — full viewport, brewhouse photo, extends behind header.
+            The focal point sits left-of-center: the row of tanks and the
+            Alpha plate stay in frame while the busiest hose run drifts
+            right, away from the centered headline. */}
         <section className="relative h-screen w-full overflow-hidden">
         <Image
-          src="/photos/herograin.jpg"
+          src="/photos/herobrewhouse.jpg"
           alt=""
           fill
           priority
           quality={70}
           sizes="100vw"
-          className="object-cover"
+          className="object-cover object-[30%_50%]"
         />
         <div className="absolute inset-0 bg-ink/60" />
         <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center animate-hero-fade">

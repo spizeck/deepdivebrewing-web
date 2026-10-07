@@ -184,17 +184,20 @@ export function SiteNav() {
       >
         {/* Narrow padding scale below 400px keeps the pill's inset and the
             brand/toggle row from colliding. At lg the row itself becomes
-            the floating brand pill; the link list floats separately. */}
-        <div className="flex h-14 items-center justify-between gap-1.5 pl-3.5 pr-1.5 min-[400px]:gap-2 min-[400px]:pl-4 min-[400px]:pr-2 sm:gap-3 sm:pl-5 sm:pr-2.5 lg:h-13 lg:rounded-full lg:border lg:border-paper/15 lg:bg-ink/85 lg:pl-4 lg:pr-5 lg:shadow-[0_1px_3px_rgba(11,15,20,0.35)] lg:backdrop-blur-md">
+            the floating brand pill; the link list floats separately. On
+            desktop the hero already carries the full wordmark, so the
+            brand pill compacts to the turtle mark alone — the text stays
+            mounted as sr-only so the link keeps its accessible name. */}
+        <div className="flex h-14 items-center justify-between gap-1.5 pl-3.5 pr-1.5 min-[400px]:gap-2 min-[400px]:pl-4 min-[400px]:pr-2 sm:gap-3 sm:pl-5 sm:pr-2.5 lg:h-13 lg:rounded-full lg:border lg:border-paper/15 lg:bg-ink/85 lg:px-4 lg:shadow-[0_1px_3px_rgba(11,15,20,0.35)] lg:backdrop-blur-md">
           <Link
             href="/"
             // Selecting a link to the current route never changes
             // pathname, so close the menu on selection too.
             onClick={() => setOpen(false)}
-            className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full pr-2 font-festival text-[clamp(0.9rem,calc(6vw-0.3rem),1.25rem)] leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl"
+            className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full pr-2 font-festival text-[clamp(0.9rem,calc(6vw-0.3rem),1.25rem)] leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl lg:w-11 lg:justify-center lg:pr-0"
           >
             <BrandMark tone="white" size={30} decorative />
-            <span className="inline-block translate-y-[0.1em]">
+            <span className="inline-block translate-y-[0.1em] lg:sr-only">
               Deep Dive Brewing Co
             </span>
           </Link>
@@ -271,7 +274,13 @@ export function SiteNav() {
             `visibility` joins the transition list so the panel hides
             exactly when the exit finishes (discrete flip at the end on
             close, at the start on open) instead of fading to transparent.
-            Always mounted so the same transition runs in reverse on close;
+            The body is solid ink (vs the pill's 85%): translucency
+            reads attractively over the hero photo, but an open menu
+            over a light interior page kept the page's own headings
+            legible through the panel even at 98-99% ink — solid is
+            the only value that fully silences the copy behind it.
+            Always mounted so the same transition runs in
+            reverse on close;
             inert + pointer-events-none keep the hidden panel out of the
             tab order and out from under taps. The scrollable region is
             bounded by the viewport minus the pill's top offset + bar so
@@ -283,7 +292,7 @@ export function SiteNav() {
           className={cn(
             // -inset-x-px aligns the panel's painted edges with the pill's
             // border box rather than its (1px-inset) padding box.
-            "absolute -inset-x-px top-full mt-2 max-h-[calc(100dvh_-_7rem_-_env(safe-area-inset-top))] overflow-y-auto rounded-3xl border border-paper/15 bg-ink/85 shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md",
+            "absolute -inset-x-px top-full mt-2 max-h-[calc(100dvh_-_7rem_-_env(safe-area-inset-top))] overflow-y-auto rounded-3xl border border-paper/15 bg-ink shadow-[0_1px_3px_rgba(11,15,20,0.35)] backdrop-blur-md",
             "motion-safe:transition-[opacity,translate,visibility] motion-safe:ease-out lg:hidden",
             open
               ? "visible translate-y-0 opacity-100 motion-safe:duration-[180ms]"

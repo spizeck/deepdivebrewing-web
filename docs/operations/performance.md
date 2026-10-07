@@ -106,7 +106,7 @@ re-creates the contention it solves.
   The video only loads when the section scrolls into view on desktop
   without reduced-motion — it never competes with initial load. The
   static poster is `photos/video-still.jpg` (approved brewery still,
-  distinct from the `herograin.jpg` hero image above it).
+  distinct from the `herobrewhouse.jpg` hero image above it).
 - **`/beers/[slug]` is now static** (Issue #104): `generateStaticParams`
   enumerates build-time slugs with `dynamicParams = false`, reading via
   `getDocsFromServer` so a backend failure throws and fails the build

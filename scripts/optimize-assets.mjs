@@ -12,6 +12,10 @@ const PHOTO_DIR = path.join(__dirname, "..", "public", "photos");
 const OG_PATH = path.join(PHOTO_DIR, "og-default.jpg");
 const HERO_PATH = path.join(PHOTO_DIR, "herograin.jpg");
 const OPTIMIZED_HERO_PATH = HERO_PATH.replace(".jpg", "-optimized.jpg");
+// Brewhouse hero: the multi-megabyte phone original stays in the repo as
+// the source of truth; the served asset is a 1920px-wide recompress.
+const BREWHOUSE_SOURCE_PATH = path.join(PHOTO_DIR, "PXL_20261006_121738963.jpg");
+const BREWHOUSE_HERO_PATH = path.join(PHOTO_DIR, "herobrewhouse.jpg");
 
 const hero = sharp(HERO_PATH);
 const meta = await hero.metadata();
@@ -28,8 +32,16 @@ await sharp(HERO_PATH)
   .jpeg({ quality: 85, progressive: true, mozjpeg: true })
   .toFile(OG_PATH);
 
+const brewhouse = sharp(BREWHOUSE_SOURCE_PATH);
+const brewhouseMeta = await brewhouse.metadata();
+await brewhouse
+  .resize(1920, undefined, { withoutEnlargement: true })
+  .jpeg({ quality: 75, progressive: true, mozjpeg: true })
+  .toFile(BREWHOUSE_HERO_PATH);
+
 const optimizedStats = fs.statSync(OPTIMIZED_HERO_PATH);
 const ogStats = fs.statSync(OG_PATH);
+const brewhouseStats = fs.statSync(BREWHOUSE_HERO_PATH);
 
 console.log(
   `Original hero: ${meta.width}x${meta.height} ~${(
@@ -40,3 +52,9 @@ console.log(
   `Optimized hero: ${optimizedStats ? (optimizedStats.size / 1024).toFixed(1) : "unknown"} KB`
 );
 console.log(`OG image: ${(ogStats.size / 1024).toFixed(1)} KB`);
+console.log(
+  `Brewhouse source: ${brewhouseMeta.width}x${brewhouseMeta.height} ~${(
+    fs.statSync(BREWHOUSE_SOURCE_PATH).size / 1024 / 1024
+  ).toFixed(2)} MB`
+);
+console.log(`Brewhouse hero: ${(brewhouseStats.size / 1024).toFixed(1)} KB`);

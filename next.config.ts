@@ -154,6 +154,10 @@ const nextConfig: NextConfig = {
         headers: mediaCacheHeaders,
       },
       {
+        source: "/photos/herobrewhouse.jpg",
+        headers: mediaCacheHeaders,
+      },
+      {
         source: "/photos/og-default.jpg",
         headers: mediaCacheHeaders,
       },
