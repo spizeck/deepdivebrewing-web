@@ -15,8 +15,8 @@ async function check(contextOptions, label) {
   const videoCount = await page.locator("video").count();
   const stillCount = await page.locator('img[src*="video-still"]').count();
 
-  // The brewery section poster is the video still (Issue #135); the grain
-  // hero image belongs to the hero section above it.
+  // The brewery section poster is the video still (Issue #135); the
+  // brewhouse hero image belongs to the hero section above it.
   console.log(`${label}: video elements=${videoCount}, video-still images=${stillCount}`);
   await context.close();
 }

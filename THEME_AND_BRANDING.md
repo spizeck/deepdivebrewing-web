@@ -119,7 +119,9 @@ Use ONLY for:
 
 **Sizes:**
 * Homepage hero: 56px / 64px line-height (desktop), 40px / 48px (mobile)
-* Navigation logo: 24px / 28px line-height
+* Navigation logo: 24px / 28px line-height (20px below the `sm`
+  breakpoint, scaling down fluidly on very narrow viewports so the full
+  wordmark never clips)
 
 ---
 

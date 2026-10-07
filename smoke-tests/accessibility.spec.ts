@@ -164,6 +164,17 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
   // menu"), so locate it by its stable aria-controls hook instead.
   const toggle = page.locator("button[aria-controls]");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+  // The menu is a floating panel below the pill, not an expansion of it —
+  // opening must not move or resize the shell (no accordion growth). The
+  // panel stays mounted and inert when closed, so locate it by attribute:
+  // inert subtrees leave the accessibility tree, which role queries read.
+  const shell = page.locator("header > div").first();
+  const panel = page.locator('nav[aria-label="Mobile"]');
+  const closedBox = await shell.boundingBox();
+  await expect(panel).toHaveAttribute("inert", "");
+  await expect(panel).not.toBeVisible();
+
   await toggle.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(toggle).toHaveAccessibleName("Close menu");
@@ -171,10 +182,203 @@ test("mobile menu opens, keyboard-navigates, and closes on Escape", async ({
   const menu = page.getByRole("navigation", { name: "Mobile" });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("link", { name: "Beers" })).toBeVisible();
+  await expect(panel).not.toHaveAttribute("inert", "");
+
+  const openBox = await shell.boundingBox();
+  expect(
+    openBox,
+    "shell geometry must not change when the menu opens"
+  ).toEqual(closedBox);
+  const panelBox = await panel.boundingBox();
+  expect(
+    panelBox!.y,
+    "menu panel must sit below the pill"
+  ).toBeGreaterThanOrEqual(openBox!.y + openBox!.height);
 
   await page.keyboard.press("Escape");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(menu).not.toBeAttached();
+  await expect(panel).not.toBeVisible();
+  await expect(panel).toHaveAttribute("inert", "");
+
+  // The closed panel's links are inert: Tab from the toggle must not land
+  // inside the hidden menu.
+  await page.keyboard.press("Tab");
+  expect(
+    await panel.evaluate((el) => el.contains(document.activeElement))
+  ).toBe(false);
+
+  // Selecting the current route's link never changes pathname, but the
+  // menu must still close — otherwise it stays open over the same page.
+  await toggle.press("Enter");
+  await expect(menu).toBeVisible();
+  await menu.getByRole("link", { name: "Beers" }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(panel).not.toBeVisible();
+});
+
+test("mobile menu opens and closes instantly under reduced motion", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/beers");
+
+  const toggle = page.locator("button[aria-controls]");
+  const panel = page.locator('nav[aria-label="Mobile"]');
+
+  // No decorative transition runs: the panel switches states promptly.
+  expect(
+    await panel.evaluate((el) => getComputedStyle(el).transitionDuration)
+  ).toBe("0s");
+
+  await toggle.press("Enter");
+  await expect(panel).toBeVisible();
+  await expect(
+    panel.getByRole("link", { name: "Beers" })
+  ).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(panel).not.toBeVisible();
+  // Escape still returns focus to the toggle under reduced motion.
+  await expect(toggle).toBeFocused();
+});
+
+test("nav pill keeps compact geometry and 44px targets across widths", async ({
+  page,
+}) => {
+  const pill = page.locator("header > div");
+  const toggle = page.locator("button[aria-controls]");
+  const brand = page.getByRole("link", { name: "Deep Dive Brewing Co" });
+
+  // Desktop: the brand and link list float as two separate pills with
+  // open space between them rather than one stretched bar — the wrapper
+  // is transparent at lg, so assert on the two pill surfaces themselves.
+  // Bounds are fractions of the viewport, not pixel snapshots.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/beers");
+
+  const brandPill = page
+    .getByRole("link", { name: "Deep Dive Brewing Co" })
+    .locator("..");
+  const navPill = page.getByRole("navigation", { name: "Main" });
+  const brandPillBox = await brandPill.boundingBox();
+  const navPillBox = await navPill.boundingBox();
+  expect(brandPillBox!.width).toBeLessThan(0.35 * 1280);
+  expect(navPillBox!.width).toBeLessThan(0.4 * 1280);
+  expect(
+    navPillBox!.x - (brandPillBox!.x + brandPillBox!.width)
+  ).toBeGreaterThan(80);
+  expect(
+    Math.abs(brandPillBox!.height - navPillBox!.height)
+  ).toBeLessThanOrEqual(2);
+
+  const desktopLink = navPill.getByRole("link", { name: "Where to Buy" });
+  const linkBox = await desktopLink.boundingBox();
+  expect(linkBox!.height).toBeGreaterThanOrEqual(44);
+
+  // Mobile: the pill floats clear of the viewport edges, the toggle keeps
+  // its 44px target inside the pill, and the wordmark never collides with
+  // the toggle (360px and below used to clip it).
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 812 });
+    await page.goto("/beers");
+
+    const box = await pill.boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(12);
+    expect(box!.x).toBeGreaterThanOrEqual(8);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width - 8);
+
+    const toggleBox = await toggle.boundingBox();
+    expect(toggleBox!.width).toBeGreaterThanOrEqual(44);
+    expect(toggleBox!.height).toBeGreaterThanOrEqual(44);
+    expect(toggleBox!.x + toggleBox!.width).toBeLessThanOrEqual(
+      box!.x + box!.width
+    );
+
+    const brandBox = await brand.boundingBox();
+    expect(brandBox!.x + brandBox!.width).toBeLessThanOrEqual(toggleBox!.x);
+  }
+
+  // Narrowest supported width: the wordmark shrinks instead of clipping.
+  await page.setViewportSize({ width: 320, height: 812 });
+  await page.goto("/beers");
+  const brandBox = await brand.boundingBox();
+  const toggleBox = await toggle.boundingBox();
+  expect(brandBox!.x + brandBox!.width).toBeLessThanOrEqual(
+    toggleBox!.x + 2
+  );
+});
+
+test("nav pill retreats on slow downward scroll and restores on upward", async ({
+  page,
+}) => {
+  // /privacy is long enough to scroll well past the retreat threshold.
+  await page.goto("/privacy");
+  const header = page.locator("header");
+  const headerTop = () =>
+    header.evaluate((el) => el.getBoundingClientRect().top);
+
+  // Sub-threshold increments: each scroll event moves less than the
+  // direction-change delta, so only accumulated movement may retreat the
+  // pill — a per-frame baseline never fires here.
+  for (let y = 0; y <= 400; y += 4) {
+    await page.evaluate((v) => window.scrollTo(0, v), y);
+  }
+  await expect.poll(headerTop).toBeLessThan(0);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(headerTop).toBeGreaterThanOrEqual(0);
+
+  // Keyboard focus inside the header pins it: retreating while focused
+  // would move the focus-visible outline off-screen. Wait past the rAF
+  // batching and retreat transition before asserting the pin held.
+  await page
+    .getByRole("link", { name: "Deep Dive Brewing Co" })
+    .focus();
+  await page.evaluate(() => window.scrollTo(0, 600));
+  await page.waitForTimeout(500);
+  expect(await headerTop()).toBeGreaterThanOrEqual(0);
+});
+
+test("mobile menu traps Tab focus while open", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  // /privacy is text-only: resizing mid-test can't abort in-flight image
+  // requests the way the beer-card grid on /beers does.
+  await page.goto("/privacy");
+
+  const toggle = page.locator("button[aria-controls]");
+  await toggle.press("Enter");
+
+  const menu = page.getByRole("navigation", { name: "Mobile" });
+  const lastLink = menu.getByRole("link", { name: "Trade" });
+  const brandLink = page.getByRole("link", {
+    name: "Deep Dive Brewing Co",
+  });
+
+  // Tab past the final link must wrap to the first nav control instead of
+  // escaping to page content behind the open menu.
+  await lastLink.focus();
+  await page.keyboard.press("Tab");
+  await expect(brandLink).toBeFocused();
+
+  // Shift+Tab from the first control wraps back to the final link.
+  await page.keyboard.press("Shift+Tab");
+  await expect(lastLink).toBeFocused();
+
+  // Crossing into the lg breakpoint closes the menu so the trap can never
+  // apply to a menu that is no longer rendered. The panel stays mounted
+  // but inert — hidden from both the accessibility tree and the tab order.
+  const panel = page.locator('nav[aria-label="Mobile"]');
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await expect(panel).toHaveAttribute("inert", "");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await toggle.press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(panel).not.toBeVisible();
+  await expect(panel).toHaveAttribute("inert", "");
+  await expect(toggle).toBeFocused();
 });
 
 test("trade form exposes labels, autocomplete, and required state", async ({

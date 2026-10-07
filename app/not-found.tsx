@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SiteHeaderDefault } from "@/components/site-header-default";
+import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
@@ -14,11 +14,11 @@ export const metadata: Metadata = {
 export default function NotFound() {
   return (
     <>
-      <SiteHeaderDefault />
+      <SiteNav />
       <main
         id="main-content"
         tabIndex={-1}
-        className="mx-auto max-w-300 px-6 pb-20 pt-15 text-center md:pb-30"
+        className="mx-auto max-w-300 px-6 pb-20 pt-[calc(5.75rem+env(safe-area-inset-top))] text-center md:pb-30"
       >
         <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           404

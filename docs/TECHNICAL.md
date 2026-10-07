@@ -56,8 +56,8 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
   required: `admin-dashboard.tsx`, `admin-access.tsx`, `admin-trade-*.tsx`,
   `trade-inquiry-form.tsx`,
   `beer-carousel.tsx`, `beers-filter-grid.tsx`, the analytics trackers,
-  `mobile-menu.tsx`, `site-header-default.tsx`, and the home-page intro/CTA
-  components.
+  `site-nav.tsx` (the shared floating-pill navigation), and the home-page
+  intro/CTA components.
 - **Rendering model.** The production build output marks every page static
   (`○`) — including `/admin` and `/sitemap.xml` — except all `/api/*`
   routes, which are dynamic (`ƒ`). Beer detail pages are generated at build
@@ -121,7 +121,7 @@ client SDK writes (content management) or through Admin-SDK-backed API routes
 | Path | Responsibility |
 | --- | --- |
 | `app/` | App Router routes. Root `layout.tsx` (header/footer shell, SEO defaults, favicon metadata pointing at `public/`, analytics wiring), `globals.css` (Tailwind v4 theme tokens), `robots.ts`, `sitemap.ts`, `page.tsx` (home). |
-| `app/(pages)/` | Route group for all content pages — `about` (MDX), `admin`, `beers` (+`[slug]`), `contact`, `privacy`, `terms`, `trade` (+ `login`/`order`/`orders` "coming soon" placeholders), `where-to-buy` — sharing a `SiteHeaderDefault` layout. Pages are `.tsx`; `about` is authored as `page.mdx` — see §4. |
+| `app/(pages)/` | Route group for all content pages — `about` (MDX), `admin`, `beers` (+`[slug]`), `contact`, `privacy`, `terms`, `trade` (+ `login`/`order`/`orders` "coming soon" placeholders), `where-to-buy` — sharing the floating `SiteNav` pill layout. Pages are `.tsx`; `about` is authored as `page.mdx` — see §4. |
 | `app/api/` | Server API routes: `admin/bootstrap`, `admin/invitations/accept`, `admin/invitations/[id]/resend`, `admin/me`, `admin/rebuild`, `admin/users` (GET list + POST create-invitation), `admin/users/[uid]` (PATCH/DELETE), `admin/trade-leads` (GET list + POST create), `admin/trade-leads/[id]` (GET + PATCH), `admin/trade-leads/[id]/activities` (POST note), `admin/trade-leads/[id]/messages` (POST send email), `webhooks/resend` (POST — signature-verified provider events), and `trade-inquiry`. All are Admin-SDK-protected except `trade-inquiry` and `webhooks/resend` (which trusts the Resend webhook signature instead). |
 | `components/` | App components: header/footer, home sections, cards, carousel/filter grid, analytics trackers, `admin-dashboard.tsx` (auth + data orchestration), `admin-workspace.tsx` (props-driven authenticated view shared with `/admin-fixture`), `admin-access.tsx`, `admin-fixture.tsx` (test-only data), `admin-trade-page.tsx`/`admin-trade-workspace.tsx`/`admin-trade-summary.tsx`/`admin-trade-fixture.tsx` (lead pipeline + test fixture), `trade-inquiry-form.tsx`, `mdx-layout.tsx`. |
 | `components/ui/` | shadcn/ui primitives (Radix-based) configured by `components.json`. |

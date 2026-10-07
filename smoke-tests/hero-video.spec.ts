@@ -15,7 +15,7 @@ const brewerySection = (page: import("playwright").Page) =>
     has: page.getByRole("heading", { name: "The Brewery", exact: true }),
   });
 
-test("brewery section uses the approved still, not the grain hero image", async ({
+test("brewery section uses the approved still, not the hero image", async ({
   page,
 }) => {
   await page.goto("/");
@@ -24,12 +24,12 @@ test("brewery section uses the approved still, not the grain hero image", async 
 
   // The section poster is the distinct brewery still…
   await expect(section.locator('img[src*="video-still"]')).toBeVisible();
-  // …and never the duplicated grain hero photo.
-  await expect(section.locator('img[src*="herograin"]')).toHaveCount(0);
+  // …and never the duplicated brewhouse hero photo.
+  await expect(section.locator('img[src*="herobrewhouse"]')).toHaveCount(0);
 
-  // The main hero above keeps the grain image.
+  // The main hero above keeps the brewhouse image.
   const hero = page.locator("section").first();
-  await expect(hero.locator('img[src*="herograin"]')).toBeVisible();
+  await expect(hero.locator('img[src*="herobrewhouse"]')).toBeVisible();
 
   // Section remains a complete, readable design.
   await expect(

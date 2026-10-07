@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
-import { SiteHeader } from "@/components/site-header";
+import { SiteNav } from "@/components/site-nav";
 import IntroSection from "@/components/home/IntroSection";
 import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
@@ -59,18 +59,21 @@ export default async function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(breweryJsonLd) }}
       />
-      <SiteHeader />
+      <SiteNav />
       <main id="main-content" tabIndex={-1}>
-        {/* Hero — full viewport, grain photo, extends behind header */}
+        {/* Hero — full viewport, brewhouse photo, extends behind header.
+            The focal point sits left-of-center: the row of tanks and the
+            Alpha plate stay in frame while the busiest hose run drifts
+            right, away from the centered headline. */}
         <section className="relative h-screen w-full overflow-hidden">
         <Image
-          src="/photos/herograin.jpg"
+          src="/photos/herobrewhouse.jpg"
           alt=""
           fill
           priority
           quality={70}
           sizes="100vw"
-          className="object-cover"
+          className="object-cover object-[30%_50%]"
         />
         <div className="absolute inset-0 bg-ink/60" />
         <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center animate-hero-fade">
@@ -90,13 +93,20 @@ export default async function Home() {
             Craft beer, brewed on Saba.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Button asChild className="h-11 min-h-[44px] px-6">
+            {/* Primary stays the heaviest surface: 85% ink glass over the
+                secondaries' 40% — a hint of the brewhouse shows through
+                without competing with the label. Hover still solidifies
+                to primary/90 via the default variant. */}
+            <Button
+              asChild
+              className="h-11 min-h-[44px] bg-ink/85 px-6 backdrop-blur-sm"
+            >
               <Link href="/beers">Explore Our Beers</Link>
             </Button>
             <Button
               variant="outline"
               asChild
-              className="h-11 min-h-[44px] border-paper/30 px-6 text-paper hover:bg-paper/10"
+              className="h-11 min-h-[44px] border-paper/40 bg-ink/40 px-6 text-paper backdrop-blur-sm hover:bg-paper/10 hover:text-paper"
             >
               <Link
                 href="/where-to-buy"
@@ -115,7 +125,7 @@ export default async function Home() {
             <TourInquiryCta
               ctaLocation="homepage_hero"
               variant="outline"
-              className="h-11 min-h-[44px] border-paper/30 px-6 text-paper hover:bg-paper/10"
+              className="h-11 min-h-[44px] border-paper/40 bg-ink/40 px-6 text-paper backdrop-blur-sm hover:bg-paper/10 hover:text-paper"
             >
               Book a Brewery Tour
             </TourInquiryCta>

@@ -49,6 +49,8 @@ next-env.d.ts
 
 # verification screenshots generated locally
 /screenshots
+/audit-shots
+/review-shots
 
 # playwright smoke-test artifacts
 /test-results/
