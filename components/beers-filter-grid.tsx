@@ -72,7 +72,15 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
         ))}
       </div>
 
-      {filteredBeers.length === 0 && (
+      {filteredBeers.length === 0 && activeFilter === "all" && (
+        <section className="rounded-lg border border-stone bg-stone/20 p-5">
+          <p className="text-muted-foreground">
+            No beers on the list right now — availability changes with the
+            season.
+          </p>
+        </section>
+      )}
+      {filteredBeers.length === 0 && activeFilter !== "all" && (
         <section className="rounded-lg border border-stone bg-stone/20 p-5">
           <p className="text-muted-foreground">
             No{" "}
