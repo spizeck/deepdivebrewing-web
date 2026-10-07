@@ -209,7 +209,12 @@ export function SiteNav() {
           {/* The button keeps a 44px target and focus ring; the visible
               circle is a smaller, lighter nested disc so the control reads
               as a disclosure affordance instead of a button inside a
-              button. Hover/active styling lives on the disc via `group`. */}
+              button. Hover/active styling lives on the disc via `group`.
+              The hover surface is gated to devices that can actually
+              hover: this control only exists on touch-sized viewports,
+              where a tap leaves :hover stuck on the element and the open
+              X would keep the lighter hover fill — reading as a different
+              button rather than the same control's second state. */}
           <button
             ref={menuButtonRef}
             type="button"
@@ -222,7 +227,7 @@ export function SiteNav() {
               pressableClasses
             )}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-paper/15 bg-paper/5 transition-colors duration-150 group-hover:border-paper/25 group-hover:bg-paper/10 group-active:bg-paper/15">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-paper/15 bg-paper/5 transition-colors duration-150 group-active:bg-paper/15 [@media(hover:hover)]:group-hover:border-paper/25 [@media(hover:hover)]:group-hover:bg-paper/10">
               <span className="relative block h-4.5 w-4.5">
                 <Menu
                   aria-hidden="true"
