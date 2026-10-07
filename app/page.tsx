@@ -93,7 +93,14 @@ export default async function Home() {
             Craft beer, brewed on Saba.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Button asChild className="h-11 min-h-[44px] px-6">
+            {/* Primary stays the heaviest surface: 85% ink glass over the
+                secondaries' 40% — a hint of the brewhouse shows through
+                without competing with the label. Hover still solidifies
+                to primary/90 via the default variant. */}
+            <Button
+              asChild
+              className="h-11 min-h-[44px] bg-ink/85 px-6 backdrop-blur-sm"
+            >
               <Link href="/beers">Explore Our Beers</Link>
             </Button>
             <Button
