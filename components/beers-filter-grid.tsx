@@ -71,6 +71,44 @@ export function BeersFilterGrid({ beers }: BeersFilterGridProps) {
           <BeerCard key={beer.slug} beer={beer} priority={index === 0} />
         ))}
       </div>
+
+      {filteredBeers.length === 0 && activeFilter === "all" && (
+        <section className="rounded-lg border border-stone bg-stone/20 p-5">
+          <p className="text-muted-foreground">
+            No beers on the list right now — availability changes with the
+            season.
+          </p>
+        </section>
+      )}
+      {filteredBeers.length === 0 && activeFilter !== "all" && (
+        <section className="rounded-lg border border-stone bg-stone/20 p-5">
+          <p className="text-muted-foreground">
+            No{" "}
+            {filterOptions
+              .find((option) => option.value === activeFilter)
+              ?.label.toLowerCase()}{" "}
+            beers on the list right now — availability changes with the
+            season. The full lineup is still on tap.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveFilter("all");
+              trackEvent("beer_filter", {
+                event_category: "engagement",
+                filter: "all",
+                cta_location: "beers_page",
+              });
+            }}
+            className={cn(
+              "mt-3 inline-flex min-h-[44px] items-center justify-center rounded-md border border-stone bg-paper px-4 py-2 text-sm font-medium text-ink hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ocean/50",
+              pressableClasses
+            )}
+          >
+            Show all beers
+          </button>
+        </section>
+      )}
     </>
   );
 }
