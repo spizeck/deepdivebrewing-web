@@ -99,7 +99,7 @@ export default async function Home() {
             <Button
               variant="outline"
               asChild
-              className="h-11 min-h-[44px] border-paper/40 bg-transparent px-6 text-paper hover:bg-paper/10 hover:text-paper"
+              className="h-11 min-h-[44px] border-paper/40 bg-ink/40 px-6 text-paper backdrop-blur-sm hover:bg-paper/10 hover:text-paper"
             >
               <Link
                 href="/where-to-buy"
@@ -118,7 +118,7 @@ export default async function Home() {
             <TourInquiryCta
               ctaLocation="homepage_hero"
               variant="outline"
-              className="h-11 min-h-[44px] border-paper/40 bg-transparent px-6 text-paper hover:bg-paper/10 hover:text-paper"
+              className="h-11 min-h-[44px] border-paper/40 bg-ink/40 px-6 text-paper backdrop-blur-sm hover:bg-paper/10 hover:text-paper"
             >
               Book a Brewery Tour
             </TourInquiryCta>

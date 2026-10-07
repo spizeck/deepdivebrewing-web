@@ -197,7 +197,11 @@ export function SiteNav() {
             className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full pr-2 font-festival text-[clamp(0.9rem,calc(6vw-0.3rem),1.25rem)] leading-7 tracking-wide text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80 sm:text-2xl lg:w-11 lg:justify-center lg:pr-0"
           >
             <BrandMark tone="white" size={30} decorative />
-            <span className="inline-block translate-y-[0.1em] lg:sr-only">
+            {/* Festival's metrics sit the baseline high in the 28px line
+                box, so the glyph ink lands ~4.5px above box-center —
+                0.25em lowers the wordmark's ink onto the mark's optical
+                center. The span hides at lg where the pill is mark-only. */}
+            <span className="inline-block translate-y-[0.25em] lg:sr-only">
               Deep Dive Brewing Co
             </span>
           </Link>
