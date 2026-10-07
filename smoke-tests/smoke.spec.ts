@@ -32,7 +32,9 @@ test("beers listing renders and exposes beer filtering", async ({ page }) => {
     page.getByRole("heading", { name: "Flagship Styles" })
   ).toBeVisible();
   // Filter controls render regardless of whether beer data loaded.
-  await expect(page.getByRole("button", { name: "All" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "All", exact: true })
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Core" })).toBeVisible();
 });
 

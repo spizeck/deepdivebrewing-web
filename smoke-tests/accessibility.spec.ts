@@ -438,7 +438,7 @@ test("trade form announces submission errors in a status region", async ({
 
 test("beer filter buttons expose pressed state", async ({ page }) => {
   await page.goto("/beers");
-  const all = page.getByRole("button", { name: "All" });
+  const all = page.getByRole("button", { name: "All", exact: true });
   const core = page.getByRole("button", { name: "Core" });
   await expect(all).toHaveAttribute("aria-pressed", "true");
   await core.press("Enter");
