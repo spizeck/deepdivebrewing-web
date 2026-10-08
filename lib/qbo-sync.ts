@@ -318,6 +318,15 @@ async function runSyncWrite(
       "QuickBooks accounting mapping is not configured for the connected company."
     );
   }
+  // A stored document missing any required field is an unfinished
+  // configuration — posting must not run at all until it is complete,
+  // even when this payment's own fields happen to be set.
+  if ((mappingView.missingFields ?? []).length > 0) {
+    return attention(
+      "mapping_incomplete",
+      "The QuickBooks accounting mapping is incomplete — required fields are missing."
+    );
+  }
   const mapping = mappingView.mapping;
   const itemKey = qboIncomeItemKeyForPurpose(
     typeof payment.purpose === "string" ? payment.purpose : undefined
@@ -332,6 +341,8 @@ async function runSyncWrite(
   }
   const incomeItemId = mapping[itemKey];
   if (!incomeItemId) {
+    // Defensive: unreachable while the completeness gate above is
+    // consistent with the mapping — guards the invariant directly.
     return attention(
       "missing_incomeItem",
       "The income item required for this payment's purpose is not mapped."

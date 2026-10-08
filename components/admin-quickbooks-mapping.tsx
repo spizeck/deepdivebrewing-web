@@ -119,7 +119,19 @@ export function AdminQuickbooksMapping({
         })
       );
       setEntities(loaded);
-      setDraft(mapping?.mapping ?? {});
+      // Seed the draft from the stored mapping, but drop selections that
+      // no longer resolve to an active entity — a stale id must read as
+      // "missing" (blocking save) rather than silently re-submit.
+      const stored = mapping?.mapping ?? {};
+      const initial: QboAccountingMapping = {};
+      for (const { key, entityType } of QBO_MAPPING_FIELDS) {
+        const id = stored[key];
+        const usable = (loaded[entityType] ?? []).some(
+          (entity) => entity.id === id && entity.active
+        );
+        if (id && usable) initial[key] = id;
+      }
+      setDraft(initial);
       setEditing(true);
     } catch (err) {
       setError(

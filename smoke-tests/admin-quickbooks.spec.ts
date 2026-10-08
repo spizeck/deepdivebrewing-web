@@ -381,6 +381,42 @@ test("the mapping editor blocks save until every required field is set", async (
   await expect(page.getByText("Stripe Checkout")).toBeVisible();
 });
 
+test("the editor drops a stored selection that is now inactive", async ({
+  page,
+}) => {
+  // The generic customer was deactivated in QBO after the mapping was
+  // saved — the draft must not silently re-submit the stale id.
+  await mockQboApi(
+    page,
+    {
+      ok: true,
+      connection: CONNECTED.connection,
+      mapping: {
+        configured: true,
+        mapping: FULL_MAPPING_INPUT,
+        missingFields: [],
+        entityNames: { "cust-1": "Stripe Checkout" },
+      },
+    },
+    {
+      entities: {
+        ...ENTITIES,
+        customer: [
+          { id: "cust-1", name: "Stripe Checkout", active: false },
+        ],
+      },
+    }
+  );
+  await page.goto(FIXTURE);
+  await page.getByRole("button", { name: "Edit mapping" }).press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Save mapping" })
+  ).toBeDisabled();
+  await expect(
+    page.getByText(/Still required: Generic sales customer/)
+  ).toBeVisible();
+});
+
 test("axe: quickbooks workspace has no serious/critical violations", async ({
   page,
 }) => {
