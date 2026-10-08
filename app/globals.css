@@ -275,6 +275,11 @@
 .prose-dd a:not([class]):hover {
   opacity: 0.85;
 }
+@media (prefers-reduced-motion: reduce) {
+  .prose-dd a:not([class]) {
+    transition: none;
+  }
+}
 .prose-dd ul,
 .prose-dd ol {
   margin-bottom: 1.25rem;

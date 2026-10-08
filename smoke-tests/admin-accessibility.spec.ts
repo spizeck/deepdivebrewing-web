@@ -233,9 +233,15 @@ test("invite form ignores re-submission while a request is in flight", async ({
   await openAccessTab(page);
 
   let invitePosts = 0;
+  // Released after the second Enter, so the first request is guaranteed
+  // in-flight while the re-submission attempt happens — no timing guesses.
+  let releaseInvite!: () => void;
+  const inviteGate = new Promise<void>((resolve) => {
+    releaseInvite = resolve;
+  });
   // Registered after openAccessTab's default mock, so this override wins for
   // the invite POST while leaving the earlier GET untouched.
-  await page.route("/api/admin/**", (route) => {
+  await page.route("/api/admin/**", async (route) => {
     const url = route.request().url();
     const method = route.request().method();
     const json = (body: unknown, status = 200) =>
@@ -246,10 +252,8 @@ test("invite form ignores re-submission while a request is in flight", async ({
       });
     if (method === "POST" && url.endsWith("/api/admin/users")) {
       invitePosts += 1;
-      // Keep the request in flight long enough to re-submit inside it.
-      return new Promise((resolve) =>
-        setTimeout(() => resolve(json({ ok: true, emailSent: true })), 400)
-      );
+      await inviteGate;
+      return json({ ok: true, emailSent: true });
     }
     if (method === "GET" && url.endsWith("/api/admin/users")) {
       return json(ADMINS_RESPONSE);
@@ -261,6 +265,7 @@ test("invite form ignores re-submission while a request is in flight", async ({
   await email.fill("newadmin@example.com");
   await email.press("Enter");
   await email.press("Enter");
+  releaseInvite();
 
   await expect(
     page

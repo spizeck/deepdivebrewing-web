@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
@@ -32,6 +32,10 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<AdminRole>("admin");
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  // Ref, not state: the guard must hold even if another admin action
+  // overwrites actionInProgress or a second Enter fires before React
+  // flushes the state update — either path would otherwise double-post.
+  const inviteInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,7 +72,8 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
     }
     // Enter-to-submit can re-fire while a request is in flight even though
     // the button is disabled — guard so a second press never double-posts.
-    if (actionInProgress === "invite") return;
+    if (inviteInFlightRef.current) return;
+    inviteInFlightRef.current = true;
     setActionInProgress("invite");
     try {
       const idToken = await user.getIdToken();
@@ -103,6 +108,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
       console.error(error);
       onStatusMessage("Invitation failed. Please try again.");
     } finally {
+      inviteInFlightRef.current = false;
       setActionInProgress(null);
     }
   }

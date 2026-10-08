@@ -101,6 +101,14 @@ test("press feedback never transforms under reduced motion", async ({
   const scale = await trigger.evaluate((el) => getComputedStyle(el).scale);
   await page.mouse.up();
   expect(scale).toBe("none");
+
+  // Eased transitions added in #166 collapse to instant under reduced
+  // motion while the color/opacity state change itself remains.
+  await page.goto("/beers");
+  const timing = await transitionOf(
+    page.getByRole("link", { name: "Where to Buy page" })
+  );
+  expect(timing.duration).toBe("0s");
 });
 
 test("beer cards acknowledge a pointer press", async ({ page }) => {

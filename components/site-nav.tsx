@@ -318,7 +318,7 @@ export function SiteNav() {
                 onClick={() => setOpen(false)}
                 aria-current={isActive(link.href) ? "page" : undefined}
                 className={cn(
-                  "flex min-h-[48px] items-center rounded-xl px-4 text-base font-medium transition-colors duration-150",
+                  "flex min-h-[48px] items-center rounded-xl px-4 text-base font-medium transition-colors duration-150 motion-reduce:duration-0",
                   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper/80",
                   isActive(link.href)
                     ? "bg-paper/15 text-paper"
