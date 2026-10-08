@@ -250,12 +250,19 @@ describe("storage.rules", () => {
     );
     // The public-read rule must carve out the knowledge/ prefix — a blanket
     // catch-all read would re-expose internal attachments to everyone.
+    const catchAllStart = rules.indexOf("match /{firstSegment}/{allPaths=**}");
+    assert.ok(catchAllStart > -1, "Expected the segmented catch-all block");
+    const nextMatch = rules.indexOf("match /", catchAllStart + 10);
+    const catchAll = rules.slice(
+      catchAllStart,
+      nextMatch > -1 ? nextMatch : undefined
+    );
     assert.ok(
-      rules.includes("firstSegment != 'knowledge'"),
+      catchAll.includes("allow read: if firstSegment != 'knowledge'"),
       "Expected the public-read rule to exclude the knowledge/ prefix"
     );
     assert.ok(
-      !rules.includes("allow read: if true;\n      allow write"),
+      !catchAll.includes("allow read: if true"),
       "Expected no unconditional public-read on the multi-segment catch-all"
     );
   });
