@@ -8,6 +8,7 @@ import { Reveal } from "@/components/reveal";
 import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
 import { TourInquiryCta } from "@/components/tour-inquiry-cta";
+import { UpdatesTeaser } from "@/components/home/updates-teaser";
 import { getBeers } from "@/lib/beers";
 import { beerImageUrl } from "@/lib/utils";
 import { serializeJsonLd } from "@/lib/json-ld";
@@ -200,6 +201,10 @@ export default async function Home() {
           </div>
         </div>
       </Reveal>
+
+      {/* Latest updates teaser (Issue #194) — self-contained section that
+          renders nothing until the first update is published. */}
+      <UpdatesTeaser />
       </main>
     </>
   );

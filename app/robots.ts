@@ -16,6 +16,7 @@ export default function robots(): MetadataRoute.Robots {
           "/admin-quickbooks-fixture",
           "/admin-trade-fixture",
           "/carousel-fixture",
+          "/updates-fixture",
           "/where-to-buy-fixture",
           "/trade/login",
           "/trade/order",

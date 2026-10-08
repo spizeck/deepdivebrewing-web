@@ -30,12 +30,12 @@ Deep Dive Brews, BV.
 ## Repository layout
 
 - `app/` — App Router routes. `app/(pages)/` holds the public site
-  (`/`, `/beers`, `/beers/[slug]`, `/where-to-buy`, `/about`, `/contact`,
-  `/privacy`, `/terms`, `/trade`, `/admin`) plus reserved `/trade/*`
-  placeholders. Long-form content may be authored in MDX co-located as
-  `page.mdx` (e.g., `/about`); every `(pages)` route has exactly one page
-  file — never add a second `page.*` to a route folder, since which file
-  wins is platform-dependent.
+  (`/`, `/beers`, `/beers/[slug]`, `/updates`, `/updates/[slug]`,
+  `/where-to-buy`, `/about`, `/contact`, `/privacy`, `/terms`, `/trade`,
+  `/admin`) plus reserved `/trade/*` placeholders. Long-form content may be
+  authored in MDX co-located as `page.mdx` (e.g., `/about`); every `(pages)`
+  route has exactly one page file — never add a second `page.*` to a route
+  folder, since which file wins is platform-dependent.
 - `app/api/` — server routes: `admin/*` (bootstrap, me, users, invitations,
   rebuild) and `trade-inquiry`.
 - `components/` — site and admin UI; `components/ui/` is shadcn primitives.
@@ -45,7 +45,10 @@ Deep Dive Brews, BV.
   (`admin-*.ts`), analytics, types, utilities. Shared Firestore logic
   belongs here — the established exception is
   `components/admin-dashboard.tsx` (see Coding expectations).
-- `content/` — reserved for future standalone content (currently unused).
+- `content/` — repository-authored content. `content/updates/` holds the
+  Updates registry (`index.ts`) plus one `.mdx` body per post, rendered by
+  `/updates` and `/updates/[slug]` — see `docs/operations/updates.md` for
+  the authoring workflow.
 - `docs/` — administrator handbook (`docs/admin/`) and operations guides
   (`docs/operations/`). Keep these authoritative.
 - `scripts/` — seed scripts, asset tooling, and Playwright-based local
