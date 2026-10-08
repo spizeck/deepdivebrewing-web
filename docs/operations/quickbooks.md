@@ -180,9 +180,9 @@ misconfiguration fails closed instead of posting to the wrong books.
   keeps only historical metadata; webhook receipts and future sync
   records are intentionally preserved.
 - **Accounting mapping** selects real Account/Item/Customer/TaxCode
-  entities from the connected company. Selections are validated against
-  a live query at save time and bound to the environment and realm id —
-  a stale mapping from another company or environment is never applied.
+  entities from the connected company — see
+  [Accounting mapping](#accounting-mapping) for the required fields and
+  how to verify them.
 - **Webhooks** require no admin interaction. Deliveries are deduplicated
   by content identity; notifications for a realm other than the
   connected company are recorded but flagged ignored.
@@ -223,6 +223,43 @@ for it would double-count revenue.
 | Tax | No `TaxCodeRef`; `GlobalTaxCalculation: "NotApplicable"` sent for non-US companies, omitted for US (the field is required there and rejected here). Tax policy is #184 |
 | Correlation | `PrivateNote` carries `ddb:<paymentId>` + Stripe PI/charge refs; `DocNumber` = `DDB-…` derived from the payment id |
 
+### Accounting mapping
+
+Configure it from `/admin/integrations/quickbooks` → **Configure
+mapping**. Every selection is a live entity of the connected company —
+the save validates each id against a fresh entity query and rejects
+anything that does not exist, is inactive, or belongs to the wrong
+entity type. The stored mapping is bound to the environment and realm
+id, so a mapping saved against another company or environment is never
+applied.
+
+| Field | Required | Used for |
+| --- | --- | --- |
+| **Stripe clearing account** | Required | `DepositToAccountRef` — holds gross receipts until Stripe payouts reconcile (expected choice: `Stripe Balance`). Never the bank account or Undeposited Funds. |
+| **Tour income item** | Required | Line `ItemRef` for `brewery_tour`, `additional_guests`, `private_tour` |
+| **Tasting income item** | Required | Line `ItemRef` for `brewery_tour_tasting` |
+| **Other income item** | Required | Line `ItemRef` for `other` |
+| **Generic sales customer** | Required | `CustomerRef` on every sales receipt — one shared customer (e.g. `Stripe Checkout`); per-customer records are deliberately not created |
+| **Tax code** | Optional | Leave unset until the Curaçao tax treatment is confirmed with the accountant (#184) |
+
+All five required fields must be selected before a save succeeds — a
+partial mapping cannot be stored, and the panel calls out any missing
+required fields on a stored mapping that predates the requirement. The
+stored field names are unchanged from the original configuration model
+(e.g. the generic sales customer is stored as `fallbackCustomerId`) —
+only the labels were finalized, so an existing saved mapping needs no
+migration.
+
+A payment whose `purpose` matches none of the rows above lands in
+`needs_attention` rather than posting to a generic item.
+
+To verify selections after saving: the panel lists the resolved entity
+names — confirm each is the intended QBO record. Because the save
+rejects stale or inactive ids, a shown name is a live entity at save
+time; if a mapped entity is deleted or deactivated in QBO later, the
+next posting lands in `needs_attention` instead of posting to the wrong
+place.
+
 ### Lifecycle and retry
 
 - On a canonical `paid` commit (webhook or manual refresh) the app
@@ -230,8 +267,9 @@ for it would double-count revenue.
   record and attempts the write inline.
 - `synced` — done; replays return the stored entity id. `failed` —
   transient provider/Stripe/token failure, safe to retry.
-  `needs_attention` — a human must fix something first (mapping missing,
-  purpose unmapped, canonical mismatch, QBO validation rejection).
+  `needs_attention` — a human must fix something first (mapping missing
+  or incomplete, purpose unmapped, canonical mismatch, QBO validation
+  rejection).
 - A `syncing` claim carries a short lease; a stale claim is reclaimed,
   and the worker always queries for the `ddb:<paymentId>` correlation
   marker before creating — a write that landed but whose response was

@@ -195,14 +195,23 @@ describe("postPaidPaymentToQbo — source identity", () => {
     assert.strictEqual(doc?.realmId, "realm-prod");
   });
 
-  it("selects the income item by purpose", async () => {
-    reset({
-      [`payments/${PAYMENT_ID}`]: paidPayment({ purpose: "brewery_tour_tasting" }),
-    });
-    await post(PAYMENT_ID);
-    const detail = (state.createCalls[0].Line as Record<string, unknown>[])[0]
-      .SalesItemLineDetail as Record<string, unknown>;
-    assert.deepStrictEqual(detail.ItemRef, { value: "item-tasting" });
+  it("maps every payment purpose to the canonical income item", async () => {
+    // The §6 purpose→item table (#182): tour-family purposes share the
+    // tour item; tasting and other get their own.
+    const cases = [
+      ["brewery_tour", "item-tour"],
+      ["additional_guests", "item-tour"],
+      ["private_tour", "item-tour"],
+      ["brewery_tour_tasting", "item-tasting"],
+      ["other", "item-other"],
+    ] as const;
+    for (const [purpose, itemId] of cases) {
+      reset({ [`payments/${PAYMENT_ID}`]: paidPayment({ purpose }) });
+      await post(PAYMENT_ID);
+      const detail = (state.createCalls[0].Line as Record<string, unknown>[])[0]
+        .SalesItemLineDetail as Record<string, unknown>;
+      assert.deepStrictEqual(detail.ItemRef, { value: itemId }, purpose);
+    }
   });
 
   it("never enqueues non-DDB activity — a Stripe charge with no payments record", async () => {
@@ -337,6 +346,43 @@ describe("processQboSyncRecord — gates and failures", () => {
     const result = await process(SYNC_ID);
     assert.strictEqual(result.outcome, "needs_attention");
     assert.strictEqual(syncDoc()?.lastErrorCode, "purpose_unmapped");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("fails closed when the item the purpose resolves to is unmapped", async () => {
+    // A legacy/incomplete mapping document: known purpose, missing item
+    // field — distinguishable from an unrecognized purpose for the
+    // operator fixing it.
+    seedPending({ purpose: "brewery_tour_tasting" });
+    state.mapping = {
+      configured: true,
+      mapping: {
+        stripeClearingAccountId: "acct-stripe-balance",
+        tourIncomeItemId: "item-tour",
+        otherIncomeItemId: "item-other",
+        fallbackCustomerId: "cust-generic",
+      },
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_incomeItem");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("fails closed when the generic sales customer is unmapped", async () => {
+    seedPending();
+    state.mapping = {
+      configured: true,
+      mapping: {
+        stripeClearingAccountId: "acct-stripe-balance",
+        tourIncomeItemId: "item-tour",
+        tastingIncomeItemId: "item-tasting",
+        otherIncomeItemId: "item-other",
+      },
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_fallbackCustomerId");
     assert.strictEqual(state.createCalls.length, 0);
   });
 

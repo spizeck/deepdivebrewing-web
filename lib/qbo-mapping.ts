@@ -13,17 +13,21 @@ import {
   QBO_ACCOUNTING_MAPPING_DOC,
   QBO_CONFIG_COLLECTION,
   QBO_CONNECTIONS_COLLECTION,
+  QBO_MAPPING_FIELDS,
+  qboMissingMappingFields,
   type QboAccountingMapping,
   type QboAccountingMappingView,
-  type QboDiscoveryEntityType,
   type QboEnvironment,
 } from "@/lib/qbo-common";
 
-// Future accounting-mapping configuration (issue #161). The mapping records
-// which QBO entities (Account/Item/Customer/TaxCode) later Stripe/tour
-// revenue should post against — selected from live entities of the
-// *connected* company, never hard-coded. Until configured, the admin
-// surface reports "Accounting mapping not configured".
+// Accounting-mapping configuration for the Sales-Receipt posting model
+// (issues #161/#182). The mapping records which QBO entities
+// (Account/Item/Customer/TaxCode) Stripe-settled payment revenue posts
+// against — selected from live entities of the *connected* company,
+// never hard-coded. All fields marked required in QBO_MAPPING_FIELDS
+// must be selected; until a complete mapping exists the admin surface
+// reports "Accounting mapping not configured" and the sync worker fails
+// closed into needs_attention.
 //
 // The document is bound to an environment AND a realmId: a stale mapping
 // from a different company or a different QBO_ENVIRONMENT is never applied.
@@ -63,8 +67,10 @@ async function connectedRealmId(
 }
 
 // Whether a usable mapping exists for the live connection — used by the
-// admin status view. Reads the connection doc itself so this module has no
-// import dependency on lib/qbo.ts view code.
+// admin status view. "Configured" means bound to the live realm AND
+// complete: a document missing required fields cannot drive the posting
+// model, so it reports as not-configured. Reads the connection doc
+// itself so this module has no import dependency on lib/qbo.ts view code.
 export async function getQboMappingConfigured(
   environment: QboEnvironment,
   realmId?: string
@@ -72,7 +78,8 @@ export async function getQboMappingConfigured(
   const snap = await mappingRef().get();
   const data = snap.data() as QboMappingDoc | undefined;
   if (!data || data.environment !== environment) return false;
-  return Boolean(realmId && data.realmId === realmId);
+  if (!realmId || data.realmId !== realmId) return false;
+  return qboMissingMappingFields(data).length === 0;
 }
 
 export async function getQboMappingView(): Promise<QboAccountingMappingView> {
@@ -84,36 +91,27 @@ export async function getQboMappingView(): Promise<QboAccountingMappingView> {
     return { configured: false };
   }
   const mapping: QboAccountingMapping = {};
-  for (const { key } of MAPPING_FIELDS) {
+  for (const { key } of QBO_MAPPING_FIELDS) {
     const value = data[key];
     if (value) mapping[key] = value;
   }
   return {
     configured: true,
     mapping,
+    missingFields: qboMissingMappingFields(mapping),
     entityNames: data.entityNames,
     updatedAt: toIsoString(data.updatedAt),
   };
 }
 
-const MAPPING_FIELDS: Array<{
-  key: keyof QboAccountingMapping;
-  entityType: QboDiscoveryEntityType;
-}> = [
-  { key: "stripeClearingAccountId", entityType: "account" },
-  { key: "tourIncomeItemId", entityType: "item" },
-  { key: "tastingIncomeItemId", entityType: "item" },
-  { key: "otherIncomeItemId", entityType: "item" },
-  { key: "fallbackCustomerId", entityType: "customer" },
-  { key: "taxCodeId", entityType: "tax-code" },
-];
-
 const QBO_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 // Saves the admin's entity selections after validating every id against a
-// live entity query — a typo or stale id can never be persisted as the
-// accounting target. Display names resolved from the same query are stored
-// so the admin view doesn't need a second lookup.
+// live entity query — a typo, stale, or inactive id can never be persisted
+// as the accounting target. Every field marked required in
+// QBO_MAPPING_FIELDS must be set: a partial mapping cannot be stored.
+// Display names resolved from the same query are stored so the admin view
+// doesn't need a second lookup.
 export async function saveQboMapping(
   actor: AdminActor,
   input: unknown
@@ -133,19 +131,41 @@ export async function saveQboMapping(
   }
   const raw = input as Record<string, unknown>;
   const mapping: QboAccountingMapping = {};
-  for (const { key } of MAPPING_FIELDS) {
+  for (const { key, label } of QBO_MAPPING_FIELDS) {
     const value = raw[key];
     if (value === undefined || value === null || value === "") continue;
     if (typeof value !== "string" || !QBO_ID_PATTERN.test(value)) {
-      throw new QboError(`Invalid QuickBooks id for ${key}.`, "validation", 400);
+      throw new QboError(
+        `Invalid QuickBooks id for ${label}.`,
+        "validation",
+        400
+      );
     }
     mapping[key] = value;
+  }
+
+  // The Sales-Receipt model cannot run with a partial mapping — fail the
+  // save before touching the provider rather than persist an unusable
+  // configuration. taxCodeId stays optional until the CW tax decision
+  // (issue #184).
+  const missing = qboMissingMappingFields(mapping);
+  if (missing.length > 0) {
+    const labels = missing
+      .map(
+        (key) => QBO_MAPPING_FIELDS.find((field) => field.key === key)?.label
+      )
+      .filter((label): label is string => Boolean(label));
+    throw new QboError(
+      `Missing required QuickBooks mappings: ${labels.join(", ")}.`,
+      "validation",
+      400
+    );
   }
 
   // Resolve every referenced entity type once, then validate membership.
   const { accessToken } = await getQuickBooksAccessToken();
   const typesNeeded = new Set(
-    MAPPING_FIELDS.filter(({ key }) => mapping[key]).map(
+    QBO_MAPPING_FIELDS.filter(({ key }) => mapping[key]).map(
       ({ entityType }) => entityType
     )
   );
@@ -157,19 +177,26 @@ export async function saveQboMapping(
       accessToken,
       type,
     });
-    const byId = new Map(entities.map((e) => [e.id, e.name]));
-    for (const { key, entityType } of MAPPING_FIELDS) {
+    const byId = new Map(entities.map((e) => [e.id, e]));
+    for (const { key, entityType, label } of QBO_MAPPING_FIELDS) {
       const id = mapping[key];
       if (entityType !== type || !id) continue;
-      const name = byId.get(id);
-      if (name === undefined) {
+      const entity = byId.get(id);
+      if (!entity) {
         throw new QboError(
-          `The selected ${key} does not exist in the connected QuickBooks company.`,
+          `The selected ${label} does not exist in the connected QuickBooks company.`,
           "validation",
           400
         );
       }
-      entityNames[id] = name;
+      if (!entity.active) {
+        throw new QboError(
+          `The selected ${label} is inactive in the connected QuickBooks company.`,
+          "validation",
+          400
+        );
+      }
+      entityNames[id] = entity.name;
     }
   }
 

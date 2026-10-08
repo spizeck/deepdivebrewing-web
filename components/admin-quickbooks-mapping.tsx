@@ -3,63 +3,44 @@
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AdminPanelUser } from "@/components/admin-access";
-import type {
-  QboAccountingMapping,
-  QboAccountingMappingView,
-  QboDiscoveryEntityType,
-  QboEntitySummary,
+import {
+  QBO_MAPPING_FIELDS,
+  qboMissingMappingFields,
+  type QboAccountingMapping,
+  type QboAccountingMappingView,
+  type QboDiscoveryEntityType,
+  type QboEntitySummary,
 } from "@/lib/qbo-common";
 
-// Accounting-mapping configuration card (issue #161): the admin picks real
-// entities from the connected QuickBooks company so future Stripe/tour
-// revenue knows where to post. No bookkeeping happens here — this is
-// configuration for the deferred sync work only.
+// Accounting-mapping configuration card (issues #161/#182): the admin
+// picks real entities from the connected QuickBooks company so the Sales
+// Receipt posting model knows where settled-payment revenue posts. The
+// field set is fixed by the model — every field marked required in
+// QBO_MAPPING_FIELDS must be selected before a mapping can be saved, and
+// save re-validates each id against the live company.
 
-const FIELD_DEFS: Array<{
-  key: keyof QboAccountingMapping;
-  label: string;
-  entityType: QboDiscoveryEntityType;
-}> = [
-  {
-    key: "stripeClearingAccountId",
-    label: "Stripe clearing / deposit account",
-    entityType: "account",
-  },
-  {
-    key: "tourIncomeItemId",
-    label: "Brewery tour income item",
-    entityType: "item",
-  },
-  {
-    key: "tastingIncomeItemId",
-    label: "Tasting income item",
-    entityType: "item",
-  },
-  {
-    key: "otherIncomeItemId",
-    label: "Other income item",
-    entityType: "item",
-  },
-  {
-    key: "fallbackCustomerId",
-    label: "Fallback customer",
-    entityType: "customer",
-  },
-  {
-    key: "taxCodeId",
-    label: "Tax code (optional)",
-    entityType: "tax-code",
-  },
-];
+const FIELD_DESCRIPTIONS: Record<keyof QboAccountingMapping, string> = {
+  stripeClearingAccountId:
+    "Account that collects sales receipts until Stripe payouts reconcile — e.g. “Stripe Balance”. Not the bank account.",
+  tourIncomeItemId:
+    "Service item for tour sales: brewery tours, additional guests, and private tours.",
+  tastingIncomeItemId: "Service item for tour-and-tasting sales.",
+  otherIncomeItemId: "Service item for sales that are not tours or tastings.",
+  fallbackCustomerId:
+    "Customer recorded on every sales receipt — e.g. “Stripe Checkout”. One shared customer; per-customer records are not created.",
+  taxCodeId:
+    "Leave unset while the tax treatment of tour and tasting sales is being confirmed with the accountant.",
+};
 
-const ENTITY_TYPES_NEEDED: QboDiscoveryEntityType[] = [
-  "account",
-  "item",
-  "customer",
-  "tax-code",
-];
+const ENTITY_TYPES_NEEDED: QboDiscoveryEntityType[] = Array.from(
+  new Set(QBO_MAPPING_FIELDS.map((field) => field.entityType))
+);
 
 const fieldClass = "w-full rounded-md border border-ink/50 px-3 py-2 text-sm";
+
+function labelFor(key: keyof QboAccountingMapping): string {
+  return QBO_MAPPING_FIELDS.find((field) => field.key === key)?.label ?? key;
+}
 
 interface EntitiesResponse {
   ok?: boolean;
@@ -177,6 +158,10 @@ export function AdminQuickbooksMapping({
     return mapping?.entityNames?.[id] ?? id;
   }
 
+  const missingFields = mapping?.missingFields ?? [];
+  const incomplete = Boolean(mapping?.configured && missingFields.length > 0);
+  const draftMissing = qboMissingMappingFields(draft);
+
   return (
     <section
       aria-label="QuickBooks accounting mapping"
@@ -187,7 +172,9 @@ export function AdminQuickbooksMapping({
           <h2 className="text-lg font-semibold">Accounting mapping</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {mapping?.configured
-              ? "Revenue postings will use these QuickBooks entities."
+              ? incomplete
+                ? "Mapping incomplete — required fields are missing."
+                : "Sales receipts post to these QuickBooks entities."
               : "Accounting mapping not configured."}
           </p>
         </div>
@@ -213,28 +200,58 @@ export function AdminQuickbooksMapping({
         </p>
       )}
 
-      {mapping?.configured && mapping.mapping && !editing && (
+      {incomplete && !editing && (
+        <p role="status" className="mt-3 text-sm text-ember">
+          Missing required fields:{" "}
+          {missingFields.map((key) => labelFor(key)).join(", ")}. Sales
+          cannot post to QuickBooks until the mapping is complete.
+        </p>
+      )}
+
+      {connected && !editing && mapping && (
         <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-          {FIELD_DEFS.map(({ key, label }) =>
-            mapping.mapping?.[key] ? (
+          {QBO_MAPPING_FIELDS.map(({ key, label, required }) => {
+            const value = mapping.mapping?.[key];
+            return (
               <div key={key}>
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd className="font-medium text-ink">
-                  {nameFor(mapping.mapping[key])}
+                <dt className="text-muted-foreground">
+                  {label}
+                  {!required && " (optional)"}
+                </dt>
+                <dd
+                  className={
+                    value
+                      ? "font-medium text-ink"
+                      : required
+                        ? "font-medium text-ember"
+                        : "font-medium text-muted-foreground"
+                  }
+                >
+                  {value ? nameFor(value) : required ? "Not set — required" : "Not set"}
                 </dd>
               </div>
-            ) : null
-          )}
+            );
+          })}
         </dl>
       )}
 
       {editing && entities && (
         <div className="mt-4 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Choose the QuickBooks entities that sales receipts post to. All
+            fields marked required must be selected before saving.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            {FIELD_DEFS.map(({ key, label, entityType }) => (
+            {QBO_MAPPING_FIELDS.map(({ key, label, entityType, required }) => (
               <label key={key} className="block text-sm">
-                <span className="mb-1 block font-medium">{label}</span>
+                <span className="mb-1 block font-medium">
+                  {label}{" "}
+                  <span className="font-normal text-muted-foreground">
+                    {required ? "(required)" : "(optional)"}
+                  </span>
+                </span>
                 <select
+                  required={required}
                   className={fieldClass}
                   value={draft[key] ?? ""}
                   onChange={(e) =>
@@ -244,18 +261,30 @@ export function AdminQuickbooksMapping({
                     }))
                   }
                 >
-                  <option value="">Not set</option>
+                  <option value="">
+                    {required ? "Select…" : "Not set"}
+                  </option>
                   {(entities[entityType] ?? []).map((entity) => (
-                    <option key={entity.id} value={entity.id}>
+                    <option
+                      key={entity.id}
+                      value={entity.id}
+                      disabled={!entity.active}
+                    >
                       {entityOptionLabel(entity)}
                     </option>
                   ))}
                 </select>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {FIELD_DESCRIPTIONS[key]}
+                </span>
               </label>
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={handleSave} disabled={busy}>
+            <Button
+              onClick={handleSave}
+              disabled={busy || draftMissing.length > 0}
+            >
               {busy ? "Saving…" : "Save mapping"}
             </Button>
             <Button
@@ -265,6 +294,12 @@ export function AdminQuickbooksMapping({
             >
               Cancel
             </Button>
+            {draftMissing.length > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Still required:{" "}
+                {draftMissing.map((key) => labelFor(key)).join(", ")}.
+              </p>
+            )}
           </div>
         </div>
       )}

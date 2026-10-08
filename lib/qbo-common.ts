@@ -117,11 +117,12 @@ export interface QboEntitySummary {
 
 // --- Accounting mapping configuration ---
 
-// Where future Stripe/tour revenue posts in QBO. Every value is a QBO
-// entity Id discovered from the *connected* company — never hard-coded.
+// Where Stripe-settled DDB payment revenue posts in QBO (the Sales
+// Receipt model, design §5/§11). Every value is a QBO entity Id
+// discovered from the *connected* company — never hard-coded.
 export interface QboAccountingMapping {
-  /** Account Stripe/tour receipts clear through (e.g. a clearing or
-   *  undeposited-funds style account). */
+  /** Account gross sales receipts deposit into until Stripe payouts
+   *  reconcile (the "Stripe clearing account", e.g. `Stripe Balance`). */
   stripeClearingAccountId?: string;
   /** Item used for brewery-tour income lines. */
   tourIncomeItemId?: string;
@@ -129,15 +130,85 @@ export interface QboAccountingMapping {
   tastingIncomeItemId?: string;
   /** Item used for other ad-hoc income lines. */
   otherIncomeItemId?: string;
-  /** Customer used when no better QBO customer match exists. */
+  /** Customer recorded on every sales receipt — the "generic sales
+   *  customer". The persisted key predates the finalized model and is
+   *  kept for compatibility; it is the normal customer for this posting
+   *  model, not a fallback. */
   fallbackCustomerId?: string;
   /** Optional tax code when the company's tax setup requires one. */
   taxCodeId?: string;
 }
 
+// The finalized field set for the Sales-Receipt posting model (issue
+// #182, design §11). Shared between the server-side save/validation path
+// (lib/qbo-mapping.ts) and the admin UI so the required list can never
+// drift between the two. `label` is the operator-facing name shown in
+// the admin surface and used in validation errors.
+export interface QboMappingFieldSpec {
+  key: keyof QboAccountingMapping;
+  /** Discovery entity type the selection is validated against. */
+  entityType: QboDiscoveryEntityType;
+  label: string;
+  /** The posting model cannot run without a required field selected. */
+  required: boolean;
+}
+
+export const QBO_MAPPING_FIELDS: readonly QboMappingFieldSpec[] = [
+  {
+    key: "stripeClearingAccountId",
+    entityType: "account",
+    label: "Stripe clearing account",
+    required: true,
+  },
+  {
+    key: "tourIncomeItemId",
+    entityType: "item",
+    label: "Tour income item",
+    required: true,
+  },
+  {
+    key: "tastingIncomeItemId",
+    entityType: "item",
+    label: "Tasting income item",
+    required: true,
+  },
+  {
+    key: "otherIncomeItemId",
+    entityType: "item",
+    label: "Other income item",
+    required: true,
+  },
+  {
+    key: "fallbackCustomerId",
+    entityType: "customer",
+    label: "Generic sales customer",
+    required: true,
+  },
+  {
+    key: "taxCodeId",
+    entityType: "tax-code",
+    label: "Tax code",
+    required: false,
+  },
+];
+
+// Required fields still unset on a (partial) mapping — empty means the
+// mapping is complete enough for the posting model to run.
+export function qboMissingMappingFields(
+  mapping: Partial<QboAccountingMapping> | null | undefined
+): (keyof QboAccountingMapping)[] {
+  return QBO_MAPPING_FIELDS.filter(
+    (field) => field.required && !mapping?.[field.key]
+  ).map((field) => field.key);
+}
+
 export interface QboAccountingMappingView {
   configured: boolean;
   mapping?: QboAccountingMapping;
+  /** Required fields still unset — present when `configured`; an empty
+   *  array means the mapping is complete. A stored document can only be
+   *  incomplete if it predates the required-field enforcement. */
+  missingFields?: (keyof QboAccountingMapping)[];
   /** Display names resolved at save/read time when known. */
   entityNames?: Record<string, string>;
   updatedAt?: string;

@@ -322,11 +322,19 @@ async function runSyncWrite(
   const itemKey = qboIncomeItemKeyForPurpose(
     typeof payment.purpose === "string" ? payment.purpose : undefined
   );
-  const incomeItemId = itemKey ? mapping[itemKey] : undefined;
-  if (!itemKey || !incomeItemId) {
+  // An unrecognized purpose must never fall through to a generic item —
+  // it fails closed for a human to decide where it belongs.
+  if (!itemKey) {
     return attention(
       "purpose_unmapped",
       "The payment's purpose has no QuickBooks income item mapping."
+    );
+  }
+  const incomeItemId = mapping[itemKey];
+  if (!incomeItemId) {
+    return attention(
+      "missing_incomeItem",
+      "The income item required for this payment's purpose is not mapped."
     );
   }
   if (!mapping.stripeClearingAccountId) {
@@ -338,7 +346,7 @@ async function runSyncWrite(
   if (!mapping.fallbackCustomerId) {
     return attention(
       "missing_fallbackCustomerId",
-      "No generic customer is mapped for QuickBooks posting."
+      "No generic sales customer is mapped for QuickBooks posting."
     );
   }
 
