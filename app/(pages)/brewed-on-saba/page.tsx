@@ -186,11 +186,10 @@ export default function BrewedOnSabaPage() {
             approach are not documented; add verified specs here if you want
             them public. */}
         <EditorialSplit
-          src="/photos/PXL_20261006_121633967.jpg"
-          alt="The Alpha Brewing Operations mash tun, its manway sight glass showing the mash inside"
-          caption="The Alpha mash tun, part of the brewhouse installed at Fort Bay in 2024."
+          src="/photos/herobrewhouse.jpg"
+          alt="The Alpha Brewing Operations brewhouse, its stainless vessels connected by hard piping and transfer hoses"
+          caption="The Alpha brewhouse, built in Nebraska and installed at Fort Bay in 2024."
           reverse
-          portrait
           className="mt-10"
         >
           <div className="space-y-4 text-muted-foreground">
@@ -215,7 +214,7 @@ export default function BrewedOnSabaPage() {
         <EditorialFigure
           src="/photos/PXL_20261006_121718700.jpg"
           alt="Hard-plumbed valve manifold with labeled green handles for kettle rinse, knockout, and clean-in-place"
-          caption="Every transfer has a labeled valve: kettle rinse, knockout, clean-in-place."
+          caption="A well-labeled valve tree keeps every transfer, rinse, and clean-in-place path organized and repeatable."
         />
       </Reveal>
 
@@ -234,21 +233,35 @@ export default function BrewedOnSabaPage() {
           <ProcessSteps>
             <ProcessStep step="01" title="Mash">
               Milled grain meets hot water in the mash tun, where enzymes
-              convert starch into the sugars that give the beer its body and
-              strength.
+              unlock the sugars the yeast will eventually feed on.
             </ProcessStep>
             <ProcessStep step="02" title="Boil">
               The sweet wort is boiled with hops for bitterness, balance, and
               aroma, using electric heat like everything else in the brewhouse.
+              Some beers get additional hops later in the process to build
+              more aroma and flavor.
             </ProcessStep>
             <ProcessStep step="03" title="Fermentation">
-              Yeast turns wort into beer inside our stainless fermenters.
+              This is where yeast takes over. These tiny organisms consume
+              the sugars in the wort and produce alcohol, carbon dioxide,
+              and a huge part of the beer&rsquo;s character. Different yeast
+              strains and fermentation conditions can push a beer toward
+              clean, fruity, spicy, or more expressive profiles.
             </ProcessStep>
-            <ProcessStep step="04" title="Conditioning">
+            <ProcessStep step="04" title="Dry Hopping">
+              For some beers, we add hops after fermentation has started or
+              finished. This is called dry hopping. It adds aroma and flavor
+              without adding the same kind of bitterness you get from boiling
+              hops. That is where many of the citrus, tropical, floral, or
+              resinous notes in hop-forward beers come from.
+            </ProcessStep>
+            <ProcessStep step="05" title="Conditioning">
               The beer rests and is cold-filtered to help maintain consistency
-              and shelf stability in our climate.
+              and shelf stability in our climate. This is where rough edges
+              settle out and the beer gets closer to the version we want in
+              the glass.
             </ProcessStep>
-            <ProcessStep step="05" title="Packaging">
+            <ProcessStep step="06" title="Packaging">
               Beer leaves the brewery in kegs and cans: draft for bars and
               restaurants, cans for shelves and coolers.
             </ProcessStep>
