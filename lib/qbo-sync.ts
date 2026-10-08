@@ -11,7 +11,11 @@ import {
   toPaymentProviderError,
   PAYMENTS_COLLECTION,
 } from "@/lib/payments-common";
-import { getQuickBooksAccessToken } from "@/lib/qbo-tokens";
+import {
+  getQuickBooksAccessToken,
+  qboConnectionRef,
+  usableQboConnection,
+} from "@/lib/qbo-tokens";
 import { getQboMappingView } from "@/lib/qbo-mapping";
 import {
   createQboSalesReceipt,
@@ -85,6 +89,7 @@ export function buildQboSyncRecordDoc(
     qboEntityId: null,
     attempts: 0,
     lastAttemptAt: null,
+    nextAttemptAt: null,
     lastErrorCode: null,
     lastErrorMessage: null,
     idempotencyKey: syncId,
@@ -141,6 +146,28 @@ const SYNC_CLAIM_LEASE_MS = 2 * 60 * 1000;
 // adopted by the next attempt's marker lookup instead of duplicated.
 const SYNC_CREATE_MIN_LEASE_MS = 30_000;
 
+// Bounded retry policy (#183). A transient failure schedules
+// `nextAttemptAt` = now + delay for the attempt number that just ran
+// (1-based): attempt 1 waits 1 minute, attempt 6 waits 8 hours, and a
+// record that still fails on attempt QBO_SYNC_MAX_ATTEMPTS parks in
+// `needs_attention` for a human instead of retrying forever. The sweep
+// only claims records whose `nextAttemptAt` has passed.
+export const QBO_SYNC_RETRY_DELAYS_MS = [
+  60 * 1000,
+  5 * 60 * 1000,
+  30 * 60 * 1000,
+  2 * 60 * 60 * 1000,
+  4 * 60 * 60 * 1000,
+  8 * 60 * 60 * 1000,
+] as const;
+
+export const QBO_SYNC_MAX_ATTEMPTS = 8;
+
+export function qboSyncRetryDelayMs(attempts: number): number {
+  const index = Math.min(Math.max(attempts, 1), QBO_SYNC_RETRY_DELAYS_MS.length);
+  return QBO_SYNC_RETRY_DELAYS_MS[index - 1];
+}
+
 interface QboSyncRecordDoc {
   sourceType?: string;
   sourceId?: string;
@@ -149,6 +176,7 @@ interface QboSyncRecordDoc {
   realmId?: string | null;
   attempts?: number;
   syncingLeaseUntil?: Timestamp;
+  nextAttemptAt?: Timestamp | null;
   lastErrorCode?: string | null;
 }
 
@@ -158,6 +186,11 @@ export type QboSyncProcessResult =
   | { outcome: "in_progress" }
   | { outcome: "needs_attention"; reason: string }
   | { outcome: "failed"; reason: string }
+  // The connection cannot write right now (disconnected /
+  // reauthorization_required) — the record is untouched and preserved.
+  | { outcome: "paused" }
+  // A retry is already scheduled for later — not due yet.
+  | { outcome: "deferred" }
   | { outcome: "missing" };
 
 type SyncWriteResult =
@@ -217,9 +250,15 @@ function syncRef(syncId: string) {
 // Commits the outcome for a claimed record — but only while the claim is
 // still ours. If the lease lapsed mid-flight and a successor reclaimed
 // the record, this worker's verdict must not clobber its state.
+//
+// `attempts` is the count including the attempt that just ran. A
+// retryable failure schedules `nextAttemptAt` from the backoff table;
+// once the budget is spent the record parks in `needs_attention` with a
+// `retry_exhausted` code — a human fixes the cause and requeues it.
 async function finalizeSyncClaim(
   syncId: string,
   leaseUntilMs: number,
+  attempts: number,
   result: SyncWriteResult
 ): Promise<void> {
   const ref = syncRef(syncId);
@@ -245,13 +284,26 @@ async function finalizeSyncClaim(
         qboEntityType: QBO_SALES_RECEIPT_ENTITY_TYPE,
         qboEntityId: result.qboEntityId,
         realmId: result.realmId,
+        nextAttemptAt: null,
         lastErrorCode: null,
         lastErrorMessage: null,
+      });
+    } else if (result.kind === "failed" && attempts >= QBO_SYNC_MAX_ATTEMPTS) {
+      tx.update(ref, {
+        ...done,
+        status: "needs_attention",
+        nextAttemptAt: null,
+        lastErrorCode: "retry_exhausted",
+        lastErrorMessage: `Retry limit reached after ${attempts} attempts (last error: ${result.code}).`,
       });
     } else {
       tx.update(ref, {
         ...done,
         status: result.kind,
+        nextAttemptAt:
+          result.kind === "failed"
+            ? Timestamp.fromMillis(Date.now() + qboSyncRetryDelayMs(attempts))
+            : null,
         lastErrorCode: result.code,
         lastErrorMessage: result.message,
       });
@@ -508,7 +560,8 @@ export async function processQboSyncRecord(
   syncId: string
 ): Promise<QboSyncProcessResult> {
   const environment = getQboEnvironment();
-  const leaseUntilMs = Date.now() + SYNC_CLAIM_LEASE_MS;
+  const nowMs = Date.now();
+  const leaseUntilMs = nowMs + SYNC_CLAIM_LEASE_MS;
   const claim = await getFirebaseAdminDb().runTransaction(async (tx) => {
     const snap = await tx.get(syncRef(syncId));
     const record = snap.data() as QboSyncRecordDoc | undefined;
@@ -531,13 +584,57 @@ export async function processQboSyncRecord(
     if (
       record.status === "syncing" &&
       record.syncingLeaseUntil &&
-      record.syncingLeaseUntil.toMillis() > Date.now()
+      record.syncingLeaseUntil.toMillis() > nowMs
     ) {
       return { action: "in_progress" as const };
     }
+
+    const attempts =
+      typeof record.attempts === "number" ? record.attempts : 0;
+
+    // Retry budget spent — park for a human (covers records that reached
+    // the limit before the finalize-time exhaustion check existed).
+    if (attempts >= QBO_SYNC_MAX_ATTEMPTS) {
+      tx.update(syncRef(syncId), {
+        status: "needs_attention",
+        nextAttemptAt: null,
+        syncingLeaseUntil: FieldValue.delete(),
+        lastErrorCode: "retry_exhausted",
+        lastErrorMessage: `Retry limit reached after ${attempts} attempts${
+          record.lastErrorCode ? ` (last error: ${record.lastErrorCode})` : ""
+        }. Fix the cause and retry manually.`,
+        updatedAt: Timestamp.now(),
+      });
+      return {
+        action: "needs_attention" as const,
+        reason: "retry_exhausted",
+      };
+    }
+
+    // Bounded backoff: a failed/pending record is not eligible until its
+    // scheduled retry time. Missing nextAttemptAt = due now (fresh or
+    // legacy records). A stale `syncing` lease reclaims immediately —
+    // the schedule belongs to the attempt, not the crashed claimant.
+    if (record.status !== "syncing") {
+      const nextAttemptMs = timestampMillis(record.nextAttemptAt);
+      if (nextAttemptMs !== null && nextAttemptMs > nowMs) {
+        return { action: "deferred" as const };
+      }
+    }
+
+    // Pause gate: while the connection cannot write (disconnected or
+    // reauthorization_required) records are preserved untouched — no
+    // claim, no attempt consumed. Read inside the claim transaction so
+    // the decision is consistent with the write that follows.
+    const connSnap = await tx.get(qboConnectionRef(environment));
+    const conn = usableQboConnection(connSnap.data(), environment);
+    if (!conn || conn.status !== "connected" || !conn.refreshTokenEnc) {
+      return { action: "paused" as const };
+    }
+
     tx.update(syncRef(syncId), {
       status: "syncing",
-      attempts: (typeof record.attempts === "number" ? record.attempts : 0) + 1,
+      attempts: attempts + 1,
       lastAttemptAt: Timestamp.now(),
       syncingLeaseUntil: Timestamp.fromMillis(leaseUntilMs),
       updatedAt: Timestamp.now(),
@@ -546,6 +643,7 @@ export async function processQboSyncRecord(
       action: "claimed" as const,
       sourceType: record.sourceType,
       sourceId: record.sourceId,
+      attempts: attempts + 1,
     };
   });
 
@@ -559,6 +657,10 @@ export async function processQboSyncRecord(
       return { outcome: "needs_attention", reason: claim.reason };
     case "in_progress":
       return { outcome: "in_progress" };
+    case "paused":
+      return { outcome: "paused" };
+    case "deferred":
+      return { outcome: "deferred" };
   }
 
   const result = await runSyncWrite(
@@ -567,7 +669,7 @@ export async function processQboSyncRecord(
     environment,
     leaseUntilMs
   );
-  await finalizeSyncClaim(syncId, leaseUntilMs, result);
+  await finalizeSyncClaim(syncId, leaseUntilMs, claim.attempts, result);
 
   if (result.kind === "synced") {
     logInfo("qbo.sync.posted", {
@@ -588,6 +690,18 @@ export async function processQboSyncRecord(
       correlationId: result.correlationId,
     });
     return { outcome: "needs_attention", reason: result.code };
+  }
+  // A retryable failure on the last allowed attempt is parked as
+  // needs_attention/retry_exhausted by finalizeSyncClaim — report the
+  // parked state so the outcome agrees with the stored record.
+  if (claim.attempts >= QBO_SYNC_MAX_ATTEMPTS) {
+    logWarn("qbo.sync.needs_attention", {
+      environment,
+      reason: "retry_exhausted",
+      lastError: result.code,
+      correlationId: result.correlationId,
+    });
+    return { outcome: "needs_attention", reason: "retry_exhausted" };
   }
   logError("qbo.sync.failed", undefined, {
     environment,

@@ -1,7 +1,11 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert";
 import { QboError } from "@/lib/qbo-errors";
-import { installQboDbMock, withEnv } from "./qbo-test-helpers";
+import {
+  installQboDbMock,
+  qboTokensMockExtras,
+  withEnv,
+} from "./qbo-test-helpers";
 
 // Exercises the durable in-commit enqueue (#179): the QBO sync record is
 // created inside the same Firestore transaction that settles the payment,
@@ -58,6 +62,7 @@ mock.module("@/lib/qbo-tokens", {
       accessToken: "at",
       realmId: "realm-prod",
     }),
+    ...qboTokensMockExtras(firestore),
   },
 });
 
@@ -102,6 +107,7 @@ function reset() {
       status: "connected",
       realmId: "realm-prod",
       companyCountry: "CW",
+      refreshTokenEnc: "enc-rt",
     },
     [`payments/${PAYMENT_ID}`]: awaitingPayment(),
   });

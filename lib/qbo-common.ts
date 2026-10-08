@@ -28,6 +28,7 @@ export const QBO_OAUTH_STATES_COLLECTION = "qboOauthStates";
 export const QBO_WEBHOOK_RECEIPTS_COLLECTION = "qboWebhookReceipts";
 export const QBO_CONFIG_COLLECTION = "qboConfig";
 export const QBO_SYNC_RECORDS_COLLECTION = "qboSyncRecords";
+export const QBO_SWEEP_STATE_COLLECTION = "qboSweepState";
 
 export const QBO_ACCOUNTING_MAPPING_DOC = "accountingMapping";
 
@@ -246,6 +247,70 @@ export type QboSyncStatus =
   | "synced"
   | "failed"
   | "needs_attention";
+
+export const QBO_SYNC_STATUSES: readonly QboSyncStatus[] = [
+  "pending",
+  "syncing",
+  "synced",
+  "failed",
+  "needs_attention",
+];
+
+export function isQboSyncStatus(value: unknown): value is QboSyncStatus {
+  return (
+    typeof value === "string" &&
+    (QBO_SYNC_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+// --- Sync operations admin surface (issue #183) ---
+
+// Serialized per-record view for the admin sync panel. Deliberately narrow:
+// no candidate payload (customer PII), no tokens, no provider payloads —
+// only safe operational state.
+export interface QboSyncRecordView {
+  syncId: string;
+  sourceType: string;
+  sourceId: string;
+  status: QboSyncStatus;
+  attempts: number;
+  lastAttemptAt?: string;
+  nextAttemptAt?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  qboEntityType?: string;
+  qboEntityId?: string;
+  realmIdShort?: string;
+  updatedAt?: string;
+}
+
+export type QboSyncStatusCounts = Record<QboSyncStatus, number>;
+
+export interface QboSyncAdminView {
+  configured: boolean;
+  environment: QboEnvironment;
+  /** True while the connection cannot write (disconnected or
+   *  reauthorization_required) — records accumulate, nothing posts. */
+  paused: boolean;
+  counts: QboSyncStatusCounts;
+  /** Recent `failed`/`needs_attention` records, newest activity first. */
+  records: QboSyncRecordView[];
+  /** True when the problem-record scan hit its cap — there may be more
+   *  failed/needs_attention records than the panel lists. */
+  truncated: boolean;
+}
+
+// Coarse outcome codes the manual-retry admin route returns.
+export type QboSyncRetryOutcome =
+  | "synced"
+  | "already_synced"
+  | "queued"
+  | "in_progress"
+  | "paused"
+  | "deferred"
+  | "needs_attention"
+  | "failed"
+  | "missing";
 
 // Deterministic internal sync-record key. The internal source identity is
 // the idempotency anchor — a future QBO entity id is correlation only, so

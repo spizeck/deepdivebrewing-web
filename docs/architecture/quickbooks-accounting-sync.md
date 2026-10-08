@@ -437,11 +437,13 @@ deterministic internal identity, QBO ids as correlation only.
 - A replayed `paid` transition, a redelivered Stripe webhook, or a
   retried worker run hits the existing `qboSyncRecords` document and
   returns `duplicate`/`already_synced` — never a second Sales Receipt.
-- **Implemented worker behavior (#179):** a Firestore transaction claims
-  `pending`/`failed`/stale-`syncing` records under a 2-minute
-  `syncingLeaseUntil` lease — one claimant at a time. `synced` →
-  `already_synced` no-op. `needs_attention` → terminal until a human
-  requeues.
+- **Implemented worker behavior (#179, extended #183):** a Firestore
+  transaction claims `pending`/`failed`/stale-`syncing` records under a
+  2-minute `syncingLeaseUntil` lease — one claimant at a time. A
+  `failed`/`pending` record is only claimable once its `nextAttemptAt`
+  has passed; a stale `syncing` lease is reclaimed regardless of the
+  schedule. `synced` → `already_synced` no-op. `needs_attention` →
+  terminal until a human requeues (`POST /api/admin/quickbooks/sync/retry`).
 - **Provider-side recovery (implemented):** QBO offers no idempotency
   key on create, so before every `POST /salesreceipt` the worker queries
   the generic customer's receipts filtered to the payment's `TxnDate`
@@ -467,21 +469,31 @@ deterministic internal identity, QBO ids as correlation only.
   write, so the "paid payment with no sync record" hole cannot occur
   for payments settled after this shipped. The post-commit enqueue is
   an idempotent ensure, not the durability mechanism.
-- **Trigger mechanism (implemented, #179):** in-commit create + inline
-  write attempt inside the request that committed `paid` — no cron
-  exists in this repo today (`vercel.json` has no `crons`). A bounded
-  sweep route for `pending`/`failed` stragglers remains #183 (it also
-  covers the theoretical case of a pre-#179 paid payment).
-- **Attempts/backoff:** `attempts` counter + `lastAttemptAt` exist on
-  the record; transient `QboError`s (`unavailable`/`rate_limited`,
-  token `refresh_failed`, Stripe fetch failures) land in `failed` —
-  retryable. `validation`/`permission_denied`/`configuration`,
-  unmapped purposes, missing mappings, and canonical-state mismatches
-  go straight to `needs_attention` — human fixes config, then a retry
-  action re-queues (manual `pending` reset until #183 ships).
-- **`invalid_grant` / reauthorization_required:** sync pauses cleanly
-  (`failed` + `authorization_expired`); records accumulate safely until
-  reconnect.
+- **Trigger mechanism (implemented):** in-commit create + inline write
+  attempt inside the request that committed `paid` (#179), plus a
+  bounded authenticated sweep — `GET /api/cron/qbo-sweep` on a Vercel
+  Cron schedule (#183). The sweep also performs missed-enqueue recovery
+  over a bounded lookback window (default 72 h) for canonical payments
+  that settled without a sync record — covering worker crashes and the
+  theoretical pre-#179 gap without a broad backfill. Admins can trigger
+  the same sweep on demand (`POST /api/admin/quickbooks/sync`).
+- **Attempts/backoff (implemented, #183):** transient `QboError`s
+  (`unavailable`/`rate_limited`, token `refresh_failed`, Stripe fetch
+  failures) land in `failed` with `nextAttemptAt` scheduled from a
+  fixed backoff table (1 min → 5 min → 30 min → 2 h → 4 h → 8 h).
+  After `QBO_SYNC_MAX_ATTEMPTS` (8) the record parks in
+  `needs_attention` with `retry_exhausted`. `validation`/
+  `permission_denied`/`configuration`, unmapped purposes, missing
+  mappings, and canonical-state mismatches go straight to
+  `needs_attention` on the first attempt — human fixes config, then the
+  admin retry action re-queues with a fresh budget.
+- **`invalid_grant` / reauthorization_required (implemented, #183):**
+  the worker's claim-time pause gate refuses to touch records while the
+  connection cannot write — no claim, no attempt consumed, nothing
+  discarded. Attempts that raced the revocation land in `failed` with
+  `authorization_expired`; the OAuth callback's resume hook pulls them
+  to due-now so the next sweep drains the backlog. Payment state is
+  never touched.
 - **QBO write succeeded but response lost:** handled — the correlation
   query in §12 adopts the landed receipt instead of re-posting.
 

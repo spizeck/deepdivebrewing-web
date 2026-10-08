@@ -4,5 +4,11 @@
     "deploymentEnabled": {
       "dependabot/**": false
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/qbo-sweep",
+      "schedule": "17 5 * * *"
+    }
+  ]
 }

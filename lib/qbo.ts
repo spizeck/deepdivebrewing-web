@@ -41,6 +41,7 @@ import {
   requestQboTokens,
   usableQboConnection,
 } from "@/lib/qbo-tokens";
+import { resumeQboSyncAfterReconnect } from "@/lib/qbo-sweep";
 
 // QuickBooks Online connection lifecycle (issue #161) — the server-only
 // orchestration behind /api/admin/quickbooks/* and the QBO API client.
@@ -253,6 +254,14 @@ export async function completeQboAuthorization(input: {
     environment: config.environment,
     realmIdShort: abbreviateRealmId(input.realmId),
   });
+
+  // #183 — work that failed with `authorization_expired` while the grant
+  // was invalid becomes due immediately so the next sweep drains it.
+  // Best-effort: reconnect itself must not fail on queue housekeeping.
+  await resumeQboSyncAfterReconnect(config.environment).catch(() => {
+    logWarn("qbo.sync.resume_failed", { environment: config.environment });
+  });
+
   return { companyName: company.companyName };
 }
 

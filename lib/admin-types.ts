@@ -45,7 +45,11 @@ export interface AdminAuditRecord {
     | "qbo_connected"
     | "qbo_disconnected"
     | "qbo_connection_checked"
-    | "qbo_mapping_updated";
+    | "qbo_mapping_updated"
+    // Sync operations (issue #183): manual admin requeue of a failed /
+    // needs-attention record, and an admin-triggered sync sweep.
+    | "qbo_sync_requeued"
+    | "qbo_sweep_triggered";
   targetUid?: string;
   targetEmail?: string;
   oldRole?: AdminRole | null;

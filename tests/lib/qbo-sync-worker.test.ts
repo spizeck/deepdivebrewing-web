@@ -2,7 +2,11 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert";
 import { Timestamp } from "firebase-admin/firestore";
 import { QboError } from "@/lib/qbo-errors";
-import { installQboDbMock, withEnv } from "./qbo-test-helpers";
+import {
+  installQboDbMock,
+  qboTokensMockExtras,
+  withEnv,
+} from "./qbo-test-helpers";
 
 // --- Shared mock state (reset per test) ---
 
@@ -66,6 +70,7 @@ mock.module("@/lib/qbo-tokens", {
       if (state.tokenError) throw state.tokenError;
       return { accessToken: "at", realmId: "realm-prod" };
     },
+    ...qboTokensMockExtras(firestore),
   },
 });
 
@@ -131,6 +136,7 @@ function reset(seed: Record<string, Record<string, unknown>> = {}) {
       status: "connected",
       realmId: "realm-prod",
       companyCountry: "CW",
+      refreshTokenEnc: "enc-rt",
     },
     ...seed,
   });
@@ -236,7 +242,7 @@ describe("postPaidPaymentToQbo — source identity", () => {
     reset({ [`payments/${PAYMENT_ID}`]: paidPayment() });
     state.session = paidSession({ metadata: { paymentId: "other-id" }, client_reference_id: "other-id" });
     firestore.reset({
-      "qboConnections/sandbox": { status: "connected", realmId: "realm-prod", companyCountry: "CW" },
+      "qboConnections/sandbox": { status: "connected", realmId: "realm-prod", companyCountry: "CW", refreshTokenEnc: "enc-rt" },
       [`payments/${PAYMENT_ID}`]: paidPayment(),
       [`${RECORDS}/${SYNC_ID}`]: {
         sourceType: "stripe_payment",
