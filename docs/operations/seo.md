@@ -111,11 +111,11 @@ the serializer.
 
 ## Internal linking
 
-Primary nav + footer link every indexable page; beer cards link `/beers` →
-`/beers/[slug]`; beer detail links back via the visible breadcrumb and a
-"where to buy" link. `/brewed-on-saba` is currently linked from `/about`
-only — nav/footer placement is a deliberate follow-up, not an oversight. No
-orphan indexable pages.
+Primary nav + footer link every indexable page **except** `/brewed-on-saba`,
+which is intentionally linked from `/about` only until nav/footer placement
+is decided (Issue #192) — a deliberate exception, not an oversight. Beer
+cards link `/beers` → `/beers/[slug]`; beer detail links back via the
+visible breadcrumb and a "where to buy" link. No orphan indexable pages.
 
 ## Verifying SEO locally
 
