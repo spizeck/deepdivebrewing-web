@@ -32,7 +32,7 @@ app/                 → Next.js App Router routes
 components/          → React components, including admin UI
 components/ui/       → shadcn/ui building blocks
 lib/                 → Firebase clients, data helpers, types, utilities
-content/             → MDX content files
+content/             → Repository-authored content (Updates bodies + registry)
 public/              → Static assets, favicons, manifest, videos, photos
 docs/                → Administrator and operations guides
 scripts/             → Utility and verification scripts
@@ -152,6 +152,7 @@ See [docs/operations/deployment.md](./docs/operations/deployment.md) for branch 
 - [Payments operations](./docs/operations/payments.md)
 - [Troubleshooting guide](./docs/operations/troubleshooting.md)
 - [Post-deployment checklist](./docs/operations/post-deployment-checklist.md)
+- [Publishing updates](./docs/operations/updates.md)
 
 ## Contributing
 

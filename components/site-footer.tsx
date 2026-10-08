@@ -86,6 +86,7 @@ export function SiteFooter() {
             <ul className="mt-3 space-y-2">
               <FooterLink href="/beers">Our Beers</FooterLink>
               <FooterLink href="/where-to-buy">Where to Buy</FooterLink>
+              <FooterLink href="/updates">Updates</FooterLink>
             </ul>
           </div>
 

@@ -26,11 +26,12 @@ policy, metadata conventions, sitemap/robots behavior, and how to verify.
 
 | Surface | Indexed? | Mechanism |
 | --- | --- | --- |
-| `/`, `/beers`, `/beers/[slug]`, `/where-to-buy`, `/about`, `/contact`, `/trade`, `/privacy`, `/terms` | Yes | `index,follow` (root default); in `sitemap.xml` |
-| `/beers/[slug]` unknown slug | No | `generateMetadata` returns `robots: { index: false }` + 404 |
+| `/`, `/beers`, `/beers/[slug]`, `/updates`, `/updates/[slug]`, `/where-to-buy`, `/about`, `/contact`, `/trade`, `/privacy`, `/terms` | Yes | `index,follow` (root default); in `sitemap.xml` |
+| `/beers/[slug]`, `/updates/[slug]` unknown slug | No | `generateMetadata` returns `robots: { index: false }` + 404 |
+| `/updates/[slug]` drafts (`draft: true`) | No | excluded from `generateStaticParams`, sitemap, and listings — production renders the 404 |
 | `/admin` | No | `robots` meta `noindex,nofollow` + `Disallow` in robots.txt; real protection is auth, not robots |
 | `/admin-fixture` | No | `noindex,nofollow` meta + `Disallow`; also returns 404 unless the server-only test flag is set |
-| `/carousel-fixture`, `/where-to-buy-fixture` | No | Same env-gated test-fixture pattern: `noindex,nofollow` meta + `Disallow`, 404 without the flag |
+| `/carousel-fixture`, `/updates-fixture`, `/where-to-buy-fixture` | No | Same env-gated test-fixture pattern: `noindex,nofollow` meta + `Disallow`, 404 without the flag |
 | `/trade/login`, `/trade/order`, `/trade/orders` | No | Reserved placeholders — `noindex,nofollow` meta + `Disallow` |
 | `/api/*` | No | `Disallow: /api/` (API routes produce no indexable content) |
 | `/_not-found` (404) | No | `noindex` meta + 404 status |
@@ -52,19 +53,26 @@ routes stay protected by authentication.
 - `/beers/[slug]` uses `generateMetadata()` for per-beer title, description
   (name/style/ABV/tasting note), canonical, OG/Twitter cards, and the beer's
   hero image. When beer data is unavailable the route renders a noindex 404.
-- Beer OG images declare no fixed dimensions — hero aspect varies.
+- `/updates/[slug]` uses `generateMetadata()` for per-post title, summary as
+  description, canonical, `og:type: "article"` with `publishedTime` from the
+  post's `publishedAt`, and the post's hero image (falling back to
+  `/photos/og-default.jpg`). Drafts and unknown slugs render a noindex 404.
+- Beer OG images declare no fixed dimensions — hero aspect varies. The same
+  is true for update hero images.
 
 ## Sitemap
 
 `app/sitemap.ts` emits static routes plus one URL per beer from `getBeers()`
-at build time. Without Firestore credentials the data layer resolves empty,
-so CI/no-env builds produce a sitemap with only static routes — a deliberate,
-deterministic degradation (Issue #18 guarantee preserved; never make the
-sitemap require credentials).
+and one per published update from `getPublishedUpdates()` at build time.
+Without Firestore credentials the beer layer resolves empty, so CI/no-env
+builds produce a sitemap with only static routes and update URLs — a
+deliberate, deterministic degradation (Issue #18 guarantee preserved; never
+make the sitemap require credentials).
 
-`lastModified` is intentionally omitted: the build has no real per-page
-modification dates (beer/venue content changes in Firestore, not on
-deploy), so a build-time stamp would misreport freshness to crawlers.
+`lastModified` is emitted only where a real date exists: update entries
+carry `lastModified` = `publishedAt` (repo-authored, accurate), while every
+other route omits it — beer/venue content changes in Firestore, not on
+deploy, so a build-time stamp would misreport freshness to crawlers.
 
 ## Structured data (JSON-LD)
 
@@ -75,6 +83,7 @@ deploy), so a build-time stamp would misreport freshness to crawlers.
 | `/trade` | `Brewery` (`#brewery`) | Same builder — identical entity |
 | `/where-to-buy` | `Brewery` (`#brewery`) + `FAQPage` | Same builder; FAQ mirrors the visible on-page questions |
 | `/beers/[slug]` | `BreadcrumbList` | Mirrors the visible breadcrumb nav; no `Product` markup — see below |
+| `/updates/[slug]` | `BlogPosting` | Real dated posts by the brewery; `author`/`publisher` reference the canonical `#brewery` entity — no individual author is invented |
 
 Beer detail pages deliberately emit **no `Product` schema**. Google's
 [product snippet requirements](https://developers.google.com/search/docs/appearance/structured-data/product-snippet)
