@@ -163,7 +163,9 @@ always with **Production** app settings and **Production** Vercel scope.
    without it:
    `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
    Optionally set `QBO_SWEEP_LOOKBACK_HOURS` if the default 72-hour
-   missed-enqueue window should differ (never for historical backfill).
+   missed-enqueue window should differ — it also controls how far back
+   older settled payments are picked up (see
+   [Backfill bounds](#backfill-bounds)).
 6. Redeploy production (env changes never reach already-deployed
    builds). After the first deploy with the cron configured, confirm the
    `qbo-sweep` job appears under Project → Settings → Crons and that the
@@ -380,14 +382,19 @@ configured environment, and every worker gate still applies: canonical
 Stripe re-verification, mapping validation, realm/environment binding,
 and marker idempotency.
 
-### No backfill
+### Backfill bounds
 
-The missed-enqueue sweep only scans payments whose `paidAt` is inside a
-bounded lookback window (72 h by default, hard-capped at 30 days via
-`QBO_SWEEP_LOOKBACK_HOURS`). Historical paid payments — including the
-live `$5.00` pre-flight test — are never posted automatically. Any
-future backfill is an explicit, separately reviewed admin action, not a
-configuration change to the sweep.
+The missed-enqueue sweep picks up every qualifying payment whose
+`paidAt` is inside the lookback window — 72 h by default, set by
+`QBO_SWEEP_LOOKBACK_HOURS` and hard-capped at 30 days. The window is a
+time bound, not a deployment cutoff: a payment that settled before this
+feature shipped is still enqueued and posted when its `paidAt` falls
+inside the window, and raising `QBO_SWEEP_LOOKBACK_HOURS` deliberately
+widens how far back the scan reaches. Only payments older than the
+configured window are skipped — a record like the live `$5.00`
+pre-flight test stays unposted only while it remains outside it. A
+backfill beyond the 30-day cap remains an explicit, separately reviewed
+admin action, not a sweep configuration change.
 
 ## What is deliberately not built
 

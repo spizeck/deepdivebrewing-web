@@ -174,7 +174,7 @@ export is strictly downstream: it is best-effort, idempotent, and can
 never change the payment's status. Only payments originating in this
 tool qualify — Ollie/Spreedly and other foreign Stripe activity have no
 `payments/` record and never reach the seam. Model, mappings, failure
-behavior, and the no-backfill rule are in
+behavior, and the sweep's backfill bounds are in
 [quickbooks.md](./quickbooks.md#sales-receipt-sync-ddb-payments-only).
 
 ## Stripe API versions

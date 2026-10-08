@@ -295,7 +295,12 @@ describe("retry policy — backoff and bounds (#183)", () => {
     state.createError = new QboError("down", "unavailable", 502);
 
     const result = await process(SYNC_ID);
-    assert.strictEqual(result.outcome, "failed");
+    // Reported outcome matches the parked record, not the last error.
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(
+      result.outcome === "needs_attention" ? result.reason : undefined,
+      "retry_exhausted"
+    );
 
     const doc = syncDoc();
     assert.strictEqual(doc?.attempts, 8);

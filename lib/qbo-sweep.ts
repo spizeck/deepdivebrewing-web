@@ -30,8 +30,8 @@ import {
 //      window but have no sync record get one. This is positive-identity
 //      only: the `payments` collection contains exclusively DDB-issued
 //      records, so Ollie/Spreedly or any other foreign Stripe activity
-//      can never be enqueued. The lookback window makes the "no
-//      historical backfill" rule explicit — anything older stays manual.
+//      can never be enqueued. The lookback window bounds how far back
+//      recovery reaches — anything older stays manual.
 //   2. Connection gate — when the connection cannot write (disconnected,
 //      reauthorization_required), processing is skipped entirely so
 //      records wait untouched instead of burning attempts. Enqueue still

@@ -691,6 +691,18 @@ export async function processQboSyncRecord(
     });
     return { outcome: "needs_attention", reason: result.code };
   }
+  // A retryable failure on the last allowed attempt is parked as
+  // needs_attention/retry_exhausted by finalizeSyncClaim — report the
+  // parked state so the outcome agrees with the stored record.
+  if (claim.attempts >= QBO_SYNC_MAX_ATTEMPTS) {
+    logWarn("qbo.sync.needs_attention", {
+      environment,
+      reason: "retry_exhausted",
+      lastError: result.code,
+      correlationId: result.correlationId,
+    });
+    return { outcome: "needs_attention", reason: "retry_exhausted" };
+  }
   logError("qbo.sync.failed", undefined, {
     environment,
     reason: result.code,
