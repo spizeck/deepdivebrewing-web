@@ -514,7 +514,6 @@ export function AdminQuickbooksWorkspace({
                       </dt>
                       <dd className="font-medium text-ink">
                         {sync.counts[status]}
-                        {sync.truncated && status === "synced" ? "+" : ""}
                       </dd>
                     </div>
                   )
@@ -565,6 +564,13 @@ export function AdminQuickbooksWorkspace({
                     </li>
                   ))}
                 </ul>
+              )}
+
+              {sync.truncated && (
+                <p className="text-xs text-muted-foreground">
+                  More records match than are shown — inspect
+                  `qboSyncRecords` in Firestore for the full backlog.
+                </p>
               )}
             </div>
           )}

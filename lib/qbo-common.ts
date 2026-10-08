@@ -294,7 +294,8 @@ export interface QboSyncAdminView {
   counts: QboSyncStatusCounts;
   /** Recent `failed`/`needs_attention` records, newest activity first. */
   records: QboSyncRecordView[];
-  /** True when the bounded scan hit its cap — counts may be low. */
+  /** True when the problem-record scan hit its cap — there may be more
+   *  failed/needs_attention records than the panel lists. */
   truncated: boolean;
 }
 

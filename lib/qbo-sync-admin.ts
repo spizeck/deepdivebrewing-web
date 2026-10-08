@@ -27,10 +27,12 @@ import {
 // serialized here is operational metadata — never the stored candidate
 // payload (customer PII), tokens, or raw provider responses.
 
-// Bounded scans — the collection is append-only and small (one doc per
-// settled DDB payment), but never trust unbounded reads on an admin
-// surface. `truncated` in the view tells the admin when the cap hit.
-const SYNC_VIEW_SCAN_LIMIT = 2000;
+// Bounded reads — counts come from per-status count() aggregations
+// (equality filters only, no composite index) so they stay correct as
+// the collection grows. Problem records are queried directly by status;
+// the scan cap is a safety valve for a pathological failure backlog,
+// and `truncated` in the view tells the admin when it hit.
+const PROBLEM_SCAN_LIMIT = 500;
 const PROBLEM_RECORD_LIMIT = 15;
 const REQUEUE_ELIGIBLE = new Set(["failed", "needs_attention"]);
 
@@ -67,40 +69,48 @@ function toSyncRecordView(
 export async function getQboSyncAdminView(): Promise<QboSyncAdminView> {
   const environment = getQboEnvironment();
   const db = getFirebaseAdminDb();
-  const [connSnap, recordsSnap] = await Promise.all([
+  const collection = db.collection(QBO_SYNC_RECORDS_COLLECTION);
+
+  const counts = Object.fromEntries(
+    QBO_SYNC_STATUSES.map((status) => [status, 0])
+  ) as QboSyncStatusCounts;
+  const [connSnap, problemsSnap] = await Promise.all([
     qboConnectionRef(environment).get(),
-    db
-      .collection(QBO_SYNC_RECORDS_COLLECTION)
-      .limit(SYNC_VIEW_SCAN_LIMIT)
+    collection
+      .where("status", "in", ["failed", "needs_attention"])
+      .limit(PROBLEM_SCAN_LIMIT)
       .get(),
+    ...QBO_SYNC_STATUSES.map(async (status) => {
+      const aggregate = await collection
+        .where("environment", "==", environment)
+        .where("status", "==", status)
+        .count()
+        .get();
+      counts[status] = aggregate.data().count;
+    }),
   ]);
 
   const conn = usableQboConnection(connSnap.data(), environment);
   const paused =
     !conn || conn.status !== "connected" || !conn.refreshTokenEnc;
 
-  const counts = Object.fromEntries(
-    QBO_SYNC_STATUSES.map((status) => [status, 0])
-  ) as QboSyncStatusCounts;
-  const problems: { view: QboSyncRecordView; sortMs: number }[] = [];
-
-  for (const doc of recordsSnap.docs) {
-    const data = doc.data() as Record<string, unknown>;
-    if (data.environment !== environment) continue;
-    const status = isQboSyncStatus(data.status) ? data.status : "pending";
-    counts[status] += 1;
-    if (status !== "failed" && status !== "needs_attention") continue;
-    const view = toSyncRecordView(doc.id, data);
-    problems.push({
-      view,
-      sortMs:
-        Date.parse(view.lastAttemptAt ?? "") ||
-        Date.parse(view.updatedAt ?? "") ||
-        0,
-    });
-  }
-
-  problems.sort((a, b) => b.sortMs - a.sortMs);
+  const problems = problemsSnap.docs
+    .map((doc) => {
+      const view = toSyncRecordView(
+        doc.id,
+        doc.data() as Record<string, unknown>
+      );
+      return {
+        view,
+        sortMs:
+          Date.parse(view.lastAttemptAt ?? "") ||
+          Date.parse(view.updatedAt ?? "") ||
+          0,
+        environment: doc.data().environment,
+      };
+    })
+    .filter((entry) => entry.environment === environment)
+    .sort((a, b) => b.sortMs - a.sortMs);
 
   return {
     configured: true,
@@ -108,7 +118,7 @@ export async function getQboSyncAdminView(): Promise<QboSyncAdminView> {
     paused,
     counts,
     records: problems.slice(0, PROBLEM_RECORD_LIMIT).map((p) => p.view),
-    truncated: recordsSnap.size >= SYNC_VIEW_SCAN_LIMIT,
+    truncated: problemsSnap.size >= PROBLEM_SCAN_LIMIT,
   };
 }
 
