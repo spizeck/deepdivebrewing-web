@@ -86,6 +86,51 @@ const FULL_MAPPING_INPUT = {
   fallbackCustomerId: "cust-1",
 };
 
+// Sync operations surface fixture (#183): one failed record due for
+// retry, one needs-attention record, nonzero counts.
+const SYNC_VIEW = {
+  ok: true,
+  sync: {
+    configured: true,
+    environment: "sandbox",
+    paused: false,
+    counts: {
+      pending: 2,
+      syncing: 0,
+      synced: 14,
+      failed: 1,
+      needs_attention: 1,
+    },
+    records: [
+      {
+        syncId: "sandbox:stripe_payment:pay-001",
+        sourceType: "stripe_payment",
+        sourceId: "pay-001",
+        status: "failed",
+        attempts: 3,
+        lastErrorCode: "unavailable",
+        lastErrorMessage: "QuickBooks is temporarily unavailable.",
+        nextAttemptAt: "2026-10-03T12:00:00.000Z",
+        lastAttemptAt: "2026-10-02T12:00:00.000Z",
+      },
+      {
+        syncId: "sandbox:stripe_payment:pay-002",
+        sourceType: "stripe_payment",
+        sourceId: "pay-002",
+        status: "needs_attention",
+        attempts: 8,
+        lastErrorCode: "retry_exhausted",
+      },
+    ],
+    truncated: false,
+  },
+};
+
+const SYNC_VIEW_PAUSED = {
+  ok: true,
+  sync: { ...SYNC_VIEW.sync, paused: true },
+};
+
 function mockQboApi(
   page: import("playwright/test").Page,
   statusBody: unknown,
@@ -97,6 +142,9 @@ function mockQboApi(
     /** Inspect or replace the mapping PUT — return a response body to
      *  override the default echo-back. */
     onMappingPut?: (body: Record<string, unknown>) => unknown | void;
+    syncBody?: unknown;
+    sweepBody?: unknown;
+    retryBody?: unknown;
   } = {}
 ) {
   return page.route(/\/api\/admin\/quickbooks\//, (route) => {
@@ -160,6 +208,37 @@ function mockQboApi(
           authorizationUrl: "https://appcenter.intuit.com/connect/oauth2",
         }
       );
+    }
+    if (
+      method === "POST" &&
+      url.endsWith("/api/admin/quickbooks/sync/retry")
+    ) {
+      return json(
+        overrides.retryBody ?? {
+          ok: true,
+          result: { outcome: "synced", qboEntityId: "9001" },
+        }
+      );
+    }
+    if (url.endsWith("/api/admin/quickbooks/sync")) {
+      if (method === "GET") return json(overrides.syncBody ?? SYNC_VIEW);
+      if (method === "POST") {
+        return json(
+          overrides.sweepBody ?? {
+            ok: true,
+            summary: {
+              environment: "sandbox",
+              paused: false,
+              paymentsScanned: 3,
+              enqueued: 1,
+              enqueueErrors: 0,
+              processed: 2,
+              outcomes: { synced: 2 },
+              errors: 0,
+            },
+          }
+        );
+      }
     }
     return json({ ok: false, error: "Unexpected fixture request" });
   });
@@ -414,6 +493,40 @@ test("the editor drops a stored selection that is now inactive", async ({
   ).toBeDisabled();
   await expect(
     page.getByText(/Still required: Generic sales customer/)
+  ).toBeVisible();
+});
+
+test("sync panel shows counts, problem records, and a working retry (#183)", async ({
+  page,
+}) => {
+  await mockQboApi(page, CONNECTED);
+  await page.goto(FIXTURE);
+  await expect(
+    page.getByRole("heading", { name: "Accounting sync" })
+  ).toBeVisible();
+  await expect(
+    page.locator("dl").getByText("Needs attention", { exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("pay-001".slice(-8))).toBeVisible();
+  await expect(page.getByText("retry_exhausted")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Run sync sweep" })
+  ).toBeVisible();
+
+  // Manual retry hits the protected endpoint and refreshes the panel.
+  await page.getByRole("button", { name: "Retry" }).first().press("Enter");
+  await expect(
+    page.getByRole("status").filter({ hasText: "synced to QuickBooks" })
+  ).toBeVisible();
+});
+
+test("sync panel surfaces the paused state when reconnect is required", async ({
+  page,
+}) => {
+  await mockQboApi(page, REAUTHORIZE, { syncBody: SYNC_VIEW_PAUSED });
+  await page.goto(FIXTURE);
+  await expect(
+    page.getByText(/Sync is paused — reconnect QuickBooks/)
   ).toBeVisible();
 });
 

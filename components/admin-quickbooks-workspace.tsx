@@ -17,16 +17,27 @@ import { AdminQuickbooksMapping } from "@/components/admin-quickbooks-mapping";
 import type {
   QboAccountingMappingView,
   QboAdminView,
+  QboSyncAdminView,
+  QboSyncStatus,
 } from "@/lib/qbo-common";
 
 // QuickBooks Online integration surface (issue #161) — a compact status
-// card plus the accounting-mapping panel. Everything shown here is the
-// serialized server view; tokens never reach the browser.
+// card plus the accounting-mapping panel, extended in #183 with the sync
+// operations surface (counts, problem records, manual retry). Everything
+// shown here is the serialized server view; tokens never reach the
+// browser.
 
 interface StatusResponse {
   ok?: boolean;
   connection?: QboAdminView;
   mapping?: QboAccountingMappingView;
+  sync?: QboSyncAdminView | null;
+  summary?: {
+    processed?: number;
+    enqueued?: number;
+    paused?: boolean;
+  };
+  result?: { outcome?: string; reason?: string };
   error?: string;
 }
 
@@ -40,6 +51,14 @@ const CALLBACK_MESSAGES: Record<string, string> = {
   state_replayed: "That QuickBooks sign-in link was already used — try connecting again.",
   not_configured: "QuickBooks is not configured on this deployment.",
   connect_failed: "The QuickBooks connection could not be completed.",
+};
+
+const SYNC_STATUS_LABELS: Record<QboSyncStatus, string> = {
+  pending: "Pending",
+  syncing: "Syncing",
+  synced: "Synced",
+  failed: "Failed",
+  needs_attention: "Needs attention",
 };
 
 function healthLabel(view: QboAdminView): string {
@@ -64,10 +83,13 @@ export function AdminQuickbooksWorkspace({
   const [mapping, setMapping] = useState<QboAccountingMappingView | null>(
     null
   );
+  const [sync, setSync] = useState<QboSyncAdminView | null>(null);
+  const [syncError, setSyncError] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<"connect" | "test" | "disconnect" | null>(
-    null
-  );
+  const [busy, setBusy] = useState<
+    "connect" | "test" | "disconnect" | "sweep" | null
+  >(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -91,12 +113,29 @@ export function AdminQuickbooksWorkspace({
     [user]
   );
 
+  const loadSync = useCallback(async (): Promise<void> => {
+    try {
+      const data = await apiFetch("/api/admin/quickbooks/sync");
+      setSync(data.sync ?? null);
+      setSyncError(false);
+    } catch {
+      setSync(null);
+      setSyncError(true);
+    }
+  }, [apiFetch]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiFetch("/api/admin/quickbooks/status");
       setConnection(data.connection ?? null);
       setMapping(data.mapping ?? null);
+      if (data.connection?.configured) {
+        await loadSync();
+      } else {
+        setSync(null);
+        setSyncError(false);
+      }
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -106,7 +145,7 @@ export function AdminQuickbooksWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [apiFetch]);
+  }, [apiFetch, loadSync]);
 
   useEffect(() => {
     // Surface the OAuth callback's outcome parameter, then strip it so a
@@ -196,6 +235,59 @@ export function AdminQuickbooksWorkspace({
       );
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function handleRunSweep() {
+    setBusy("sweep");
+    setErrorMessage("");
+    setStatusMessage("");
+    try {
+      const data = await apiFetch("/api/admin/quickbooks/sync", {
+        method: "POST",
+      });
+      const summary = data.summary ?? {};
+      setStatusMessage(
+        summary.paused
+          ? "Sync sweep finished — posting is paused until QuickBooks reconnects."
+          : `Sync sweep complete — ${summary.processed ?? 0} record(s) processed, ${summary.enqueued ?? 0} enqueued.`
+      );
+      await loadSync();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "The sync sweep failed."
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleRetry(syncId: string) {
+    setRetrying(syncId);
+    setErrorMessage("");
+    setStatusMessage("");
+    try {
+      const data = await apiFetch("/api/admin/quickbooks/sync/retry", {
+        method: "POST",
+        body: JSON.stringify({ syncId }),
+      });
+      const outcome = data.result?.outcome;
+      setStatusMessage(
+        outcome === "synced"
+          ? "Record synced to QuickBooks."
+          : outcome === "paused"
+            ? "Record requeued — sync is paused until QuickBooks reconnects."
+            : outcome === "failed" || outcome === "needs_attention"
+              ? `Record requeued but still needs attention (${data.result?.reason ?? "see status"}).`
+              : "Record requeued for sync."
+      );
+      await loadSync();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "The record could not be requeued."
+      );
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -375,6 +467,109 @@ export function AdminQuickbooksWorkspace({
           </p>
         )}
       </div>
+
+      {connection?.configured && (
+        <section
+          aria-labelledby="qbo-sync-heading"
+          className="rounded-lg border border-stone bg-paper p-6"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2
+              id="qbo-sync-heading"
+              className="text-lg font-semibold tracking-tight"
+            >
+              Accounting sync
+            </h2>
+            <Button
+              onClick={handleRunSweep}
+              disabled={busy !== null || retrying !== null}
+              variant="outline"
+            >
+              {busy === "sweep" ? "Running…" : "Run sync sweep"}
+            </Button>
+          </div>
+
+          {syncError && (
+            <p role="alert" className="mt-3 text-sm text-ember">
+              The sync status could not be loaded.
+            </p>
+          )}
+
+          {sync && (
+            <div className="mt-4 space-y-4">
+              {sync.paused && (
+                <p role="status" className="text-sm text-ember">
+                  Sync is paused — reconnect QuickBooks to resume posting.
+                  Pending records are preserved and will drain after
+                  reconnect.
+                </p>
+              )}
+
+              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+                {(["pending", "syncing", "synced", "failed", "needs_attention"] as const).map(
+                  (status) => (
+                    <div key={status}>
+                      <dt className="text-muted-foreground">
+                        {SYNC_STATUS_LABELS[status]}
+                      </dt>
+                      <dd className="font-medium text-ink">
+                        {sync.counts[status]}
+                        {sync.truncated && status === "synced" ? "+" : ""}
+                      </dd>
+                    </div>
+                  )
+                )}
+              </dl>
+
+              {sync.records.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No sync records need attention.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {sync.records.map((record) => (
+                    <li
+                      key={record.syncId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-stone px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-medium text-ink">
+                          Payment …{record.sourceId.slice(-8)}
+                        </span>{" "}
+                        <Badge variant="outline">
+                          {SYNC_STATUS_LABELS[record.status]}
+                        </Badge>{" "}
+                        <span className="text-muted-foreground">
+                          {record.lastErrorCode ?? "—"}
+                          {record.attempts > 0
+                            ? ` · ${record.attempts} attempt${record.attempts === 1 ? "" : "s"}`
+                            : ""}
+                          {record.status === "failed" && record.nextAttemptAt
+                            ? ` · next ${formatAdminDateTime(record.nextAttemptAt)}`
+                            : ""}
+                        </span>
+                        {record.lastErrorMessage && (
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {record.lastErrorMessage}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRetry(record.syncId)}
+                        disabled={retrying !== null || busy !== null}
+                      >
+                        {retrying === record.syncId ? "Retrying…" : "Retry"}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       <AdminQuickbooksMapping
         user={user}

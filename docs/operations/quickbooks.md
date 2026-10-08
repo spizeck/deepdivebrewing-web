@@ -1,10 +1,10 @@
 # QuickBooks Online Integration
 
 Operational guide for the QuickBooks Online (QBO) integration
-(issues #161, #179). This covers connecting the brewery's QuickBooks
-company, keeping sandbox and production strictly separated, the
-DDB-payment Sales Receipt sync, and operating the integration day to
-day.
+(issues #161, #179, #183). This covers connecting the brewery's
+QuickBooks company, keeping sandbox and production strictly separated,
+the DDB-payment Sales Receipt sync, and operating the integration day
+to day.
 
 **Scope:** OAuth + token lifecycle, webhook receipts, entity discovery,
 accounting-mapping configuration, and one bookkeeping write — gross
@@ -23,8 +23,9 @@ payouts, fees, journals) remains deferred (see
 | Environment separation | `QBO_ENVIRONMENT` (`sandbox` \| `production`) is read server-side only and decides the Intuit API host, which credential pair is expected, and which `qboConnections` document is used. The doc id IS the environment, so a preview deployment can never address the production company record — and the stored record's `environment` field is re-verified on every read. |
 | API boundary | `lib/qbo-api.ts` is the only module that talks to Intuit's v3 API (`/v3/company/{realmId}`, `minorversion=75`). Raw provider payloads never cross the boundary; callers get canonical shapes or a normalized `QboError`. The connected-company identity is the `realmId` from the OAuth callback — CompanyInfo is fetched inside that realm context as a health/identity confirmation and display-metadata source only. `CompanyInfo.Id` is provider metadata (a real sandbox Id differs from the realmId), never carried into the canonical shape, and can never replace the realm. |
 | Webhooks | `POST /api/webhooks/quickbooks` verifies `intuit-signature` (HMAC-SHA256 over the raw body, keyed by `QBO_WEBHOOK_VERIFIER_TOKEN`) before parsing. Verified notifications are deduplicated by content hash into `qboWebhookReceipts`. No entity sync runs yet — receipts are the durable hook future work consumes. |
-| Admin surface | `/admin/integrations/quickbooks` (linked from the admin dashboard QuickBooks card) shows environment, connection status, company name, abbreviated realm id, last health check, and the accounting-mapping panel. |
-| Audit + logs | `qbo_connected`, `qbo_disconnected`, `qbo_connection_checked`, `qbo_mapping_updated` audit actions; structured `qbo.*` log events. Neither ever carries tokens, secrets, codes, or provider payloads. |
+| Sync worker | `lib/qbo-sync.ts` processes durable `qboSyncRecords` under a short lease; `lib/qbo-sweep.ts` is the bounded sweep — missed-enqueue recovery plus due-record processing — invoked by `GET /api/cron/qbo-sweep` (Vercel Cron, `CRON_SECRET` bearer) and by the admin "Run sync sweep" action (`POST /api/admin/quickbooks/sync`). |
+| Admin surface | `/admin/integrations/quickbooks` (linked from the admin dashboard QuickBooks card) shows environment, connection status, company name, abbreviated realm id, last health check, the accounting-mapping panel, and the sync operations panel — counts by status, paused state, recent failed/needs-attention records, and a per-record manual retry. |
+| Audit + logs | `qbo_connected`, `qbo_disconnected`, `qbo_connection_checked`, `qbo_mapping_updated`, `qbo_sync_requeued`, `qbo_sweep_triggered` audit actions; structured `qbo.*` log events. Neither ever carries tokens, secrets, codes, or provider payloads. |
 
 ## Environment separation
 
@@ -94,7 +95,11 @@ All Intuit-side steps happen in the
    | `QBO_TOKEN_ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 
    For local dev, put the same values in `.env.local` (see
-   `.env.local.example`) with a localhost redirect URI.
+   `.env.local.example`) with a localhost redirect URI. Vercel Cron only
+   runs on the **Production** deployment, so `CRON_SECRET` (and
+   optionally `QBO_SWEEP_LOOKBACK_HOURS`) belong to the production setup
+   below — a deployment without them simply rejects cron calls, which is
+   the intended fail-closed behavior for previews.
 9. **Vercel Deployment Protection.** If the project protects preview
    deployments, add a narrow bypass for the OAuth callback and webhook
    paths — Protection Bypass for Automation scoped to
@@ -153,8 +158,16 @@ always with **Production** app settings and **Production** Vercel scope.
 4. Set the same six variables in Vercel scoped to **Production**, using
    the **Production** client id/secret and
    `QBO_ENVIRONMENT=production`.
-5. Redeploy production (env changes never reach already-deployed
-   builds).
+5. Set **`CRON_SECRET`** (Production scope) to a generated secret — the
+   QBO sync sweep cron authenticates with it, and the route fails closed
+   without it:
+   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+   Optionally set `QBO_SWEEP_LOOKBACK_HOURS` if the default 72-hour
+   missed-enqueue window should differ (never for historical backfill).
+6. Redeploy production (env changes never reach already-deployed
+   builds). After the first deploy with the cron configured, confirm the
+   `qbo-sweep` job appears under Project → Settings → Crons and that the
+   first run logs `qbo.sweep.completed`.
 6. Connect the real DDB QuickBooks company from `/admin` on production
    and confirm the company name shown is actually Deep Dive Brewing's —
    the connection records which realm the OAuth flow selected, so a
@@ -264,38 +277,123 @@ place.
 
 - On a canonical `paid` commit (webhook or manual refresh) the app
   enqueues a durable `qboSyncRecords/{environment}:stripe_payment:{paymentId}`
-  record and attempts the write inline.
+  record and attempts the write inline. The inline attempt keeps the
+  common path instant; everything after it is the sweeps' business.
 - `synced` — done; replays return the stored entity id. `failed` —
-  transient provider/Stripe/token failure, safe to retry.
-  `needs_attention` — a human must fix something first (mapping missing
-  or incomplete, purpose unmapped, canonical mismatch, QBO validation
-  rejection).
+  transient provider/Stripe/token failure; the record retries on a
+  bounded backoff schedule. `needs_attention` — a human must fix
+  something first (mapping missing or incomplete, purpose unmapped,
+  canonical mismatch, QBO validation rejection, or the retry budget
+  spent).
 - A `syncing` claim carries a short lease; a stale claim is reclaimed,
   and the worker always queries for the `ddb:<paymentId>` correlation
   marker before creating — a write that landed but whose response was
   lost is adopted, never duplicated.
-- There is **no automatic retry sweep yet** (#183). To requeue a
-  `failed` or `needs_attention` record after fixing the cause, set its
-  `status` back to `pending` in Firestore — the next trigger or manual
-  call picks it up.
 - QBO failures never affect the payment: it stays `paid`, and nothing
   customer-facing implies the card charge failed.
 
+#### Backoff schedule
+
+Each retryable failure records `attempts`, `lastAttemptAt`,
+`nextAttemptAt`, `lastErrorCode`, `lastErrorMessage`, and the Intuit
+correlation id when one exists. `nextAttemptAt` is scheduled from a
+fixed table indexed by the attempt that just ran:
+
+| Attempt | Delay |
+| --- | --- |
+| 1 | 1 minute |
+| 2 | 5 minutes |
+| 3 | 30 minutes |
+| 4 | 2 hours |
+| 5 | 4 hours |
+| 6–8 | 8 hours |
+
+After 8 attempts (`QBO_SYNC_MAX_ATTEMPTS` in `lib/qbo-sync.ts`) the
+record parks in `needs_attention` with `lastErrorCode =
+"retry_exhausted"`. Validation, permission, and configuration failures
+skip the backoff entirely — retrying unchanged cannot help, so they go
+straight to `needs_attention` on the first attempt.
+
+#### The sync sweep (cron)
+
+`GET /api/cron/qbo-sweep` is scheduled in `vercel.json` (daily, `17 5
+* * *` — a daily schedule is the most frequent cron every Vercel plan
+accepts; on a Pro plan the cadence can be tightened if faster automatic
+recovery is wanted). Vercel attaches `Authorization: Bearer
+$CRON_SECRET`; the route verifies it with a constant-time compare and
+fails closed when the variable is unset — there is no public
+unauthenticated path.
+
+One run performs three bounded phases (`lib/qbo-sweep.ts`):
+
+1. **Missed-enqueue recovery** — `payments` documents whose `paidAt`
+   falls inside the lookback window (default 72 h, `QBO_SWEEP_LOOKBACK_HOURS`,
+   max 720 h) and reached `paid`/`refunded` get a sync record if none
+   exists. Enqueue is idempotent on the deterministic sync id, so a
+   payment that already has one is a no-op. The scan is positive
+   identity only — it reads the app's own `payments` collection, so
+   Ollie/foreign Stripe activity can never match.
+2. **Connection gate** — if the connection is `disconnected` or
+   `reauthorization_required` (or missing), processing is skipped and
+   the run reports `paused`. Enqueue still ran first: durable intent is
+   cheap and survives the outage.
+3. **Due-record processing** — `pending`/`failed` records whose
+   `nextAttemptAt` has passed, plus stale `syncing` claims, are
+   processed oldest-first up to `QBO_SWEEP_MAX_RECORDS` (10) per run.
+
+Concurrent invocations are safe: the claim transaction gives each
+record to exactly one claimant; a second sweeper sees `syncing` and
+moves on.
+
+The same sweep runs on demand from the QuickBooks admin page ("Run
+sync sweep" → `POST /api/admin/quickbooks/sync`, audited as
+`qbo_sweep_triggered`) — use it after reconnecting or fixing a mapping
+instead of waiting for the next cron.
+
+#### Authorization loss and reconnect
+
+When Intuit stops honoring the grant (`invalid_grant`), the token layer
+flips the connection to `reauthorization_required`. From then on:
+
+- the worker's pause gate refuses to claim records — attempts are not
+  consumed and nothing is discarded;
+- the admin page shows "Reconnect required" and the sync panel shows
+  paused;
+- reconnecting (`Connect QuickBooks` again) restores the grant and the
+  OAuth callback pulls every record that failed with
+  `authorization_expired` forward to due-now, so the next sweep drains
+  the backlog without waiting out a stale backoff.
+
+#### Manual retry
+
+After fixing the cause (mapping saved, reconnect completed, upstream
+record corrected), click **Retry** on the record in the sync panel —
+`POST /api/admin/quickbooks/sync/retry` (audited `qbo_sync_requeued`)
+returns the record to `pending` with a fresh attempt budget and
+processes it inline for immediate feedback. Only `failed` and
+`needs_attention` records are eligible, the record must belong to the
+configured environment, and every worker gate still applies: canonical
+Stripe re-verification, mapping validation, realm/environment binding,
+and marker idempotency.
+
 ### No backfill
 
-Only payments that reach `paid` **after** this code is deployed produce
-sync records. Historical paid payments — including the live `$5.00`
-pre-flight test — are never posted automatically. Any future backfill
-is an explicit, separately reviewed admin action.
+The missed-enqueue sweep only scans payments whose `paidAt` is inside a
+bounded lookback window (72 h by default, hard-capped at 30 days via
+`QBO_SWEEP_LOOKBACK_HOURS`). Historical paid payments — including the
+live `$5.00` pre-flight test — are never posted automatically. Any
+future backfill is an explicit, separately reviewed admin action, not a
+configuration change to the sweep.
 
 ## What is deliberately not built
 
 - Refund posting (`RefundReceipt` mirroring the original lines) — #180;
-  Stripe Dashboard refunds remain invisible to the app
+  Stripe Dashboard refunds remain invisible to the app. The sweeps
+  already enqueue `refunded` payments so the original Sales Receipt
+  exists, but no reversal entity is posted.
 - Stripe payout posting, Mercury deposit creation, clearing/balance
   reconciliation, and fee accounting — #181 (mixed Ollie+DDB payouts
   make this a distinct design problem)
-- Automatic retry sweep / admin sync-status surface — #183
 - Tax posting — #184 (Curaçao tax policy undecided)
 - Journal entries or any other entity writes
 
@@ -328,3 +426,8 @@ it is never sent to the browser.
 | "Connection check completed" but health shows unavailable | Intuit outage or transient failure | Retry later; check Intuit status if persistent |
 | Webhooks never arrive | Wrong endpoint registered, or Vercel protection blocking Intuit | Intuit app's webhook config for the matching environment; Deployment Protection bypass for `/api/webhooks/quickbooks` |
 | Mapping save rejected with "does not exist" | Selected entity id isn't in the connected company | Re-load entity lists; the mapping validates against live QBO data |
+| Sync record stuck in `failed` | Retryable provider/Stripe outage still ongoing, or `nextAttemptAt` not yet due | Check `lastErrorCode`/`lastErrorMessage` in the sync panel; the next sweep retries automatically |
+| Sync record in `needs_attention` | Mapping/purpose/canonical mismatch, or `retry_exhausted` | Fix the cause (mapping, record, reconnect), then **Retry** in the sync panel |
+| Sync panel shows paused / records not draining | Connection `reauthorization_required` or `disconnected` | Reconnect QuickBooks; the backlog resumes on the next sweep (or "Run sync sweep") |
+| Cron runs but nothing posts | `CRON_SECRET` unset in the deployment (route fails closed) | Vercel env scope; check for `401` on the cron invocation and `qbo.sweep.*` log lines |
+| Same payment appears twice in QBO | Should never happen — report it | `qboSyncRecords` for the payment id; `PrivateNote` marker `ddb:<paymentId>` on the receipts |
