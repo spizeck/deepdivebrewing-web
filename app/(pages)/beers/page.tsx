@@ -65,7 +65,7 @@ export default async function BeersPage() {
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
           Looking for a specific beer? See our latest partner list on the{" "}
-          <Link href="/where-to-buy" className="font-medium text-ocean hover:opacity-85">
+          <Link href="/where-to-buy" className="font-medium text-ocean transition-opacity duration-200 hover:opacity-85">
             Where to Buy page
           </Link>
           .
@@ -103,7 +103,7 @@ export default async function BeersPage() {
             Interested in carrying Deep Dive Brewing Co? Start with our trade
             inquiry form and we&rsquo;ll help you find the right mix for your venue.
           </p>
-          <Link href="/trade" className="mt-3 inline-flex min-h-[44px] items-center text-sm font-medium text-ocean hover:opacity-85">
+          <Link href="/trade" className="mt-3 inline-flex min-h-[44px] items-center text-sm font-medium text-ocean transition-opacity duration-200 hover:opacity-85">
             Submit a trade inquiry &rarr;
           </Link>
         </section>

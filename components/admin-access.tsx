@@ -66,6 +66,9 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
       onStatusMessage("Please enter a valid email address.");
       return;
     }
+    // Enter-to-submit can re-fire while a request is in flight even though
+    // the button is disabled — guard so a second press never double-posts.
+    if (actionInProgress === "invite") return;
     setActionInProgress("invite");
     try {
       const idToken = await user.getIdToken();

@@ -1422,7 +1422,7 @@ export function AdminTradeWorkspace({ user }: { user: AdminPanelUser }) {
                                         </p>
                                         {body.quoted && (
                                           <details className="mt-1">
-                                            <summary className="cursor-pointer text-[11px] text-muted-foreground/80 hover:text-muted-foreground">
+                                            <summary className="cursor-pointer text-[11px] text-muted-foreground/80 transition-colors duration-150 hover:text-muted-foreground">
                                               Quoted history
                                             </summary>
                                             <p className="mt-1 whitespace-pre-wrap border-l-2 border-stone pl-2 text-[11px] text-muted-foreground/80">

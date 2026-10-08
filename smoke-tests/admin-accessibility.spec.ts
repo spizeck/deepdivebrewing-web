@@ -223,6 +223,53 @@ test("invite form has labels, required state, and announces the result", async (
   ).toContainText("newadmin@example.com");
 });
 
+test("invite form ignores re-submission while a request is in flight", async ({
+  page,
+}) => {
+  // Enter inside the email field re-submits the form even though the submit
+  // button is disabled — the in-flight guard must keep a second press from
+  // posting a duplicate invitation.
+  await page.goto(FIXTURE);
+  await openAccessTab(page);
+
+  let invitePosts = 0;
+  // Registered after openAccessTab's default mock, so this override wins for
+  // the invite POST while leaving the earlier GET untouched.
+  await page.route("/api/admin/**", (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    if (method === "POST" && url.endsWith("/api/admin/users")) {
+      invitePosts += 1;
+      // Keep the request in flight long enough to re-submit inside it.
+      return new Promise((resolve) =>
+        setTimeout(() => resolve(json({ ok: true, emailSent: true })), 400)
+      );
+    }
+    if (method === "GET" && url.endsWith("/api/admin/users")) {
+      return json(ADMINS_RESPONSE);
+    }
+    return json({ ok: false, error: "Unexpected fixture request" });
+  });
+
+  const email = page.getByRole("textbox", { name: "Email" });
+  await email.fill("newadmin@example.com");
+  await email.press("Enter");
+  await email.press("Enter");
+
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Invitation created and email sent" })
+  ).toBeVisible();
+  expect(invitePosts).toBe(1);
+});
+
 test("admin row actions name their target and revoke is destructive", async ({
   page,
 }) => {
@@ -743,6 +790,50 @@ test("take-payment form validates the amount before review", async ({
       .getByRole("alert")
       .filter({ hasText: "Amount must be greater than zero." })
   ).toBeVisible();
+});
+
+test("payment rows share the shared press feedback", async ({ page }) => {
+  // The record-row pattern (beer/venue lists, trade leads) carries
+  // pressableClasses; the payments list used to be the one row type without
+  // a pressed state.
+  await mockPaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  const row = page.getByRole("button", { name: /Dana Guest/ });
+  await expect(row).toBeVisible();
+
+  const timing = await row.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      property: style.transitionProperty,
+      duration: style.transitionDuration,
+    };
+  });
+  expect(timing.property).toContain("scale");
+  expect(timing.duration).not.toBe("0s");
+
+  await row.hover();
+  await page.mouse.down();
+  // Tailwind's scale-* utilities set the standalone `scale` property, not
+  // `transform` — assert the property the press actually animates.
+  const scale = await row.evaluate((el) => getComputedStyle(el).scale);
+  await page.mouse.up();
+  expect(scale).not.toBe("none");
+});
+
+test("payment-row press feedback never transforms under reduced motion", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockPaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  const row = page.getByRole("button", { name: /Dana Guest/ });
+  await expect(row).toBeVisible();
+
+  await row.hover();
+  await page.mouse.down();
+  const scale = await row.evaluate((el) => getComputedStyle(el).scale);
+  await page.mouse.up();
+  expect(scale).toBe("none");
 });
 
 test("payment rows expose list semantics and the form is labeled", async ({
