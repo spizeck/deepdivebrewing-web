@@ -316,6 +316,26 @@
   }
 }
 
+/* The "Inside Deep Dive" photo list is a layout grid, not prose content.
+   .prose-dd's unlayered list rules outrank utilities, so the reset lives
+   here instead of in utility classes on the ul/li. */
+.prose-dd .dd-photo-grid,
+.prose-dd .dd-photo-grid > li {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Breaks a block inside the 720px .prose-dd column out to the full content
+   column (main max-w-300 px-6 = min(72rem, 100vw - 3rem)). Both columns
+   share a center axis, so shifting left by half the difference keeps the
+   wider block centered on it. Resolves to the column width (no shift)
+   wherever the viewport is narrower than the prose column. */
+@utility prose-breakout {
+  width: min(72rem, calc(100vw - 3rem));
+  margin-inline-start: calc((100% - min(72rem, calc(100vw - 3rem))) / 2);
+}
+
 /* ---------------------------------------------------------------------------
    Klaro consent UI → DDB design system
    The bundled Klaro widget mounts inside #klaro (components/consent-manager).
