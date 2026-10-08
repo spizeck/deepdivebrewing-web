@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 /**
  * Editorial primitives for long-form story pages (Issue #192). Deliberately
  * small: a section intro, a wide captioned figure, a photo/text split, and a
- * numbered process list — the recurring shapes of feature pages, not a
+ * numbered process list: the recurring shapes of feature pages, not a
  * page-builder. All are server components; wrap them in <Reveal> from the
  * page where a scroll reveal is wanted.
  */
@@ -96,7 +96,7 @@ interface EditorialSplitProps {
 }
 
 /**
- * Photo/text split for editorial rhythm — image beside prose at md+, stacked
+ * Photo/text split for editorial rhythm: image beside prose at md+, stacked
  * (photo first) on mobile. Order stays photo-then-text in the document so the
  * reading order is consistent regardless of the visual `reverse` flip.
  */
@@ -142,7 +142,7 @@ export function EditorialSplit({
 }
 
 /**
- * Ordered process list — top/bottom rules with per-step dividers rather than
+ * Ordered process list: top/bottom rules with per-step dividers rather than
  * cards. The numeral is decorative (`ol` semantics carry the count).
  */
 export function ProcessSteps({ children }: { children: React.ReactNode }) {

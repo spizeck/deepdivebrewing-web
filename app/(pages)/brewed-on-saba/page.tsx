@@ -15,12 +15,12 @@ import { buildBreweryJsonLd } from "@/lib/brewery-json-ld";
 import { BUSINESS_NAME } from "@/lib/site";
 
 // Editorial feature page (Issue #192). Every factual claim below is sourced
-// from existing repository copy — chiefly /about, /contact, /trade, and
+// from existing repository copy: chiefly /about, /contact, /trade, and
 // /where-to-buy. Editorial TODO comments mark spots where verified detail
 // from the owner would improve the story; none are rendered.
 
 const DESCRIPTION =
-  "What it takes to brew craft beer on Saba — a five-square-mile island in the Caribbean Netherlands. Ocean freight, an all-electric brewhouse at Fort Bay, and beer made for the island.";
+  "What it takes to brew craft beer on Saba, a five-square-mile island in the Caribbean Netherlands. Ocean freight, an all-electric brewhouse at Fort Bay, and beer made for the island.";
 
 export const metadata: Metadata = {
   title: "Brewed on Saba",
@@ -57,7 +57,7 @@ export const metadata: Metadata = {
 };
 
 export default function BrewedOnSabaPage() {
-  // Canonical Brewery entity — shared builder (lib/brewery-json-ld.ts,
+  // Canonical Brewery entity: shared builder (lib/brewery-json-ld.ts,
   // Issue #107) so all pages emit the identical complete field set.
   const breweryJsonLd = buildBreweryJsonLd();
 
@@ -77,17 +77,17 @@ export default function BrewedOnSabaPage() {
           Brewed on Saba
         </h1>
         <p className="mt-4 text-lg text-muted-foreground">
-          Deep Dive Brewing Co is the first craft brewery on Saba — a
+          Deep Dive Brewing Co is the first craft brewery on Saba, a
           five-square-mile island in the Caribbean Netherlands. This is what
           it takes to make beer here.
         </p>
       </header>
 
-      {/* Lead image — the page's likely LCP, so it alone gets priority. */}
+      {/* Lead image: the page's likely LCP, so it alone gets priority. */}
       <EditorialFigure
         src="/photos/PXL_20261006_121628797.jpg"
-        alt="A stainless tank manway door, its circular sight glass packed with green hop material"
-        caption="Inside the port: hop material packed against a tank's sight glass."
+        alt="Single-infusion mash underway in the Alpha mash tun"
+        caption="Single-infusion mash underway in the mash tun."
         priority
         className="mt-10"
       />
@@ -97,29 +97,29 @@ export default function BrewedOnSabaPage() {
         <SectionIntro eyebrow="The Brewery" title="Brewed here">
           <p>
             Deep Dive is a small, family-run brewery at Fort Bay Harbor on
-            Saba. The brewhouse is a 26-by-26-foot room with nine-foot
-            ceilings — compact by any standard, and shaped entirely by the
+            Saba. The brewery is a 27-by-27-foot room with nine-foot
+            ceilings, compact by any standard and shaped entirely by the
             island around it.
           </p>
           <p className="mt-4">
             We brew approachable, well-balanced beer for our climate and our
-            community — made for warm days, long evenings, and shared tables.
+            community, made for warm days, long evenings, and shared tables.
           </p>
         </SectionIntro>
 
-        {/* Pull-stats — every figure is a verified fact from existing site
+        {/* Pull-stats: every figure is a verified fact from existing site
             copy, not an infographic. */}
         <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 border-t border-stone pt-10 sm:grid-cols-4">
           <div>
-            <dt className="sr-only">Brewhouse footprint</dt>
-            <dd className="text-3xl font-bold tracking-tight">26 × 26 ft</dd>
+            <dt className="sr-only">Brewery footprint</dt>
+            <dd className="text-3xl font-bold tracking-tight">27 × 27 ft</dd>
             <dd className="mt-1 text-sm text-muted-foreground">
-              The brewhouse, wall to wall
+              9 × 9 m, wall to wall
             </dd>
           </div>
           <div>
             <dt className="sr-only">Container cadence</dt>
-            <dd className="text-3xl font-bold tracking-tight">~2 weeks</dd>
+            <dd className="text-3xl font-bold tracking-tight">Every 2 weeks</dd>
             <dd className="mt-1 text-sm text-muted-foreground">
               Between shared-container arrivals
             </dd>
@@ -144,14 +144,14 @@ export default function BrewedOnSabaPage() {
       {/* 2 · Brewing on a small Caribbean island */}
       <Reveal as="section" className="mt-20 md:mt-28">
         <SectionIntro eyebrow="The Island" title="Brewing on a small Caribbean island" />
-        {/* TODO(owner): water story — source (rain catchment? desalinated?)
+        {/* TODO(owner): water story: source (rain catchment? desalinated?)
             and treatment are not documented in the repo; add only verified
             detail. Same for freight: name the consolidator/route or sailing
             line only if you want it public. */}
         <EditorialSplit
           src="/photos/herograin.jpg"
           alt="Freshly milled brewing grain spiraling in the mill"
-          caption="Milled grain — the start of every batch, and one more thing that crossed an ocean to get here."
+          caption="Milled grain: the start of every batch, and one more thing that crossed an ocean to get here."
           className="mt-10"
         >
           <div className="space-y-4 text-muted-foreground">
@@ -159,20 +159,20 @@ export default function BrewedOnSabaPage() {
               Nearly everything we brew with crosses an ocean first.
               Ingredients have to reach the right place in Florida, make the
               correct sailing, arrive on Saba, clear the logistics at Fort
-              Bay, and finally make their way to us — on a shared container
-              that lands roughly every two weeks.
+              Bay, and finally make their way to us on a shared container
+              that lands every two weeks.
             </p>
             <p>
               Gas is prohibitively expensive here, so the brewery runs
               entirely on electricity. And on a five-square-mile island,
-              water, energy, and waste are not abstractions — they are things
+              water, energy, and waste are not abstractions; they are things
               you notice every day.
             </p>
             <p>
               Saba&rsquo;s diving culture has always encouraged people to
               think about the environment around them. That mindset carries
               naturally into the brewery: we plan carefully, use our space
-              efficiently, and think hard about what we bring to the island —
+              efficiently, and think hard about what we bring to the island
               and what we do with it afterward.
             </p>
           </div>
@@ -183,12 +183,12 @@ export default function BrewedOnSabaPage() {
       <Reveal as="section" className="mt-20 md:mt-28">
         <SectionIntro eyebrow="The Brewhouse" title="Inside the brewery" />
         {/* TODO(owner): brewhouse capacity (bbl/L), vessel count, and canning
-            approach are not documented — add verified specs here if you want
+            approach are not documented; add verified specs here if you want
             them public. */}
         <EditorialSplit
           src="/photos/PXL_20261006_121633967.jpg"
-          alt="A manway and sight glass on the Alpha Brewing Operations brewhouse"
-          caption="The Alpha brewhouse, built in Nebraska and installed at Fort Bay in 2024."
+          alt="The Alpha Brewing Operations mash tun, its manway sight glass showing the mash inside"
+          caption="The Alpha mash tun, part of the brewhouse installed at Fort Bay in 2024."
           reverse
           portrait
           className="mt-10"
@@ -215,7 +215,7 @@ export default function BrewedOnSabaPage() {
         <EditorialFigure
           src="/photos/PXL_20261006_121718700.jpg"
           alt="Hard-plumbed valve manifold with labeled green handles for kettle rinse, knockout, and clean-in-place"
-          caption="Every transfer has a labeled valve — kettle rinse, knockout, clean-in-place."
+          caption="Every transfer has a labeled valve: kettle rinse, knockout, clean-in-place."
         />
       </Reveal>
 
@@ -224,11 +224,11 @@ export default function BrewedOnSabaPage() {
         <SectionIntro eyebrow="The Process" title="From grain to glass">
           <p>
             The steps are the same ones breweries everywhere follow. The
-            difference is the room they happen in — and the ocean every
+            difference is the room they happen in, and the ocean every
             ingredient crossed first.
           </p>
         </SectionIntro>
-        {/* TODO(owner): review step copy — add batch size, fermentation
+        {/* TODO(owner): review step copy: add batch size, fermentation
             times, or canning-day detail only if you want them public. */}
         <div className="mt-10">
           <ProcessSteps>
@@ -239,18 +239,17 @@ export default function BrewedOnSabaPage() {
             </ProcessStep>
             <ProcessStep step="02" title="Boil">
               The sweet wort is boiled with hops for bitterness, balance, and
-              aroma — on electric heat, like everything else in the brewhouse.
+              aroma, using electric heat like everything else in the brewhouse.
             </ProcessStep>
             <ProcessStep step="03" title="Fermentation">
-              Yeast turns wort into beer inside the stainless fermenters — the
-              row of tanks that fills most of the room.
+              Yeast turns wort into beer inside our stainless fermenters.
             </ProcessStep>
             <ProcessStep step="04" title="Conditioning">
-              The beer rests and is cold-filtered, finishing clean and stable
-              enough for a warm climate and a long supply chain.
+              The beer rests and is cold-filtered to help maintain consistency
+              and shelf stability in our climate.
             </ProcessStep>
             <ProcessStep step="05" title="Packaging">
-              Beer leaves the brewery in kegs and cans — draft for bars and
+              Beer leaves the brewery in kegs and cans: draft for bars and
               restaurants, cans for shelves and coolers.
             </ProcessStep>
           </ProcessSteps>
@@ -261,7 +260,7 @@ export default function BrewedOnSabaPage() {
         <EditorialFigure
           src="/photos/PXL_20261006_121738963.jpg"
           alt="A row of stainless fermenters with hoses overhead in the Fort Bay brewery"
-          caption="The fermenter row — where the beer spends most of its life on Saba."
+          caption="The fermenter row, where each batch spends most of its time before packaging."
         />
       </Reveal>
 
@@ -278,17 +277,17 @@ export default function BrewedOnSabaPage() {
             <p>
               You can find Deep Dive at most bars and restaurants on Saba,
               and our cans in local shops. We have started sending beer to
-              the Dutch side of Sint Maarten — including accounts in
-              Philipsburg — and expansion to Sint Eustatius is in progress.
+              the Dutch side of Sint Maarten, including accounts in
+              Philipsburg, and expansion to Sint Eustatius is in progress.
             </p>
             <p>
-              Very little leaves the island. Spent grain finds new life as
-              animal feed, compost, and dog treats, and our filtered water
-              goes to the Marine Laboratory, reducing the distilled water
-              they need to bring in for experiments.
+              We also try to keep useful byproducts on the island. Spent
+              grain finds new life as animal feed, compost, and dog treats,
+              and our filtered water goes to the Marine Laboratory, reducing
+              the distilled water they need to bring in for experiments.
             </p>
             <p>
-              There is no taproom — but the brewery itself is open for tours
+              There is no taproom, but the brewery itself is open for tours
               by request. The people pouring, stocking, and drinking our beer
               are not abstract markets to us. They are neighbors we know.
             </p>
@@ -296,7 +295,7 @@ export default function BrewedOnSabaPage() {
         </EditorialSplit>
       </Reveal>
 
-      {/* 6 · Calls to action — reuse the existing tour inquiry dialog and
+      {/* 6 · Calls to action: reuse the existing tour inquiry dialog and
           conversion-event wiring rather than a new booking flow. */}
       <Reveal as="section" className="mt-20 border-t border-stone pt-16 md:mt-28">
         <div className="mx-auto max-w-180 text-center">
@@ -305,7 +304,7 @@ export default function BrewedOnSabaPage() {
           </h2>
           <p className="mt-4 text-muted-foreground">
             See the lineup, find a pour nearby, or come stand in the
-            26-by-26-foot room where it all happens.
+            27-by-27-foot room where it all happens.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <Button asChild className="h-11 min-h-[44px] px-6">
