@@ -65,6 +65,78 @@ describe("validateUpdateEntries", () => {
     assert.ok(problems.some((p) => p.includes("image.alt")));
     assert.ok(problems.some((p) => p.includes("cta")));
   });
+
+  it("rejects impossible dates that Date.parse rolls over", () => {
+    const problems = validateUpdateEntries([
+      validUpdate({ slug: "overflow", publishedAt: "2026-02-30" }),
+      validUpdate({ slug: "edge", publishedAt: "2024-02-29" }),
+    ]);
+    assert.ok(problems.some((p) => p.includes('"overflow"')));
+    assert.ok(!problems.some((p) => p.includes('"edge"')));
+  });
+
+  it("restricts image src to local paths and Firebase Storage", () => {
+    const problems = validateUpdateEntries([
+      validUpdate({
+        slug: "remote-img",
+        image: { src: "https://cdn.example.com/x.jpg", alt: "x" },
+      }),
+      validUpdate({
+        slug: "http-img",
+        image: { src: "http://firebasestorage.googleapis.com/x", alt: "x" },
+      }),
+      validUpdate({
+        slug: "protocol-rel-img",
+        image: { src: "//cdn.example.com/x.jpg", alt: "x" },
+      }),
+      validUpdate({
+        slug: "storage-img",
+        image: {
+          src: "https://firebasestorage.googleapis.com/v0/b/x/o/y.jpg",
+          alt: "y",
+        },
+      }),
+      validUpdate({
+        slug: "local-img",
+        image: { src: "/photos/x.jpg", alt: "x" },
+      }),
+    ]);
+    assert.ok(problems.some((p) => p.includes('"remote-img"')));
+    assert.ok(problems.some((p) => p.includes('"http-img"')));
+    assert.ok(problems.some((p) => p.includes('"protocol-rel-img"')));
+    assert.ok(!problems.some((p) => p.includes('"storage-img"')));
+    assert.ok(!problems.some((p) => p.includes('"local-img"')));
+  });
+
+  it("requires CTA hrefs to be local paths or absolute https URLs", () => {
+    const problems = validateUpdateEntries([
+      validUpdate({
+        slug: "relative-cta",
+        cta: { label: "Go", href: "where-to-buy" },
+      }),
+      validUpdate({
+        slug: "protocol-rel-cta",
+        cta: { label: "Go", href: "//example.com/x" },
+      }),
+      validUpdate({
+        slug: "js-cta",
+        cta: { label: "Go", href: "javascript:alert(1)" },
+      }),
+      validUpdate({
+        slug: "local-cta",
+        cta: { label: "Go", href: "/where-to-buy" },
+      }),
+      validUpdate({
+        slug: "https-cta",
+        cta: { label: "Go", href: "https://example.com/x" },
+      }),
+    ]);
+    assert.ok(problems.some((p) => p.includes('"relative-cta"')));
+    assert.ok(problems.some((p) => p.includes('"protocol-rel-cta"')));
+    assert.ok(problems.some((p) => p.includes('"js-cta"')));
+    assert.ok(!problems.some((p) => p.includes('"local-cta"')));
+    assert.ok(!problems.some((p) => p.includes('"https-cta"')));
+  });
 });
 
 describe("filterPublishedUpdates", () => {

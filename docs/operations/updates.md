@@ -57,8 +57,8 @@ Fields:
 | `title` | yes | rendered as the page heading |
 | `publishedAt` | yes | `YYYY-MM-DD`; controls ordering (newest leads the archive) and becomes the sitemap `lastmod` + structured-data `datePublished` |
 | `summary` | yes | 1–2 sentences, max 220 chars; used on the archive, as the meta description, and in social cards |
-| `image` | no | `src` (a `/photos/…` path or absolute `https` URL), `alt` (required when an image is set), `caption` (optional) |
-| `cta` | no | `label` + `href` — a button at the end of the post |
+| `image` | no | `src` (a `/photos/…` path or Firebase Storage URL — `next/image` rejects other hosts), `alt` (required when an image is set), `caption` (optional) |
+| `cta` | no | `label` + `href` — a button at the end of the post; href must be a local `/path` or `https://` URL |
 | `draft` | no | `true` hides the post everywhere in production but keeps it previewable in `npm run dev` |
 
 ## Images
