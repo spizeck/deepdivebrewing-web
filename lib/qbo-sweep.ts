@@ -16,6 +16,7 @@ import {
 } from "@/lib/qbo-sync";
 import { qboConnectionRef, usableQboConnection } from "@/lib/qbo-tokens";
 import {
+  QBO_SWEEP_STATE_COLLECTION,
   QBO_SYNC_RECORDS_COLLECTION,
   type QboEnvironment,
 } from "@/lib/qbo-common";
@@ -152,18 +153,31 @@ function recordIsDue(
   return false;
 }
 
-// Phase 3 — drain due sync records. Candidates come from a bounded
-// single-field `status in (...)` scan (no composite index needed);
-// environment, due-ness, and ordering are applied in code. Oldest
-// activity first so a long-lived backlog drains fairly.
+// Phase 3 — drain due sync records. Candidates come from ONE bounded
+// page of the `status in (...)` scan ordered by `syncId` (which mirrors
+// the document id), resuming after the persisted per-environment cursor
+// in `qboSweepState`. Rotation matters: without it, a full page of
+// not-due records would be returned on every run and could starve a due
+// record behind the scan cap indefinitely. Due-ness, environment, and
+// oldest-first ordering are still applied in code on the page.
 async function processDueRecords(
   environment: QboEnvironment,
   nowMs: number,
   summary: QboSweepSummary
 ): Promise<void> {
-  const snap = await getFirebaseAdminDb()
+  const db = getFirebaseAdminDb();
+  const cursorRef = db.collection(QBO_SWEEP_STATE_COLLECTION).doc(environment);
+  const cursorData = (await cursorRef.get()).data() as
+    | { lastSyncId?: unknown }
+    | undefined;
+  const afterId =
+    typeof cursorData?.lastSyncId === "string" ? cursorData.lastSyncId : null;
+
+  const page = db
     .collection(QBO_SYNC_RECORDS_COLLECTION)
     .where("status", "in", ["pending", "failed", "syncing"])
+    .orderBy("syncId");
+  const snap = await (afterId ? page.startAfter(afterId) : page)
     .limit(QBO_SWEEP_RECORD_SCAN_LIMIT)
     .get();
 
@@ -197,6 +211,24 @@ async function processDueRecords(
       logError("qbo.sweep.record_failed", error, { environment });
     }
   }
+
+  // Advance the cursor past this page; a short page means the filtered
+  // set was exhausted, so reset to the beginning. Compare-and-set keeps
+  // an overlapping invocation that already moved the cursor from being
+  // rewound by this run's stale read.
+  const reachedEnd = snap.size < QBO_SWEEP_RECORD_SCAN_LIMIT;
+  const nextId = reachedEnd
+    ? null
+    : (snap.docs[snap.docs.length - 1]?.id ?? null);
+  await db.runTransaction(async (tx) => {
+    const current = (await tx.get(cursorRef)).data() as
+      | { lastSyncId?: unknown }
+      | undefined;
+    const currentId =
+      typeof current?.lastSyncId === "string" ? current.lastSyncId : null;
+    if (currentId !== afterId) return;
+    tx.set(cursorRef, { lastSyncId: nextId, updatedAt: Timestamp.now() });
+  });
 }
 
 // Runs one full sweep. Called by the cron route (CRON_SECRET) and by the

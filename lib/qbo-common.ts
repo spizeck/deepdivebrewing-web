@@ -28,6 +28,7 @@ export const QBO_OAUTH_STATES_COLLECTION = "qboOauthStates";
 export const QBO_WEBHOOK_RECEIPTS_COLLECTION = "qboWebhookReceipts";
 export const QBO_CONFIG_COLLECTION = "qboConfig";
 export const QBO_SYNC_RECORDS_COLLECTION = "qboSyncRecords";
+export const QBO_SWEEP_STATE_COLLECTION = "qboSweepState";
 
 export const QBO_ACCOUNTING_MAPPING_DOC = "accountingMapping";
 

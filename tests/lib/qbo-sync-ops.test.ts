@@ -209,13 +209,21 @@ function syncDoc(syncId = SYNC_ID) {
 }
 
 function pendingRecord(overrides: Record<string, unknown> = {}) {
+  const environment = (overrides.environment as string) ?? "sandbox";
+  const sourceId = (overrides.sourceId as string) ?? PAYMENT_ID;
   return {
+    // Mirrors buildQboSyncRecordDoc: syncId duplicates the document id
+    // and createdAt/updatedAt are written at creation — ordered queries
+    // exclude documents missing the ordered field.
+    syncId: `${environment}:stripe_payment:${sourceId}`,
     sourceType: "stripe_payment",
-    sourceId: PAYMENT_ID,
+    sourceId,
     status: "pending",
-    environment: "sandbox",
+    environment,
     attempts: 0,
     nextAttemptAt: null,
+    createdAt: Timestamp.fromMillis(T0 - 60 * 1000),
+    updatedAt: Timestamp.fromMillis(T0),
     ...overrides,
   };
 }
@@ -409,11 +417,13 @@ describe("runQboSyncSweep — missed enqueues and due records (#183)", () => {
       // A second settled payment with an existing synced record.
       "payments/other-paid": paidPayment({ status: "paid" }),
       [`${RECORDS}/sandbox:stripe_payment:other-paid`]: {
+        syncId: "sandbox:stripe_payment:other-paid",
         sourceType: "stripe_payment",
         sourceId: "other-paid",
         status: "synced",
         environment: "sandbox",
         qboEntityId: "777",
+        updatedAt: Timestamp.fromMillis(T0),
       },
     });
     const summary = await sweep(T0);
@@ -432,12 +442,14 @@ describe("runQboSyncSweep — missed enqueues and due records (#183)", () => {
       }),
       "payments/deferred-payment": paidPayment(),
       [`${RECORDS}/sandbox:stripe_payment:deferred-payment`]: {
+        syncId: "sandbox:stripe_payment:deferred-payment",
         sourceType: "stripe_payment",
         sourceId: "deferred-payment",
         status: "failed",
         environment: "sandbox",
         attempts: 1,
         nextAttemptAt: Timestamp.fromMillis(T0 + 60 * 60 * 1000),
+        updatedAt: Timestamp.fromMillis(T0),
       },
     });
     // The deferred record's payment needs a matching session; only the
@@ -462,6 +474,43 @@ describe("runQboSyncSweep — missed enqueues and due records (#183)", () => {
     const summary = await sweep(T0);
     assert.strictEqual(summary.outcomes.synced, 1);
     assert.strictEqual(syncDoc()?.status, "synced");
+  });
+
+  it("rotates the 500-record scan page so a due record behind it still runs", async () => {
+    // A full page of matching-but-not-due records whose ids sort ahead
+    // of SYNC_ID ("0-…" < "9f…") — without page rotation the due record
+    // would sit beyond the scan limit on every run.
+    const seed: Record<string, Record<string, unknown>> = {
+      [`payments/${PAYMENT_ID}`]: paidPayment(),
+    };
+    for (let i = 0; i < 500; i++) {
+      const blocker = `0-blocker-${String(i).padStart(4, "0")}`;
+      seed[`${RECORDS}/sandbox:stripe_payment:${blocker}`] = pendingRecord({
+        sourceId: blocker,
+        status: "failed",
+        attempts: 1,
+        nextAttemptAt: Timestamp.fromMillis(T0 + 60 * 60 * 1000),
+      });
+    }
+    seed[`${RECORDS}/${SYNC_ID}`] = pendingRecord();
+    reset(seed);
+
+    const first = await sweep(T0);
+    assert.strictEqual(first.processed, 0, "page 1 holds only blockers");
+    assert.strictEqual(
+      firestore.docs.get("qboSweepState/sandbox")?.lastSyncId,
+      "sandbox:stripe_payment:0-blocker-0499"
+    );
+
+    const second = await sweep(T0);
+    assert.strictEqual(second.processed, 1);
+    assert.strictEqual(second.outcomes.synced, 1);
+    assert.strictEqual(syncDoc()?.status, "synced");
+    // The short page wraps the cursor so the next run starts over.
+    assert.strictEqual(
+      firestore.docs.get("qboSweepState/sandbox")?.lastSyncId,
+      null
+    );
   });
 
   it("reports paused and preserves work when authorization is invalid", async () => {
@@ -503,12 +552,14 @@ describe("admin sync view (#183)", () => {
         lastErrorMessage: "QuickBooks is temporarily unavailable.",
         nextAttemptAt: Timestamp.fromMillis(T0 + 60 * 1000),
         lastAttemptAt: Timestamp.fromMillis(T0 - 60 * 1000),
+        updatedAt: Timestamp.fromMillis(T0 - 30 * 1000),
       }),
       [`${RECORDS}/sandbox:stripe_payment:d`]: pendingRecord({
         sourceId: "d",
         status: "needs_attention",
         attempts: 8,
         lastErrorCode: "retry_exhausted",
+        updatedAt: Timestamp.fromMillis(T0 - 20 * 1000),
       }),
       // A record from the other environment never leaks into the view.
       [`${RECORDS}/production:stripe_payment:x`]: pendingRecord({
@@ -522,6 +573,7 @@ describe("admin sync view (#183)", () => {
         status: "failed",
         lastErrorCode: "validation",
         candidate: { customerEmail: "buyer@example.test" },
+        updatedAt: Timestamp.fromMillis(T0 - 10 * 1000),
       }),
     });
 
@@ -534,9 +586,10 @@ describe("admin sync view (#183)", () => {
       failed: 2,
       needs_attention: 1,
     });
-    // Only the sandbox problem records, newest activity first.
+    // Only the sandbox problem records, ordered newest activity first
+    // by `updatedAt` server-side.
     const ids = view.records.map((r) => r.sourceId);
-    assert.deepStrictEqual(ids.sort(), ["c", "d", "e"].sort());
+    assert.deepStrictEqual(ids, ["e", "d", "c"]);
     const recordE = view.records.find((r) => r.sourceId === "e");
     assert.ok(recordE);
     assert.strictEqual(

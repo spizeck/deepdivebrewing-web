@@ -29,9 +29,11 @@ import {
 
 // Bounded reads — counts come from per-status count() aggregations
 // (equality filters only, no composite index) so they stay correct as
-// the collection grows. Problem records are queried directly by status;
-// the scan cap is a safety valve for a pathological failure backlog,
-// and `truncated` in the view tells the admin when it hit.
+// the collection grows. Problem records are queried directly by
+// environment + status and ordered by `updatedAt` desc server-side
+// (composite index in firestore.indexes.json), so the newest problems
+// for this environment always win the scan cap — a safety valve for a
+// pathological failure backlog that `truncated` makes visible.
 const PROBLEM_SCAN_LIMIT = 500;
 const PROBLEM_RECORD_LIMIT = 15;
 const REQUEUE_ELIGIBLE = new Set(["failed", "needs_attention"]);
@@ -77,7 +79,9 @@ export async function getQboSyncAdminView(): Promise<QboSyncAdminView> {
   const [connSnap, problemsSnap] = await Promise.all([
     qboConnectionRef(environment).get(),
     collection
+      .where("environment", "==", environment)
       .where("status", "in", ["failed", "needs_attention"])
+      .orderBy("updatedAt", "desc")
       .limit(PROBLEM_SCAN_LIMIT)
       .get(),
     ...QBO_SYNC_STATUSES.map(async (status) => {
@@ -94,30 +98,17 @@ export async function getQboSyncAdminView(): Promise<QboSyncAdminView> {
   const paused =
     !conn || conn.status !== "connected" || !conn.refreshTokenEnc;
 
-  const problems = problemsSnap.docs
-    .map((doc) => {
-      const view = toSyncRecordView(
-        doc.id,
-        doc.data() as Record<string, unknown>
-      );
-      return {
-        view,
-        sortMs:
-          Date.parse(view.lastAttemptAt ?? "") ||
-          Date.parse(view.updatedAt ?? "") ||
-          0,
-        environment: doc.data().environment,
-      };
-    })
-    .filter((entry) => entry.environment === environment)
-    .sort((a, b) => b.sortMs - a.sortMs);
+  // Already env-filtered and newest-activity-first from the query.
+  const problems = problemsSnap.docs.map((doc) =>
+    toSyncRecordView(doc.id, doc.data() as Record<string, unknown>)
+  );
 
   return {
     configured: true,
     environment,
     paused,
     counts,
-    records: problems.slice(0, PROBLEM_RECORD_LIMIT).map((p) => p.view),
+    records: problems.slice(0, PROBLEM_RECORD_LIMIT),
     truncated: problemsSnap.size >= PROBLEM_SCAN_LIMIT,
   };
 }

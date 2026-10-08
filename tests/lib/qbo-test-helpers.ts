@@ -46,6 +46,7 @@ export interface FakeQuerySnapshot {
 export interface FakeQuery {
   where(field: string, op: string, value: unknown): FakeQuery;
   orderBy(field: string, direction?: "asc" | "desc"): FakeQuery;
+  startAfter(value: unknown): FakeQuery;
   limit(n: number): FakeQuery;
   get(): Promise<FakeQuerySnapshot>;
   count(): { get(): Promise<{ data(): { count: number } }> };
@@ -246,7 +247,8 @@ export function createFakeFirestore(): FakeFirestore {
     collectionName: string,
     filters: Filter[] = [],
     orders: { field: string; direction: "asc" | "desc" }[] = [],
-    limitN: number | null = null
+    limitN: number | null = null,
+    startAfterValue?: { value: unknown }
   ): FakeQuery {
     const run = (): FakeQueryDoc[] => {
       const prefix = `${collectionName}/`;
@@ -270,6 +272,18 @@ export function createFakeFirestore(): FakeFirestore {
           return 0;
         });
       }
+      if (startAfterValue) {
+        // Cursors bind to the last orderBy field — the only shape the
+        // swept/admin queries use.
+        const order = orders[orders.length - 1];
+        if (!order) {
+          throw new Error("startAfter requires at least one orderBy");
+        }
+        rows = rows.filter(([, data]) => {
+          const cmp = compareValues(data[order.field], startAfterValue.value);
+          return order.direction === "desc" ? cmp < 0 : cmp > 0;
+        });
+      }
       if (limitN !== null) rows = rows.slice(0, limitN);
       return rows.map(([path, data]) => ({
         id: path.slice(prefix.length),
@@ -280,10 +294,12 @@ export function createFakeFirestore(): FakeFirestore {
     };
     return {
       where: (field, op, value) =>
-        makeQuery(collectionName, [...filters, { field, op, value }], orders, limitN),
+        makeQuery(collectionName, [...filters, { field, op, value }], orders, limitN, startAfterValue),
       orderBy: (field, direction = "asc") =>
-        makeQuery(collectionName, filters, [...orders, { field, direction }], limitN),
-      limit: (n) => makeQuery(collectionName, filters, orders, n),
+        makeQuery(collectionName, filters, [...orders, { field, direction }], limitN, startAfterValue),
+      startAfter: (value) =>
+        makeQuery(collectionName, filters, orders, limitN, { value }),
+      limit: (n) => makeQuery(collectionName, filters, orders, n, startAfterValue),
       get: () => {
         const results = run();
         return Promise.resolve({

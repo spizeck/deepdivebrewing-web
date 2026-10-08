@@ -340,6 +340,10 @@ One run performs three bounded phases (`lib/qbo-sweep.ts`):
 3. **Due-record processing** — `pending`/`failed` records whose
    `nextAttemptAt` has passed, plus stale `syncing` claims, are
    processed oldest-first up to `QBO_SWEEP_MAX_RECORDS` (10) per run.
+   Each run scans one 500-record page of the status-filtered set in
+   `syncId` (document-id) order, resuming from a per-environment cursor
+   in `qboSweepState` that wraps once the scan reaches the end — a full
+   page of not-due records can't starve a due record behind the cap.
 
 Concurrent invocations are safe: the claim transaction gives each
 record to exactly one claimant; a second sweeper sees `syncing` and
