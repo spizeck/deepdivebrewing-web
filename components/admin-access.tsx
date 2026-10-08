@@ -32,10 +32,13 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<AdminRole>("admin");
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
-  // Ref, not state: the guard must hold even if another admin action
-  // overwrites actionInProgress or a second Enter fires before React
-  // flushes the state update — either path would otherwise double-post.
+  // Invite pending state is tracked separately from the shared
+  // actionInProgress slot: a ref for the synchronous duplicate-submit
+  // guard (Enter can re-fire before React flushes state, and another
+  // admin action can overwrite the slot mid-request) plus a state flag
+  // so the button stays visibly disabled for the whole flight.
   const inviteInFlightRef = useRef(false);
+  const [invitePending, setInvitePending] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,7 +77,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
     // the button is disabled — guard so a second press never double-posts.
     if (inviteInFlightRef.current) return;
     inviteInFlightRef.current = true;
-    setActionInProgress("invite");
+    setInvitePending(true);
     try {
       const idToken = await user.getIdToken();
       const res = await fetch("/api/admin/users", {
@@ -109,7 +112,7 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
       onStatusMessage("Invitation failed. Please try again.");
     } finally {
       inviteInFlightRef.current = false;
-      setActionInProgress(null);
+      setInvitePending(false);
     }
   }
 
@@ -257,8 +260,8 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
             </select>
           </label>
           <div className="flex items-end">
-            <Button type="submit" disabled={actionInProgress === "invite"}>
-              {actionInProgress === "invite" ? "Inviting..." : "Invite"}
+            <Button type="submit" disabled={invitePending}>
+              {invitePending ? "Inviting..." : "Invite"}
             </Button>
           </div>
         </form>
