@@ -2,8 +2,10 @@
 
 Design for posting Stripe payment facts into QuickBooks Online without
 double-counting money that Stripe/bank activity already represents.
-Status: **proposal — pending Chad/accountant review.** No QBO writes are
-implemented; this document is the gate for that work.
+Status: **partially implemented** — the Sales Receipt write shipped in
+#179 and the mapping model + admin surface was finalized in #182.
+Refunds (#180), payouts/fees (#181), retry sweep (#183), and tax (#184)
+remain pending.
 
 The connection foundation (OAuth, tokens, webhooks, entity discovery,
 mapping, `intuit_tid` capture) is live in production and read-only — see
@@ -243,7 +245,7 @@ verified through Stripe) qualify — see the classification rule in §2.
 | Transaction date | `TxnDate` = the payment's **`paidAt`** settlement date (refund's `refundedAt` for RefundReceipts) — never the worker's processing date, so delayed retries and backfills land in the correct accounting period |
 | Cash target | `DepositToAccountRef` = mapped **Stripe clearing/balance account** (the company's `Stripe Balance` account is the expected choice) — *not* a bank account, *not* Undeposited Funds, and never hardcoded |
 | Income split | Line `ItemRef` by `purpose` → mapped income item |
-| Customer | One generic customer (mapped fallback) — see §6 |
+| Customer | One generic sales customer (mapped) — see §6 |
 | Payment method | Optional `PaymentMethodRef` ("Stripe") if a suitable method exists — nice-to-have, not required |
 | Tax | **No tax posted** initially — see §10 |
 | Deposits | **Never created** — cash movement belongs to the existing Stripe/bank path |
@@ -276,8 +278,9 @@ coupled to QBO availability — see §13.
 - **Account** — one Stripe clearing account (existing or to be created
   manually in QBO; the app does not create accounts).
 - **Item** — tour / tasting / other service items mapped to purposes.
-- **Customer** — a single generic customer. Per-customer QBO records are
-  deliberately avoided: counter sales gain no AR benefit, customer names
+- **Customer** — a single generic sales customer. Per-customer QBO
+  records are deliberately avoided: counter sales gain no AR benefit,
+  customer names
   vary in quality, and the receipt/email already lives in Stripe + the
   payment record. If a named customer is ever needed, it is a later
   decision, not a mapping.
@@ -392,14 +395,25 @@ Stripe fees            ──existing path──► Fee expense account
 
 ## 11. Mapping requirements
 
-| Current field | Verdict | Rationale |
+**Implemented in #182.** All required fields must be selected before a
+mapping can be saved; a stored document missing a required field reads
+as incomplete in the admin UI and cannot drive posting (the worker fails
+closed per-field regardless).
+
+| Field | Verdict | Rationale |
 | --- | --- | --- |
-| `stripeClearingAccountId` | **Required** — rename label to "Stripe clearing account" | The whole model hangs on it |
-| `tourIncomeItemId` | **Required** | Covers tour + additional guests (+ private tour) |
+| `stripeClearingAccountId` | **Required** — label "Stripe clearing account" | The whole model hangs on it |
+| `tourIncomeItemId` | **Required** | Covers tour + additional guests + private tour |
 | `tastingIncomeItemId` | **Required** | `brewery_tour_tasting` purpose exists |
 | `otherIncomeItemId` | **Required** | `other` purpose needs a home |
-| `fallbackCustomerId` | **Required** — rename to "Stripe sales customer" | Always used in this model (single generic customer), so "fallback" understates it |
+| `fallbackCustomerId` | **Required** — label "Generic sales customer" (stored key retained; see note) | Always used in this model (single generic customer), so "fallback" understates it |
 | `taxCodeId` | **Optional — keep unset** | Until the CW tax answer is confirmed (§10) |
+
+**Stored key note (#182):** the persisted field name `fallbackCustomerId`
+was kept rather than migrated to a renamed key — the doc is a single
+record and the label, not the storage representation, was the ambiguity
+the rename needed to fix. `saveQboMapping` also rejects inactive entities
+at save time, on top of the existing live-entity/realm validation.
 
 **Candidate new mappings — none required at launch:**
 
@@ -501,7 +515,7 @@ Pre-flight (blocking — fill in before enabling writes):
       real payout's categorization, tax settings).
 - [ ] Stripe clearing account exists in the prod chart of accounts.
 - [ ] Income items for tour / tasting / other exist and are active.
-- [ ] Generic customer exists (e.g. "Stripe Checkout").
+- [ ] Generic sales customer exists (e.g. "Stripe Checkout").
 - [ ] CW tax treatment of tour/tasting sales confirmed with accountant.
 
 Post-enable (first cycle):

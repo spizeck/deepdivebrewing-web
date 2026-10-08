@@ -22,7 +22,11 @@ const state = {
       otherIncomeItemId: "item-other",
       fallbackCustomerId: "cust-generic",
     },
-  } as { configured: boolean; mapping?: Record<string, string> },
+  } as {
+    configured: boolean;
+    mapping?: Record<string, string>;
+    missingFields?: string[];
+  },
   tokenError: null as unknown,
   // Provider-side recovery lookup result.
   foundReceipt: null as { id: string; correlationId?: string } | null,
@@ -195,14 +199,23 @@ describe("postPaidPaymentToQbo — source identity", () => {
     assert.strictEqual(doc?.realmId, "realm-prod");
   });
 
-  it("selects the income item by purpose", async () => {
-    reset({
-      [`payments/${PAYMENT_ID}`]: paidPayment({ purpose: "brewery_tour_tasting" }),
-    });
-    await post(PAYMENT_ID);
-    const detail = (state.createCalls[0].Line as Record<string, unknown>[])[0]
-      .SalesItemLineDetail as Record<string, unknown>;
-    assert.deepStrictEqual(detail.ItemRef, { value: "item-tasting" });
+  it("maps every payment purpose to the canonical income item", async () => {
+    // The §6 purpose→item table (#182): tour-family purposes share the
+    // tour item; tasting and other get their own.
+    const cases = [
+      ["brewery_tour", "item-tour"],
+      ["additional_guests", "item-tour"],
+      ["private_tour", "item-tour"],
+      ["brewery_tour_tasting", "item-tasting"],
+      ["other", "item-other"],
+    ] as const;
+    for (const [purpose, itemId] of cases) {
+      reset({ [`payments/${PAYMENT_ID}`]: paidPayment({ purpose }) });
+      await post(PAYMENT_ID);
+      const detail = (state.createCalls[0].Line as Record<string, unknown>[])[0]
+        .SalesItemLineDetail as Record<string, unknown>;
+      assert.deepStrictEqual(detail.ItemRef, { value: itemId }, purpose);
+    }
   });
 
   it("never enqueues non-DDB activity — a Stripe charge with no payments record", async () => {
@@ -320,7 +333,29 @@ describe("processQboSyncRecord — gates and failures", () => {
     assert.strictEqual(state.retrieveCalls.length, 0, "no Stripe call before the gate");
   });
 
+  it("fails closed when the stored mapping is incomplete — even for fields this payment does not need", async () => {
+    // Legacy/incomplete document: every required field this payment
+    // (purpose "other") needs is present, but the mapping as a whole is
+    // unfinished — nothing may post until it is complete.
+    seedPending();
+    state.mapping = {
+      configured: true,
+      mapping: {
+        stripeClearingAccountId: "acct-stripe-balance",
+        otherIncomeItemId: "item-other",
+        fallbackCustomerId: "cust-generic",
+      },
+      missingFields: ["tourIncomeItemId", "tastingIncomeItemId"],
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "mapping_incomplete");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
   it("fails closed when a required mapping field is missing", async () => {
+    // Per-field check below the completeness gate — a view without
+    // missingFields exercises it directly.
     seedPending();
     state.mapping = {
       configured: true,
@@ -337,6 +372,44 @@ describe("processQboSyncRecord — gates and failures", () => {
     const result = await process(SYNC_ID);
     assert.strictEqual(result.outcome, "needs_attention");
     assert.strictEqual(syncDoc()?.lastErrorCode, "purpose_unmapped");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("guards the per-item invariant when a complete-looking view lacks the field", async () => {
+    // Defensive branch: a real view always carries missingFields, so
+    // this state is only reachable if the completeness flag disagrees
+    // with the mapping — the check keeps it fail-closed regardless.
+    seedPending({ purpose: "brewery_tour_tasting" });
+    state.mapping = {
+      configured: true,
+      missingFields: [],
+      mapping: {
+        stripeClearingAccountId: "acct-stripe-balance",
+        tourIncomeItemId: "item-tour",
+        otherIncomeItemId: "item-other",
+        fallbackCustomerId: "cust-generic",
+      },
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_incomeItem");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("fails closed when the generic sales customer is unmapped", async () => {
+    seedPending();
+    state.mapping = {
+      configured: true,
+      mapping: {
+        stripeClearingAccountId: "acct-stripe-balance",
+        tourIncomeItemId: "item-tour",
+        tastingIncomeItemId: "item-tasting",
+        otherIncomeItemId: "item-other",
+      },
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_fallbackCustomerId");
     assert.strictEqual(state.createCalls.length, 0);
   });
 

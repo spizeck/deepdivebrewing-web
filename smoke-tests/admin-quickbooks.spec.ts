@@ -59,6 +59,33 @@ const DISCONNECTED = {
   mapping: { configured: false },
 };
 
+// Discovery entities the editor selects from — keyed by the `type`
+// query parameter.
+const ENTITIES = {
+  account: [
+    { id: "acct-1", name: "Stripe Balance", type: "Bank", active: true },
+  ],
+  item: [
+    { id: "item-tour", name: "Brewery Tour", type: "Service", active: true },
+    { id: "item-tasting", name: "Tasting", type: "Service", active: true },
+    { id: "item-other", name: "Other Income", type: "Service", active: true },
+  ],
+  customer: [
+    { id: "cust-1", name: "Stripe Checkout", active: true },
+  ],
+  "tax-code": [
+    { id: "tax-1", name: "Out of scope", active: true },
+  ],
+};
+
+const FULL_MAPPING_INPUT = {
+  stripeClearingAccountId: "acct-1",
+  tourIncomeItemId: "item-tour",
+  tastingIncomeItemId: "item-tasting",
+  otherIncomeItemId: "item-other",
+  fallbackCustomerId: "cust-1",
+};
+
 function mockQboApi(
   page: import("playwright/test").Page,
   statusBody: unknown,
@@ -66,6 +93,10 @@ function mockQboApi(
     disconnectBody?: unknown;
     testBody?: unknown;
     connectBody?: unknown;
+    entities?: Record<string, unknown[]>;
+    /** Inspect or replace the mapping PUT — return a response body to
+     *  override the default echo-back. */
+    onMappingPut?: (body: Record<string, unknown>) => unknown | void;
   } = {}
 ) {
   return page.route(/\/api\/admin\/quickbooks\//, (route) => {
@@ -80,6 +111,38 @@ function mockQboApi(
 
     if (method === "GET" && url.endsWith("/api/admin/quickbooks/status")) {
       return json(statusBody);
+    }
+    if (
+      method === "GET" &&
+      url.includes("/api/admin/quickbooks/entities")
+    ) {
+      const type = new URL(url).searchParams.get("type") ?? "";
+      return json({ ok: true, entities: overrides.entities?.[type] ?? [] });
+    }
+    if (
+      method === "PUT" &&
+      url.endsWith("/api/admin/quickbooks/mapping")
+    ) {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      const replacement = overrides.onMappingPut?.(body);
+      return json(
+        replacement ?? {
+          ok: true,
+          mapping: {
+            configured: true,
+            missingFields: [],
+            mapping: body,
+            entityNames: Object.fromEntries(
+              Object.values(overrides.entities ?? {})
+                .flat()
+                .map((entity) => [
+                  (entity as { id: string }).id,
+                  (entity as { name: string }).name,
+                ])
+            ),
+          },
+        }
+      );
     }
     if (method === "POST" && url.endsWith("/api/admin/quickbooks/test")) {
       return json(overrides.testBody ?? statusBody);
@@ -210,6 +273,147 @@ test("reauthorization state shows reconnect guidance", async ({ page }) => {
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Reconnect QuickBooks" })
+  ).toBeVisible();
+});
+
+test("a complete mapping lists the selected entities under the finalized labels", async ({
+  page,
+}) => {
+  await mockQboApi(page, {
+    ok: true,
+    connection: CONNECTED.connection,
+    mapping: {
+      configured: true,
+      mapping: FULL_MAPPING_INPUT,
+      missingFields: [],
+      entityNames: {
+        "acct-1": "Stripe Balance",
+        "item-tour": "Brewery Tour",
+        "item-tasting": "Tasting",
+        "item-other": "Other Income",
+        "cust-1": "Stripe Checkout",
+      },
+    },
+  });
+  await page.goto(FIXTURE);
+  await expect(
+    page.getByText("Sales receipts post to these QuickBooks entities.")
+  ).toBeVisible();
+  await expect(
+    page.getByText("Stripe clearing account", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText("Generic sales customer", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText("Tax code (optional)", { exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("Stripe Balance")).toBeVisible();
+  await expect(page.getByText("Stripe Checkout")).toBeVisible();
+});
+
+test("an incomplete mapping names the missing required fields", async ({
+  page,
+}) => {
+  await mockQboApi(page, {
+    ok: true,
+    connection: CONNECTED.connection,
+    mapping: {
+      configured: true,
+      mapping: { stripeClearingAccountId: "acct-1" },
+      missingFields: [
+        "tourIncomeItemId",
+        "tastingIncomeItemId",
+        "otherIncomeItemId",
+        "fallbackCustomerId",
+      ],
+      entityNames: { "acct-1": "Stripe Balance" },
+    },
+  });
+  await page.goto(FIXTURE);
+  await expect(page.getByText(/Mapping incomplete/)).toBeVisible();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: /Missing required fields: Tour income item/ })
+  ).toBeVisible();
+  await expect(page.getByText("Stripe Balance")).toBeVisible();
+  await expect(page.getByText("Not set — required")).toHaveCount(4);
+});
+
+test("the mapping editor blocks save until every required field is set", async ({
+  page,
+}) => {
+  let putBody: Record<string, unknown> | null = null;
+  await mockQboApi(page, CONNECTED, {
+    entities: ENTITIES,
+    onMappingPut: (body) => {
+      putBody = body;
+    },
+  });
+  await page.goto(FIXTURE);
+  await page.getByRole("button", { name: "Configure mapping" }).press("Enter");
+
+  const save = page.getByRole("button", { name: "Save mapping" });
+  await expect(save).toBeDisabled();
+  await expect(page.getByText(/Still required:/)).toBeVisible();
+  await expect(page.getByText("(required)")).toHaveCount(5);
+
+  await page
+    .getByLabel(/Stripe clearing account/)
+    .selectOption("acct-1");
+  await page.getByLabel(/Tour income item/).selectOption("item-tour");
+  await page.getByLabel(/Tasting income item/).selectOption("item-tasting");
+  await page.getByLabel(/Other income item/).selectOption("item-other");
+  await page
+    .getByLabel(/Generic sales customer/)
+    .selectOption("cust-1");
+
+  await expect(save).toBeEnabled();
+  await save.press("Enter");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Mapping saved." })
+  ).toBeVisible();
+
+  expect(putBody).toMatchObject(FULL_MAPPING_INPUT);
+  // The saved view echoes the resolved entity names.
+  await expect(page.getByText("Stripe Balance")).toBeVisible();
+  await expect(page.getByText("Stripe Checkout")).toBeVisible();
+});
+
+test("the editor drops a stored selection that is now inactive", async ({
+  page,
+}) => {
+  // The generic customer was deactivated in QBO after the mapping was
+  // saved — the draft must not silently re-submit the stale id.
+  await mockQboApi(
+    page,
+    {
+      ok: true,
+      connection: CONNECTED.connection,
+      mapping: {
+        configured: true,
+        mapping: FULL_MAPPING_INPUT,
+        missingFields: [],
+        entityNames: { "cust-1": "Stripe Checkout" },
+      },
+    },
+    {
+      entities: {
+        ...ENTITIES,
+        customer: [
+          { id: "cust-1", name: "Stripe Checkout", active: false },
+        ],
+      },
+    }
+  );
+  await page.goto(FIXTURE);
+  await page.getByRole("button", { name: "Edit mapping" }).press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Save mapping" })
+  ).toBeDisabled();
+  await expect(
+    page.getByText(/Still required: Generic sales customer/)
   ).toBeVisible();
 });
 

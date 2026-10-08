@@ -6,6 +6,8 @@ import {
   isQboEnvironment,
   normalizeQboSyncCandidate,
   qboEnvironmentLabel,
+  qboIncomeItemKeyForPurpose,
+  qboMissingMappingFields,
   qboSyncIdFor,
 } from "@/lib/qbo-common";
 
@@ -60,6 +62,66 @@ describe("qboSyncIdFor", () => {
   it("refuses empty identities", () => {
     assert.throws(() => qboSyncIdFor("sandbox", "", "x"));
     assert.throws(() => qboSyncIdFor("sandbox", "t", " "));
+  });
+});
+
+describe("qboIncomeItemKeyForPurpose", () => {
+  it("maps the canonical purpose table (design §6)", () => {
+    const cases = [
+      ["brewery_tour", "tourIncomeItemId"],
+      ["additional_guests", "tourIncomeItemId"],
+      ["private_tour", "tourIncomeItemId"],
+      ["brewery_tour_tasting", "tastingIncomeItemId"],
+      ["other", "otherIncomeItemId"],
+    ] as const;
+    for (const [purpose, key] of cases) {
+      assert.strictEqual(qboIncomeItemKeyForPurpose(purpose), key, purpose);
+    }
+  });
+
+  it("fails closed for unknown or absent purposes", () => {
+    for (const purpose of ["gift_card", "", "OTHER", undefined]) {
+      assert.strictEqual(
+        qboIncomeItemKeyForPurpose(purpose),
+        null,
+        String(purpose)
+      );
+    }
+  });
+});
+
+describe("qboMissingMappingFields", () => {
+  const complete = {
+    stripeClearingAccountId: "a",
+    tourIncomeItemId: "t",
+    tastingIncomeItemId: "s",
+    otherIncomeItemId: "o",
+    fallbackCustomerId: "c",
+  };
+
+  it("reports every required field when nothing is mapped", () => {
+    assert.deepStrictEqual(qboMissingMappingFields({}), [
+      "stripeClearingAccountId",
+      "tourIncomeItemId",
+      "tastingIncomeItemId",
+      "otherIncomeItemId",
+      "fallbackCustomerId",
+    ]);
+    assert.deepStrictEqual(qboMissingMappingFields(undefined), [
+      "stripeClearingAccountId",
+      "tourIncomeItemId",
+      "tastingIncomeItemId",
+      "otherIncomeItemId",
+      "fallbackCustomerId",
+    ]);
+  });
+
+  it("is empty for a complete mapping even without a tax code", () => {
+    assert.deepStrictEqual(qboMissingMappingFields(complete), []);
+    assert.deepStrictEqual(
+      qboMissingMappingFields({ ...complete, taxCodeId: "tax" }),
+      []
+    );
   });
 });
 

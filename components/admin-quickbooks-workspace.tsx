@@ -383,7 +383,14 @@ export function AdminQuickbooksWorkspace({
         onSaved={(next) => {
           setMapping(next);
           setConnection((prev) =>
-            prev ? { ...prev, mappingConfigured: next.configured } : prev
+            prev
+              ? {
+                  ...prev,
+                  mappingConfigured:
+                    next.configured &&
+                    (next.missingFields ?? []).length === 0,
+                }
+              : prev
           );
         }}
       />
