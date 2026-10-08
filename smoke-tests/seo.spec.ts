@@ -84,7 +84,9 @@ test("private and placeholder routes are marked noindex", async ({ page }) => {
   for (const route of [
     "/admin",
     "/admin/trade",
+    "/admin/knowledge",
     "/admin-fixture",
+    "/admin-knowledge-fixture",
     "/admin-trade-fixture",
     "/where-to-buy-fixture",
     "/trade/login",
@@ -116,6 +118,7 @@ test("robots.txt disallows private surfaces and advertises the canonical sitemap
   for (const path of [
     "/admin",
     "/admin-fixture",
+    "/admin-knowledge-fixture",
     "/admin-trade-fixture",
     "/where-to-buy-fixture",
     "/trade/login",
@@ -137,6 +140,7 @@ test("sitemap.xml covers public routes only on the canonical host", async ({
   for (const forbidden of [
     "/admin",
     "/admin-fixture",
+    "/admin-knowledge-fixture",
     "/admin-trade-fixture",
     "/where-to-buy-fixture",
     "/trade/login",

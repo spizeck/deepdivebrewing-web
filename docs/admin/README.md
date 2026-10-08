@@ -13,6 +13,7 @@ The admin dashboard lets authorized users:
 - Upload beer card and hero images to Firebase Storage.
 - Manage trade leads — statuses, owners, notes/history, and follow-ups — in the Trade leads pipeline at `/admin/trade` (see [Trade inquiries](./trade-inquiries.md)).
 - Take card payments for brewery tours and other one-off charges in the Payments workspace at `/admin/payments` (see [Payments](./payments.md)).
+- Write and read internal SOPs, checklists, and reference docs in the Knowledge Base at `/admin/knowledge` (see [Knowledge Base](./knowledge-base.md)).
 - Trigger a site rebuild so static pages (such as the beer listing and Where to Buy page) show the latest content.
 
 In addition, users with the **superadmin** role can:

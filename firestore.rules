@@ -142,6 +142,18 @@ service cloud.firestore {
       allow read, write: if hasActiveSuperAdmin();
     }
 
+    // Knowledge Base (#201): internal SOPs — content is read and written
+    // exclusively server-side via the /api/admin/knowledge* routes behind
+    // requireAdminActor (Admin SDK bypasses these rules). Version snapshots
+    // live in the versions subcollection. No client may read or write either.
+    match /knowledgeArticles/{articleId} {
+      allow read, write: if false;
+
+      match /versions/{versionId} {
+        allow read, write: if false;
+      }
+    }
+
     match /adminAuditLogs/{logId} {
       allow create: if hasActiveSuperAdmin();
       allow read: if hasActiveSuperAdmin();

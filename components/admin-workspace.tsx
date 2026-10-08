@@ -1,6 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
+import Link from "next/link";
 import { cn, pressableClasses } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -204,6 +205,21 @@ export function AdminWorkspace({
       <AdminPaymentsSummary user={accessUser} />
 
       <AdminQuickbooksSummary user={accessUser} />
+
+      <section
+        aria-label="Knowledge Base"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stone bg-paper p-4"
+      >
+        <div>
+          <h2 className="text-sm font-semibold">Knowledge base</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Internal SOPs, checklists, and reference docs.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/admin/knowledge">Open knowledge base</Link>
+        </Button>
+      </section>
 
       <Tabs defaultValue="beers">
         <div className="flex flex-wrap items-center gap-2">
