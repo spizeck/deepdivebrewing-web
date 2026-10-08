@@ -97,9 +97,9 @@ export default function BrewedOnSabaPage() {
         <SectionIntro eyebrow="The Brewery" title="Brewed here">
           <p>
             Deep Dive is a small, family-run brewery at Fort Bay Harbor on
-            Saba. The brewery is a 27-by-27-foot room with nine-foot
-            ceilings, compact by any standard and shaped entirely by the
-            island around it.
+            Saba. The brewery is a single room of about 63 m² (678 ft²)
+            with nine-foot ceilings, compact by any standard and shaped
+            entirely by the island around it.
           </p>
           <p className="mt-4">
             We brew approachable, well-balanced beer for our climate and our
@@ -112,9 +112,9 @@ export default function BrewedOnSabaPage() {
         <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 border-t border-stone pt-10 sm:grid-cols-4">
           <div>
             <dt className="sr-only">Brewery footprint</dt>
-            <dd className="text-3xl font-bold tracking-tight">27 × 27 ft</dd>
+            <dd className="text-3xl font-bold tracking-tight">≈ 63 m²</dd>
             <dd className="mt-1 text-sm text-muted-foreground">
-              9 × 9 m, wall to wall
+              ≈ 678 ft², wall to wall
             </dd>
           </div>
           <div>
@@ -304,7 +304,7 @@ export default function BrewedOnSabaPage() {
           </h2>
           <p className="mt-4 text-muted-foreground">
             See the lineup, find a pour nearby, or come stand in the
-            27-by-27-foot room where it all happens.
+            678-square-foot room where it all happens.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <Button asChild className="h-11 min-h-[44px] px-6">
