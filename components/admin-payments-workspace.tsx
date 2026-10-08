@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { AdminPanelUser } from "@/components/admin-access";
+import { cn, pressableClasses } from "@/lib/utils";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
 import {
   describePaymentEvent,
@@ -877,9 +878,11 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                     type="button"
                     aria-current={selectedId === p.id}
                     onClick={() => void openPayment(p.id)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm ${
-                      selectedId === p.id ? "bg-stone/40" : "hover:bg-stone/20"
-                    }`}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm",
+                      selectedId === p.id ? "bg-stone/40" : "hover:bg-stone/20",
+                      pressableClasses
+                    )}
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">
