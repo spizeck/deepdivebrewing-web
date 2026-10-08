@@ -113,6 +113,7 @@ test("axe: open lightbox has no serious/critical violations", async ({
           .every((animation) =>
             ["finished", "idle"].includes(animation.playState)
           ),
+      undefined,
       { timeout: 5_000 }
     )
     .catch(() => {});

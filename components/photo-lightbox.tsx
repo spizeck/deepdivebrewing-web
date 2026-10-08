@@ -81,10 +81,7 @@ export function PhotoLightbox({
           </DialogPrimitive.Title>
 
           {photo ? (
-            <figure
-              key={photo.id}
-              className="flex w-full flex-col items-center gap-3 px-4"
-            >
+            <figure className="flex w-full flex-col items-center gap-3 px-4">
               <div className="relative h-[72dvh] w-[min(92vw,110rem)]">
                 <Image
                   src={photo.src}

@@ -28,7 +28,7 @@ export function InsideDeepDiveTeaser() {
               Inside Deep Dive
             </h2>
             <p className="mt-4 text-muted-foreground">
-              Step inside our 26-by-26-foot brewhouse at Fort Bay Harbor
+              Step inside our 26-by-26-foot brewery at Fort Bay Harbor
               for a closer look at the tanks, valves, and grain behind
               every batch.
             </p>
