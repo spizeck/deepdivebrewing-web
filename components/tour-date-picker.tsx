@@ -155,7 +155,8 @@ export function TourDatePicker({
         onClick={() => (open ? setOpen(false) : openPicker())}
         className={cn(
           "mt-1.5 flex h-11 min-h-[44px] w-full items-center justify-between rounded-md border border-stone bg-paper px-3 text-base text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean/50 data-[invalid=true]:border-ember",
-          !value && "text-ink/70"
+          !value && "text-ink/70",
+          pressableClasses
         )}
       >
         <span>{value ? formatCalendarDate(value) : "Select a date"}</span>

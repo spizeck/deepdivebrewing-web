@@ -268,9 +268,17 @@
   color: #334E68;
   text-decoration: underline;
   text-underline-offset: 2px;
+  /* Same eased opacity feedback as the component text links
+     (transition-opacity duration-200). */
+  transition: opacity 0.2s ease;
 }
 .prose-dd a:not([class]):hover {
   opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prose-dd a:not([class]) {
+    transition: none;
+  }
 }
 .prose-dd ul,
 .prose-dd ol {
