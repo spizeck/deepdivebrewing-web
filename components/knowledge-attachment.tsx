@@ -14,7 +14,7 @@ import { KNOWLEDGE_STORAGE_PREFIX } from "@/lib/knowledge-common";
  * minted. The result is a short-lived blob: object URL; it is revoked on
  * unmount.
  */
-function useAttachmentUrl(path: string) {
+export function useAttachmentUrl(path: string) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 

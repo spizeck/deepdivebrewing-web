@@ -9,7 +9,13 @@ import {
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
 import { doc, setDoc } from "firebase/firestore";
-import { getBytes, ref, uploadBytes } from "firebase/storage";
+import {
+  deleteObject,
+  getBytes,
+  listAll,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 
 // Must match the --project passed to `firebase emulators:exec`: the Storage
 // emulator resolves cross-service firestore.get() calls against that project,
@@ -195,6 +201,38 @@ describe("knowledge attachment access", () => {
         ref(userStorage, "knowledge/example-sop/diagram.png"),
         imageBytes
       )
+    );
+  });
+
+  it("denies unauthenticated and non-admin listing of knowledge objects", async () => {
+    await seedObject("knowledge/example-sop/diagram.png");
+    const anonStorage = testEnv.unauthenticatedContext().storage();
+    await assertFails(
+      listAll(ref(anonStorage, "knowledge/example-sop"))
+    );
+    const userStorage = testEnv.authenticatedContext("plain-user").storage();
+    await assertFails(
+      listAll(ref(userStorage, "knowledge/example-sop"))
+    );
+  });
+
+  it("denies non-admin deletes of knowledge objects", async () => {
+    await seedObject("knowledge/example-sop/diagram.png");
+    const userStorage = testEnv.authenticatedContext("plain-user").storage();
+    await assertFails(
+      deleteObject(ref(userStorage, "knowledge/example-sop/diagram.png"))
+    );
+  });
+
+  it("allows active admins to list and delete knowledge objects", async () => {
+    await seedAdminRecord("admin1", "admin", "active");
+    await seedObject("knowledge/example-sop/diagram.png");
+    const storage = adminContext("admin1", "admin").storage();
+    await assertSucceeds(
+      listAll(ref(storage, "knowledge/example-sop"))
+    );
+    await assertSucceeds(
+      deleteObject(ref(storage, "knowledge/example-sop/diagram.png"))
     );
   });
 });

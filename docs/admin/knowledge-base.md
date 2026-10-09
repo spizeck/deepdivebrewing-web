@@ -77,6 +77,20 @@ as `kb:` references, e.g. `![Diagram](kb:my-sop/valve.jpg)` or
 `[Manual](kb:my-sop/manual.pdf)`. Attachments require admin access to view,
 like the articles themselves.
 
+The **Attachments** toolbar button lists every file already stored for the
+article — including uploads whose Markdown reference was later removed.
+Select **Insert** to reuse one: images insert as `![name](kb:…)`, other
+files (PDFs) as `[name](kb:…)` links.
+
+Deleting the Markdown line only detaches a file from the draft — the object
+stays in Storage. To remove it permanently, use **Delete** in the
+Attachments panel and confirm. Deletion is blocked while the file is still
+referenced by the draft, any article's stored body, or any saved version in
+History — a `kb:` link in one article can point at another article's
+files, so the check is corpus-wide and published snapshots never lose their
+images. Unreferenced files are kept — they remain available to reinsert or
+delete later.
+
 ## Publishing and versions
 
 - **Save draft** — stores edits without publishing (for drafts). Saving a

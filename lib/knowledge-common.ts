@@ -81,6 +81,84 @@ export type KnowledgeCalloutType = (typeof KNOWLEDGE_CALLOUT_TYPES)[number];
 // ![photo](kb:my-sop/valve.jpg).
 export const KNOWLEDGE_STORAGE_PREFIX = "knowledge";
 
+/** Attachment metadata returned by the admin attachments API. */
+export interface KnowledgeAttachmentView {
+  // Object basename under knowledge/<slug>/ — the same token `kb:` Markdown
+  // references use.
+  name: string;
+  size: number;
+  contentType: string;
+  updatedAt: string | null;
+  // True when the stored article body or any stored version snapshot
+  // references this object. The editor additionally checks the live draft
+  // text client-side before allowing a delete.
+  referenced: boolean;
+}
+
+// Attachment basenames are produced by the upload sanitizer plus a
+// timestamp prefix. Validation only needs to guarantee a single flat object
+// name — no "/" means no cross-article path traversal, and the leading
+// alphanumeric rules out dot segments like "..". The length bound tracks
+// the GCS object-name limit (1024 bytes) rather than filename conventions —
+// uploaded names can legitimately run long.
+const ATTACHMENT_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,1023}$/;
+
+export function isKnowledgeAttachmentName(value: string): boolean {
+  return ATTACHMENT_NAME_PATTERN.test(value);
+}
+
+// `kb:` references as they appear in Markdown source. Both `![alt](…)` and
+// `[label](…)` forms use the scheme; the capture is `<slug>/<basename>`.
+const KB_ATTACHMENT_REF_PATTERN =
+  /kb:([a-z0-9][a-z0-9-]*\/[a-z0-9._-]+)/gi;
+
+export function extractKnowledgeAttachmentPaths(markdown: string): string[] {
+  const paths = new Set<string>();
+  for (const match of markdown.matchAll(KB_ATTACHMENT_REF_PATTERN)) {
+    paths.add(match[1].toLowerCase());
+  }
+  return [...paths];
+}
+
+// Trailing punctuation from surrounding prose (or an author's trailing dot)
+// must not defeat the reference check, so both sides compare without it.
+function normalizeAttachmentRef(path: string): string {
+  return path.toLowerCase().replace(/[._-]+$/, "");
+}
+
+export function knowledgeMarkdownReferencesAttachment(
+  markdown: string,
+  slug: string,
+  name: string
+): boolean {
+  const target = normalizeAttachmentRef(`${slug}/${name}`);
+  return extractKnowledgeAttachmentPaths(markdown).some(
+    (path) => normalizeAttachmentRef(path) === target
+  );
+}
+
+const IMAGE_ATTACHMENT_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".svg",
+];
+
+// uploadBytes records the file's content type, but objects landed by other
+// tooling may lack it — fall back to the extension so images still get the
+// image Markdown form and thumbnails.
+export function isKnowledgeImageAttachment(
+  contentType: string,
+  name: string
+): boolean {
+  if (contentType.toLowerCase().startsWith("image/")) return true;
+  const lower = name.toLowerCase();
+  return IMAGE_ATTACHMENT_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 export interface KnowledgeActorRef {
   uid: string;
   name: string;

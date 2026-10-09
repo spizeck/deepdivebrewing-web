@@ -16,6 +16,8 @@ const entrypoints = {
   "firebase-admin/app": ["initializeApp", "cert", "getApps"],
   "firebase-admin/auth": ["getAuth"],
   "firebase-admin/firestore": ["getFirestore"],
+  // storage (knowledge attachments, #205): lib/firebase-admin-storage.ts.
+  "firebase-admin/storage": ["getStorage"],
   // stripe (payments, #155): the class export is what lib/stripe.ts
   // instantiates — a CJS/ESM packaging break would only surface at runtime.
   stripe: ["default"],

@@ -1,8 +1,10 @@
-import type {
-  KnowledgeApi,
-  KnowledgeVersionListItem,
+import {
+  KnowledgeApiError,
+  type KnowledgeApi,
+  type KnowledgeVersionListItem,
 } from "@/lib/knowledge-client";
 import {
+  knowledgeMarkdownReferencesAttachment,
   searchKnowledgeArticles,
   toKnowledgeSummary,
   type KnowledgeArticleInput,
@@ -156,8 +158,35 @@ export function buildFixtureVersions(
   });
 }
 
+interface FixtureAttachment {
+  slug: string;
+  name: string;
+  size: number;
+  contentType: string;
+  updatedAt: string;
+}
+
 export function createFixtureKnowledgeApi(): KnowledgeApi {
   const articles = buildFixtureArticles();
+  // In-memory stand-ins for objects under knowledge/<slug>/. No Markdown in
+  // the fixtures references them, so `referenced` is false until a test types
+  // a kb: link into the draft — the same check the server performs.
+  const attachments: FixtureAttachment[] = [
+    {
+      slug: "example-sop",
+      name: "1700000000000-keg-washer.jpg",
+      size: 812_345,
+      contentType: "image/jpeg",
+      updatedAt: new Date(now - 86400000).toISOString(),
+    },
+    {
+      slug: "example-sop",
+      name: "1700000001000-cip-checklist.pdf",
+      size: 45_678,
+      contentType: "application/pdf",
+      updatedAt: new Date(now - 43200000).toISOString(),
+    },
+  ];
 
   return {
     listArticles: async () => articles.map(toKnowledgeSummary),
@@ -214,6 +243,43 @@ export function createFixtureKnowledgeApi(): KnowledgeApi {
     },
     uploadAttachment: async () => {
       throw new Error("Uploads are disabled in the fixture.");
+    },
+    listAttachments: async (slug) => {
+      // Corpus-wide like the server: a `kb:` link in any article's body can
+      // point at another article's prefix, so every body counts as a
+      // reference source.
+      const bodies = articles.map((a) => a.bodyMarkdown);
+      return attachments
+        .filter((a) => a.slug === slug)
+        .map((a) => ({
+          name: a.name,
+          size: a.size,
+          contentType: a.contentType,
+          updatedAt: a.updatedAt,
+          referenced: bodies.some((body) =>
+            knowledgeMarkdownReferencesAttachment(body, slug, a.name)
+          ),
+        }));
+    },
+    deleteAttachment: async (slug, name) => {
+      const index = attachments.findIndex(
+        (a) => a.slug === slug && a.name === name
+      );
+      if (index === -1) {
+        throw new KnowledgeApiError("Attachment not found.", 404);
+      }
+      const bodies = articles.map((a) => a.bodyMarkdown);
+      if (
+        bodies.some((body) =>
+          knowledgeMarkdownReferencesAttachment(body, slug, name)
+        )
+      ) {
+        throw new KnowledgeApiError(
+          `"${name}" is still referenced by the article or a saved version.`,
+          409
+        );
+      }
+      attachments.splice(index, 1);
     },
   };
 }

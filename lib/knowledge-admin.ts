@@ -1,9 +1,14 @@
 import "server-only";
 import type { AdminActor } from "@/lib/admin-auth";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
+import { getFirebaseAdminBucket } from "@/lib/firebase-admin-storage";
 import {
+  isKnowledgeAttachmentName,
+  isKnowledgeSlug,
   KNOWLEDGE_COLLECTION,
+  KNOWLEDGE_STORAGE_PREFIX,
   KNOWLEDGE_VERSIONS_SUBCOLLECTION,
+  knowledgeMarkdownReferencesAttachment,
   parseKnowledgeInput,
   searchKnowledgeArticles,
   serializeKnowledgeArticle,
@@ -13,6 +18,7 @@ import {
   type KnowledgeArticleInput,
   type KnowledgeArticleView,
   type KnowledgeArticleSummary,
+  type KnowledgeAttachmentView,
   type KnowledgeSearchHit,
   type KnowledgeVersionView,
   toKnowledgeSummary,
@@ -350,4 +356,147 @@ export async function restoreKnowledgeVersion(
   });
 
   return getKnowledgeArticle(slug);
+}
+
+/**
+ * Attachment objects for one article (#205). Objects live under
+ * `knowledge/<slug>/`; uploads use the client SDK while listing and deletion
+ * go through the Admin SDK so the reference check below can read the article
+ * documents and their version snapshots — `knowledgeArticles` is deny-all
+ * to clients.
+ *
+ * Reference detection scans every body that could still render the file:
+ * every article document in the corpus (a `kb:other-slug/file` reference in
+ * one article legitimately points at another article's prefix) plus every
+ * stored version snapshot across all articles. The scan is corpus-wide
+ * because deleting an object that another article's draft or history still
+ * references would break that article. Anything still referenced is marked
+ * `referenced` and refused by deleteKnowledgeAttachment — removing a
+ * Markdown line is only a detach; deleting the object is always an
+ * explicit, guarded action.
+ *
+ * The bounds cap worst-case reads — same tradeoff as the bounded search
+ * above; the SOP corpus is tens of documents, not thousands. A full page
+ * means the scan was truncated and cannot prove a file is unreferenced, so
+ * `truncated` fails closed: deletion is refused and listings mark every
+ * file as referenced rather than risk orphaning live references.
+ */
+const ATTACHMENT_REF_ARTICLE_SCAN_LIMIT = 500;
+const ATTACHMENT_REF_VERSION_SCAN_LIMIT = 1000;
+
+async function knowledgeAttachmentReferenceTexts(): Promise<{
+  texts: string[];
+  truncated: boolean;
+}> {
+  const texts: string[] = [];
+  const db = getFirebaseAdminDb();
+  const articlesSnap = await db
+    .collection(KNOWLEDGE_COLLECTION)
+    .select("bodyMarkdown")
+    .limit(ATTACHMENT_REF_ARTICLE_SCAN_LIMIT)
+    .get();
+  for (const doc of articlesSnap.docs) {
+    const body = (doc.data() as { bodyMarkdown?: unknown }).bodyMarkdown;
+    if (typeof body === "string") texts.push(body);
+  }
+  const versionsSnap = await db
+    .collectionGroup(KNOWLEDGE_VERSIONS_SUBCOLLECTION)
+    .select("snapshot.bodyMarkdown")
+    .limit(ATTACHMENT_REF_VERSION_SCAN_LIMIT)
+    .get();
+  for (const doc of versionsSnap.docs) {
+    const body = (doc.data() as { snapshot?: { bodyMarkdown?: unknown } })
+      .snapshot?.bodyMarkdown;
+    if (typeof body === "string") texts.push(body);
+  }
+  const truncated =
+    articlesSnap.size >= ATTACHMENT_REF_ARTICLE_SCAN_LIMIT ||
+    versionsSnap.size >= ATTACHMENT_REF_VERSION_SCAN_LIMIT;
+  return { texts, truncated };
+}
+
+// The article document is allowed to be absent: uploads can land under a
+// slug before the first save, and those orphans must stay listable so they
+// can be reattached or deleted.
+export async function listKnowledgeAttachments(
+  slug: string
+): Promise<KnowledgeAttachmentView[]> {
+  if (!isKnowledgeSlug(slug)) {
+    throw new KnowledgeError("Invalid article slug.", 400);
+  }
+  const prefix = `${KNOWLEDGE_STORAGE_PREFIX}/${slug}/`;
+  const [files] = await getFirebaseAdminBucket().getFiles({ prefix });
+  const { texts, truncated } = await knowledgeAttachmentReferenceTexts();
+
+  const attachments: KnowledgeAttachmentView[] = [];
+  for (const file of files) {
+    const name = file.name.slice(prefix.length);
+    // Only direct children of the article prefix are article attachments.
+    if (!name || name.includes("/")) continue;
+    const meta = file.metadata ?? {};
+    const size = Number(meta.size);
+    const updated =
+      typeof meta.timeCreated === "string"
+        ? meta.timeCreated
+        : typeof meta.updated === "string"
+          ? meta.updated
+          : null;
+    attachments.push({
+      name,
+      size: Number.isFinite(size) ? size : 0,
+      contentType:
+        typeof meta.contentType === "string" ? meta.contentType : "",
+      updatedAt: updated,
+      referenced:
+        truncated ||
+        texts.some((text) =>
+          knowledgeMarkdownReferencesAttachment(text, slug, name)
+        ),
+    });
+  }
+  return attachments.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function deleteKnowledgeAttachment(
+  slug: string,
+  name: string
+): Promise<void> {
+  if (!isKnowledgeSlug(slug)) {
+    throw new KnowledgeError("Invalid article slug.", 400);
+  }
+  if (!isKnowledgeAttachmentName(name)) {
+    throw new KnowledgeError("Invalid attachment name.", 400);
+  }
+
+  const { texts, truncated } = await knowledgeAttachmentReferenceTexts();
+  if (truncated) {
+    throw new KnowledgeError(
+      "The reference check hit its scan limit, so deletion is disabled until fewer articles or versions exist.",
+      409
+    );
+  }
+  if (
+    texts.some((text) =>
+      knowledgeMarkdownReferencesAttachment(text, slug, name)
+    )
+  ) {
+    throw new KnowledgeError(
+      `"${name}" is still referenced by the article or a saved version. Remove the reference everywhere before deleting.`,
+      409
+    );
+  }
+
+  // Check-then-delete cannot be atomic — a concurrent save can add a
+  // reference while the object is being removed, leaving a stale `kb:` link
+  // (which renders the "unavailable" fallback rather than crashing). The
+  // window is milliseconds on an internal admin tool; serializing saves and
+  // deletes would need a corpus-wide lock that Firestore/Storage do not
+  // offer.
+
+  const file = getFirebaseAdminBucket().file(
+    `${KNOWLEDGE_STORAGE_PREFIX}/${slug}/${name}`
+  );
+  const [exists] = await file.exists();
+  if (!exists) throw new KnowledgeError("Attachment not found.", 404);
+  await file.delete();
 }

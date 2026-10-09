@@ -21,10 +21,12 @@ import {
   ListChecks,
   ListOrdered,
   MessageSquareQuote,
+  Paperclip,
   Quote,
   Table as TableIcon,
 } from "lucide-react";
 import { AdminAuthGate } from "@/components/admin-auth-gate";
+import { KnowledgeAttachmentsDialog } from "@/components/admin-knowledge-attachments";
 import { Button } from "@/components/ui/button";
 import { cn, pressableClasses } from "@/lib/utils";
 import { KnowledgeArticleBody } from "@/components/knowledge-article-body";
@@ -142,6 +144,7 @@ export function KnowledgeEditor({
   const [mode, setMode] = useState<EditorMode>("write");
   const [busy, setBusy] = useState<"" | "save" | "publish" | "archive">("");
   const [dirty, setDirty] = useState(false);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
 
   const isNew = !slug;
 
@@ -431,6 +434,16 @@ export function KnowledgeEditor({
     }
   }
 
+  // Reinsert a file already stored under knowledge/<slug>/ — images use the
+  // `![alt](kb:…)` form like uploads, everything else the `[label](kb:…)`
+  // link form.
+  function handleInsertAttachment(name: string, isImage: boolean) {
+    const kbRef = `kb:${draft.slug}/${name}`;
+    insertSnippet(isImage ? "![" : "[", `](${kbRef})`, name);
+    setAttachmentsOpen(false);
+    setStatusMessage("Attachment inserted.");
+  }
+
   if (loading) {
     return (
       <p role="status" className="text-sm text-muted-foreground">
@@ -676,6 +689,26 @@ export function KnowledgeEditor({
               >
                 <ImagePlus aria-hidden="true" className="h-4 w-4" />
               </button>
+              <button
+                type="button"
+                title="Attachments"
+                aria-label="Attachments"
+                onClick={() => {
+                  if (!draft.slug) {
+                    setStatusMessage(
+                      "Set a slug before managing attachments."
+                    );
+                    return;
+                  }
+                  setAttachmentsOpen(true);
+                }}
+                className={cn(
+                  "inline-flex h-9 w-9 items-center justify-center rounded-md text-ink/70 hover:bg-stone/40",
+                  pressableClasses
+                )}
+              >
+                <Paperclip aria-hidden="true" className="h-4 w-4" />
+              </button>
             </div>
           )}
           <input
@@ -690,6 +723,15 @@ export function KnowledgeEditor({
             }}
           />
         </div>
+
+        <KnowledgeAttachmentsDialog
+          api={api}
+          slug={draft.slug}
+          draftMarkdown={draft.bodyMarkdown}
+          open={attachmentsOpen}
+          onOpenChange={setAttachmentsOpen}
+          onInsert={handleInsertAttachment}
+        />
 
         {mode === "write" ? (
           <>

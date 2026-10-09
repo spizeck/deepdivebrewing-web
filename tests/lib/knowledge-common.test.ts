@@ -1,8 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
+  extractKnowledgeAttachmentPaths,
+  isKnowledgeAttachmentName,
+  isKnowledgeImageAttachment,
   isKnowledgeSlug,
   knowledgeDocumentTitle,
+  knowledgeMarkdownReferencesAttachment,
   normalizeTags,
   parseKnowledgeInput,
   searchKnowledgeArticles,
@@ -220,6 +224,115 @@ describe("searchKnowledgeArticles", () => {
       "fermenter-cip"
     );
     assert.strictEqual("bodyMarkdown" in toKnowledgeSummary(corpus[0]), false);
+  });
+});
+
+describe("extractKnowledgeAttachmentPaths", () => {
+  it("finds image and link kb: references", () => {
+    const md = [
+      "![diagram](kb:keg-washer/1700-diagram.png)",
+      "[manual](kb:keg-washer/1701-manual.pdf)",
+      "see kb:keg-washer/1700-diagram.png inline",
+      "other article: ![x](kb:other-sop/other.png)",
+    ].join("\n");
+    assert.deepStrictEqual(
+      extractKnowledgeAttachmentPaths(md).sort(),
+      [
+        "keg-washer/1700-diagram.png",
+        "keg-washer/1701-manual.pdf",
+        "other-sop/other.png",
+      ]
+    );
+  });
+
+  it("returns empty for bodies without references", () => {
+    assert.deepStrictEqual(extractKnowledgeAttachmentPaths(""), []);
+    assert.deepStrictEqual(
+      extractKnowledgeAttachmentPaths("![x](https://a/b.png) [y](/z)"),
+      []
+    );
+  });
+});
+
+describe("knowledgeMarkdownReferencesAttachment", () => {
+  const slug = "keg-washer";
+
+  it("matches image and link references for the same slug", () => {
+    assert.ok(
+      knowledgeMarkdownReferencesAttachment(
+        "![d](kb:keg-washer/a.png)",
+        slug,
+        "a.png"
+      )
+    );
+    assert.ok(
+      knowledgeMarkdownReferencesAttachment(
+        "[m](kb:keg-washer/b.pdf)",
+        slug,
+        "b.pdf"
+      )
+    );
+  });
+
+  it("ignores references to other slugs or other files", () => {
+    const md = "![d](kb:keg-washer/a.png) ![o](kb:other/a.png)";
+    assert.strictEqual(
+      knowledgeMarkdownReferencesAttachment(md, slug, "missing.png"),
+      false
+    );
+    assert.strictEqual(
+      knowledgeMarkdownReferencesAttachment(md, "other-article", "a.png"),
+      false
+    );
+    assert.ok(knowledgeMarkdownReferencesAttachment(md, "other", "a.png"));
+  });
+
+  it("still matches when prose punctuation follows the reference", () => {
+    assert.ok(
+      knowledgeMarkdownReferencesAttachment(
+        "See the diagram (kb:keg-washer/a.png).",
+        slug,
+        "a.png"
+      )
+    );
+  });
+});
+
+describe("isKnowledgeAttachmentName", () => {
+  it("accepts storage basenames", () => {
+    assert.ok(isKnowledgeAttachmentName("1700000000000-photo.jpg"));
+    assert.ok(isKnowledgeAttachmentName("manual.pdf"));
+    // Long sanitized upload names plus their timestamp prefix must stay
+    // deletable — the bound is the GCS object-name limit, not 200 chars.
+    assert.ok(isKnowledgeAttachmentName(`1700000000000-${"x".repeat(300)}`));
+  });
+
+  it("rejects anything that could leave the article prefix", () => {
+    for (const bad of [
+      "",
+      "a/b.png",
+      "../secret",
+      "..",
+      ".",
+      ".hidden",
+      "a\\b.png",
+      "has space.png",
+      "x".repeat(1025),
+    ]) {
+      assert.strictEqual(isKnowledgeAttachmentName(bad), false, bad);
+    }
+  });
+});
+
+describe("isKnowledgeImageAttachment", () => {
+  it("uses content type first and falls back to extension", () => {
+    assert.ok(isKnowledgeImageAttachment("image/png", "a.bin"));
+    assert.ok(isKnowledgeImageAttachment("", "diagram.JPG"));
+    assert.strictEqual(
+      isKnowledgeImageAttachment("application/pdf", "manual.pdf"),
+      false
+    );
+    assert.strictEqual(isKnowledgeImageAttachment("", "notes.txt"), false);
   });
 });
 
