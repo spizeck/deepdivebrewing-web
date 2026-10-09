@@ -414,7 +414,12 @@ admin action, not a sweep configuration change.
 - Refund posting (`RefundReceipt` mirroring the original lines) — #180;
   Stripe Dashboard refunds remain invisible to the app. The sweeps
   already enqueue `refunded` payments so the original Sales Receipt
-  exists, but no reversal entity is posted.
+  exists, but no reversal entity is posted. For the card rail Stripe
+  payout reconciliation surfaces the difference; for a **cash** refund
+  there is no external signal at all — the receipt stays in the cash
+  deposit account until someone reverses it by hand in QBO. When staff
+  record a cash refund, reverse the matching Sales Receipt (`PrivateNote`
+  marker `ddb:<paymentId>`) in QuickBooks the same day.
 - Stripe payout posting, Mercury deposit creation, clearing/balance
   reconciliation, and fee accounting — #181 (mixed Ollie+DDB payouts
   make this a distinct design problem)
