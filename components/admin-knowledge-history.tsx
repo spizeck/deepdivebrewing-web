@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, RotateCcw } from "lucide-react";
@@ -13,6 +13,7 @@ import {
   createKnowledgeApi,
   KnowledgeApiError,
   type KnowledgeApi,
+  type KnowledgeApiUser,
   type KnowledgeVersionListItem,
 } from "@/lib/knowledge-client";
 import type { KnowledgeVersionView } from "@/lib/knowledge-common";
@@ -23,11 +24,20 @@ export function AdminKnowledgeHistoryPage({ slug }: { slug: string }) {
       heading="Knowledge Base History"
       description="Sign in with an authorized Google account to view revision history."
     >
-      {(user) => (
-        <KnowledgeHistory api={createKnowledgeApi(user)} slug={slug} />
-      )}
+      {(user) => <KnowledgeHistoryWithApi user={user} slug={slug} />}
     </AdminAuthGate>
   );
+}
+
+function KnowledgeHistoryWithApi({
+  user,
+  slug,
+}: {
+  user: KnowledgeApiUser;
+  slug: string;
+}) {
+  const api = useMemo(() => createKnowledgeApi(user), [user]);
+  return <KnowledgeHistory api={api} slug={slug} />;
 }
 
 export function KnowledgeHistory({

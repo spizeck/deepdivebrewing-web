@@ -167,10 +167,15 @@ export function createKnowledgeApi(user: KnowledgeApiUser): KnowledgeApi {
       return data.article;
     },
     uploadAttachment: async (slug, file) => {
-      const safeName = file.name
+      let safeName = file.name
         .toLowerCase()
         .replace(/[^a-z0-9.]+/g, "-")
         .replace(/^-+|-+$/g, "");
+      // A name made only of non-ASCII characters can sanitize to "" or a
+      // bare extension like ".jpg" — give it a stable stem.
+      if (!safeName || safeName.startsWith(".")) {
+        safeName = `file${safeName}`;
+      }
       const objectPath = `${KNOWLEDGE_STORAGE_PREFIX}/${slug}/${Date.now()}-${safeName}`;
       await uploadBytes(ref(getFirebaseStorage(), objectPath), file);
       return `kb:${slug}/${objectPath.split("/").pop()}`;

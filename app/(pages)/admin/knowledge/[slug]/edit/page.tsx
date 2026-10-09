@@ -18,7 +18,7 @@ export default async function AdminKnowledgeEditRoute({
   const { slug } = await params;
   return (
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
-      <AdminKnowledgeEditorPage slug={decodeURIComponent(slug)} />
+      <AdminKnowledgeEditorPage slug={slug} />
     </main>
   );
 }

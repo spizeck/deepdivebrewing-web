@@ -21,7 +21,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const actor = await requireAdminActor(idToken);
     const { id } = await params;
     const article = await publishKnowledgeArticle(
-      decodeURIComponent(id),
+      id,
       knowledgeActorOf(actor)
     );
     logInfo("knowledge.published", {

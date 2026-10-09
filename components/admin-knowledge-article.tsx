@@ -22,6 +22,7 @@ import { extractKnowledgeToc } from "@/lib/knowledge-markdown";
 import {
   createKnowledgeApi,
   type KnowledgeApi,
+  type KnowledgeApiUser,
 } from "@/lib/knowledge-client";
 import {
   knowledgeCategoryLabel,
@@ -36,11 +37,20 @@ export function AdminKnowledgeArticlePage({ slug }: { slug: string }) {
       heading="Knowledge Base"
       description="Sign in with an authorized Google account to read internal SOPs."
     >
-      {(user) => (
-        <KnowledgeArticleShell api={createKnowledgeApi(user)} slug={slug} />
-      )}
+      {(user) => <KnowledgeArticleWithApi user={user} slug={slug} />}
     </AdminAuthGate>
   );
+}
+
+function KnowledgeArticleWithApi({
+  user,
+  slug,
+}: {
+  user: KnowledgeApiUser;
+  slug: string;
+}) {
+  const api = useMemo(() => createKnowledgeApi(user), [user]);
+  return <KnowledgeArticleShell api={api} slug={slug} />;
 }
 
 export function KnowledgeArticleShell({
@@ -57,7 +67,12 @@ export function KnowledgeArticleShell({
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.getArticle(slug), api.listArticles()])
+    // The navigation list is chrome — a failure there must not hide the
+    // article itself.
+    Promise.all([
+      api.getArticle(slug),
+      api.listArticles().catch(() => [] as KnowledgeArticleSummary[]),
+    ])
       .then(([nextArticle, list]) => {
         if (cancelled) return;
         setArticle(nextArticle);

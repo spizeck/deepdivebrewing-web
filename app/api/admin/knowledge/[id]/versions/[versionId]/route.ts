@@ -18,8 +18,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     await requireAdminActor(idToken);
     const { id, versionId } = await params;
     const version = await getKnowledgeVersion(
-      decodeURIComponent(id),
-      decodeURIComponent(versionId)
+      id,
+      versionId
     );
     return NextResponse.json({ ok: true, version });
   } catch (error) {

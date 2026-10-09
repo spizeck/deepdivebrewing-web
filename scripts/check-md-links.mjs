@@ -22,12 +22,13 @@ const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
 const failures = [];
 
 for (const file of files) {
-  // Ignore fenced code blocks and inline code — link-like examples there are
+  // Ignore fenced code blocks (``` or ~~~ fences of any run length) and
+  // inline code spans (any backtick run) — link-like examples there are
   // syntax illustrations, not navigable links.
   const content = fs
     .readFileSync(file, "utf8")
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`\n]*`/g, "");
+    .replace(/(`{3,}|~{3,})[^\n]*\r?\n[\s\S]*?^\1\s*$/gm, "")
+    .replace(/(`+)[^\n]*?\1/g, "");
   let match;
   while ((match = linkRegex.exec(content)) !== null) {
     const url = match[2];

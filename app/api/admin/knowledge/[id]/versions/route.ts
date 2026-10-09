@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     await requireAdminActor(idToken);
     const { id } = await params;
-    const versions = await listKnowledgeVersions(decodeURIComponent(id));
+    const versions = await listKnowledgeVersions(id);
     // List payload excludes the body snapshot — the detail route serves it.
     const list = versions.map(({ snapshot: _snapshot, ...meta }) => ({
       ...meta,

@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     await requireAdminActor(idToken);
     const { id } = await params;
-    const article = await getKnowledgeArticle(decodeURIComponent(id));
+    const article = await getKnowledgeArticle(id);
     return NextResponse.json({ ok: true, article });
   } catch (error) {
     return apiErrorResponse(error, {
@@ -56,7 +56,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     if (!parsed.ok) return badRequestResponse(parsed.error);
 
     const article = await updateKnowledgeArticle(
-      decodeURIComponent(id),
+      id,
       parsed.input,
       knowledgeActorOf(actor)
     );

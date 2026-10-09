@@ -10,6 +10,7 @@ import { formatAdminDateTime } from "@/lib/admin-format";
 import {
   createKnowledgeApi,
   type KnowledgeApi,
+  type KnowledgeApiUser,
 } from "@/lib/knowledge-client";
 import {
   KNOWLEDGE_CATEGORIES,
@@ -26,9 +27,14 @@ export function AdminKnowledgePage() {
       heading="Knowledge Base"
       description="Sign in with an authorized Google account to read and manage internal SOPs."
     >
-      {(user) => <KnowledgeLanding api={createKnowledgeApi(user)} />}
+      {(user) => <KnowledgeLandingWithApi user={user} />}
     </AdminAuthGate>
   );
+}
+
+function KnowledgeLandingWithApi({ user }: { user: KnowledgeApiUser }) {
+  const api = useMemo(() => createKnowledgeApi(user), [user]);
+  return <KnowledgeLanding api={api} />;
 }
 
 const STATUS_BADGE_CLASSES: Record<string, string> = {

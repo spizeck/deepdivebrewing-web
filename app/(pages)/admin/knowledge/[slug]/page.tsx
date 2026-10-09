@@ -20,7 +20,7 @@ export default async function AdminKnowledgeArticleRoute({
   const { slug } = await params;
   return (
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-300 px-6 pb-20 md:pb-30">
-      <AdminKnowledgeArticlePage slug={decodeURIComponent(slug)} />
+      <AdminKnowledgeArticlePage slug={slug} />
     </main>
   );
 }

@@ -33,6 +33,7 @@ import {
   createKnowledgeApi,
   KnowledgeApiError,
   type KnowledgeApi,
+  type KnowledgeApiUser,
 } from "@/lib/knowledge-client";
 import {
   KNOWLEDGE_CATEGORIES,
@@ -101,11 +102,20 @@ export function AdminKnowledgeEditorPage({ slug }: { slug?: string }) {
       heading="Knowledge Base Editor"
       description="Sign in with an authorized Google account to create and edit SOPs."
     >
-      {(user) => (
-        <KnowledgeEditor api={createKnowledgeApi(user)} slug={slug} />
-      )}
+      {(user) => <KnowledgeEditorWithApi user={user} slug={slug} />}
     </AdminAuthGate>
   );
+}
+
+function KnowledgeEditorWithApi({
+  user,
+  slug,
+}: {
+  user: KnowledgeApiUser;
+  slug?: string;
+}) {
+  const api = useMemo(() => createKnowledgeApi(user), [user]);
+  return <KnowledgeEditor api={api} slug={slug} />;
 }
 
 type EditorMode = "write" | "preview";
