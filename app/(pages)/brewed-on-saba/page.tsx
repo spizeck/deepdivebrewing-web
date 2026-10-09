@@ -105,40 +105,13 @@ export default function BrewedOnSabaPage() {
             We brew approachable, well-balanced beer for our climate and our
             community, made for warm days, long evenings, and shared tables.
           </p>
+          {/* Quick facts: verified figures kept in prose rhythm, not a
+              metrics strip. */}
+          <p className="mt-6 text-sm">
+            63 m² / 678 ft² brewery · Shared container every 2 weeks ·
+            All-electric · First beer sold Jan 2025
+          </p>
         </SectionIntro>
-
-        {/* Pull-stats: every figure is a verified fact from existing site
-            copy, not an infographic. */}
-        <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 border-t border-stone pt-10 sm:grid-cols-4">
-          <div>
-            <dt className="sr-only">Brewery footprint</dt>
-            <dd className="text-3xl font-bold tracking-tight">≈ 63 m²</dd>
-            <dd className="mt-1 text-sm text-muted-foreground">
-              ≈ 678 ft², wall to wall
-            </dd>
-          </div>
-          <div>
-            <dt className="sr-only">Container cadence</dt>
-            <dd className="text-3xl font-bold tracking-tight">Every 2 weeks</dd>
-            <dd className="mt-1 text-sm text-muted-foreground">
-              Between shared-container arrivals
-            </dd>
-          </div>
-          <div>
-            <dt className="sr-only">Brewhouse energy</dt>
-            <dd className="text-3xl font-bold tracking-tight">All-electric</dd>
-            <dd className="mt-1 text-sm text-muted-foreground">
-              Gas is prohibitively expensive on Saba
-            </dd>
-          </div>
-          <div>
-            <dt className="sr-only">First beer sold</dt>
-            <dd className="text-3xl font-bold tracking-tight">Jan 2025</dd>
-            <dd className="mt-1 text-sm text-muted-foreground">
-              Deep Dive beer goes on sale
-            </dd>
-          </div>
-        </dl>
       </Reveal>
 
       {/* 2 · Brewing on a small Caribbean island */}
@@ -187,8 +160,8 @@ export default function BrewedOnSabaPage() {
             them public. */}
         <EditorialSplit
           src="/photos/herobrewhouse.jpg"
-          alt="The Alpha Brewing Operations brewhouse, its stainless vessels connected by hard piping and transfer hoses"
-          caption="The Alpha brewhouse, built in Nebraska and installed at Fort Bay in 2024."
+          alt="A row of stainless fermenters connected by piping and transfer hoses at Fort Bay"
+          caption="Our stainless fermenters at Fort Bay, where each batch spends most of its time before packaging."
           reverse
           className="mt-10"
         >
@@ -273,7 +246,7 @@ export default function BrewedOnSabaPage() {
         <EditorialFigure
           src="/photos/PXL_20261006_121738963.jpg"
           alt="A row of stainless fermenters with hoses overhead in the Fort Bay brewery"
-          caption="The fermenter row, where each batch spends most of its time before packaging."
+          caption="The fermenter row at Fort Bay."
         />
       </Reveal>
 
