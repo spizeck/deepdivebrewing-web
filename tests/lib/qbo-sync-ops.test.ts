@@ -26,6 +26,7 @@ const state = {
     configured: true,
     mapping: {
       stripeClearingAccountId: "acct-stripe-balance",
+      cardPaymentMethodId: "pm-card",
       tourIncomeItemId: "item-tour",
       tastingIncomeItemId: "item-tasting",
       otherIncomeItemId: "item-other",
@@ -153,6 +154,7 @@ function reset(seed: Record<string, Record<string, unknown>> = {}) {
     configured: true,
     mapping: {
       stripeClearingAccountId: "acct-stripe-balance",
+      cardPaymentMethodId: "pm-card",
       tourIncomeItemId: "item-tour",
       tastingIncomeItemId: "item-tasting",
       otherIncomeItemId: "item-other",

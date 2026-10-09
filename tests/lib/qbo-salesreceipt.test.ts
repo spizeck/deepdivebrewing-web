@@ -23,6 +23,7 @@ const BASE_SPEC = {
   clearingAccountId: "42",
   incomeItemId: "7",
   customerId: "88",
+  paymentMethodId: "pm-card",
   paymentIntentId: "pi_3abc",
   chargeId: "ch_3abc",
 } as const;
@@ -99,6 +100,9 @@ describe("buildQboSalesReceiptPayload", () => {
     assert.deepStrictEqual(payload.CustomerRef, { value: "88" });
     assert.deepStrictEqual(payload.DepositToAccountRef, { value: "42" });
     assert.deepStrictEqual(payload.CurrencyRef, { value: "USD" });
+    // The rail is explicit on the receipt — the mapped QBO PaymentMethod,
+    // never left blank or inferred from the deposit account.
+    assert.deepStrictEqual(payload.PaymentMethodRef, { value: "pm-card" });
     const detail = (
       payload.Line as Record<string, unknown>[]
     )[0].SalesItemLineDetail as Record<string, unknown>;

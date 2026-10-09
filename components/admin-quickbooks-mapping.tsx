@@ -24,6 +24,10 @@ const FIELD_DESCRIPTIONS: Record<keyof QboAccountingMapping, string> = {
     "Account that collects sales receipts until Stripe payouts reconcile — e.g. “Stripe Balance”. Not the bank account.",
   cashDepositAccountId:
     "Account that collects cash sales receipts — e.g. “Cash on hand”. Required before cash payments can post to QuickBooks.",
+  cardPaymentMethodId:
+    "Payment method recorded on card sales receipts — e.g. “Credit Card” or “Stripe”, whichever the company carries.",
+  cashPaymentMethodId:
+    "Payment method recorded on cash sales receipts — usually the company's built-in “Cash”. Required before cash payments can post.",
   tourIncomeItemId:
     "Service item for tour sales: brewery tours, additional guests, and private tours.",
   tastingIncomeItemId: "Service item for tour-and-tasting sales.",
