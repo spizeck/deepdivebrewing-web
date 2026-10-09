@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ChevronRight,
@@ -26,6 +26,7 @@ import {
 } from "@/lib/knowledge-client";
 import {
   knowledgeCategoryLabel,
+  knowledgeDocumentTitle,
   knowledgeDocumentTypeLabel,
   type KnowledgeArticleSummary,
   type KnowledgeArticleView,
@@ -89,6 +90,38 @@ export function KnowledgeArticleShell({
       cancelled = true;
     };
   }, [api, slug]);
+
+  // Name the document after the article so Print → Save as PDF produces a
+  // meaningful filename. Runs client-side only, after the gated fetch —
+  // article titles never appear in server-rendered metadata for
+  // unauthenticated requests. React owns the server-rendered <title>
+  // element and synchronously resets its text on later commits/hydration
+  // passes, so a MutationObserver re-asserts the article title whenever
+  // that happens.
+  const previousTitleRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!article) return;
+    const desired = knowledgeDocumentTitle(article.title);
+    if (previousTitleRef.current === null) {
+      previousTitleRef.current = document.title;
+    }
+    const apply = () => {
+      if (document.title !== desired) document.title = desired;
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(document.head, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => {
+      observer.disconnect();
+      if (previousTitleRef.current !== null) {
+        document.title = previousTitleRef.current;
+      }
+    };
+  }, [article]);
 
   const toc = useMemo(
     () => (article ? extractKnowledgeToc(article.bodyMarkdown) : []),

@@ -102,6 +102,37 @@ test("published article renders callouts, TOC, nav, breadcrumbs, print action", 
   ).toBeVisible();
 });
 
+test("article document title names the PDF export after the article", async ({
+  page,
+  browser,
+}) => {
+  // Browsers use document.title as the default Print → Save as PDF filename.
+  await page.goto(`${FIXTURE}?view=article`);
+  await expect(page).toHaveTitle(
+    "Example SOP: Formatting Reference | Knowledge Base | Deep Dive Brewing Co"
+  );
+
+  // Drafts get the same treatment.
+  await page.goto(`${FIXTURE}?view=draft`);
+  await expect(page).toHaveTitle(
+    "Example Draft Reference | Knowledge Base | Deep Dive Brewing Co"
+  );
+
+  // A missing article keeps the generic page title. A raw page is used
+  // because the missing-article path intentionally logs a console error,
+  // which the shared fixture treats as a failure.
+  const raw = await browser.newPage();
+  try {
+    await raw.goto(`${FIXTURE}?view=missing`);
+    await expect(raw.getByText("Article not found")).toBeVisible();
+    await expect(raw).toHaveTitle(
+      "Admin knowledge fixture | Deep Dive Brewing Co"
+    );
+  } finally {
+    await raw.close();
+  }
+});
+
 test("mobile viewport uses collapsible nav and TOC disclosures", async ({
   page,
 }) => {

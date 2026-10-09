@@ -4,7 +4,8 @@ import { AdminKnowledgeFixture } from "@/components/admin-knowledge-fixture";
 
 // Test-only Knowledge Base fixture — same pattern as /admin-trade-fixture.
 // KNOWLEDGE_FIXTURE is set only by the Playwright webServer config; normal
-// deployments 404. ?view=article|edit|new|history selects the surface.
+// deployments 404. ?view=landing|article|draft|missing|edit|new|history
+// selects the surface.
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {

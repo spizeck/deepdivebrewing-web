@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
   isKnowledgeSlug,
+  knowledgeDocumentTitle,
   normalizeTags,
   parseKnowledgeInput,
   searchKnowledgeArticles,
@@ -219,5 +220,36 @@ describe("searchKnowledgeArticles", () => {
       "fermenter-cip"
     );
     assert.strictEqual("bodyMarkdown" in toKnowledgeSummary(corpus[0]), false);
+  });
+});
+
+describe("knowledgeDocumentTitle", () => {
+  it("names the tab/PDF after the article (published and draft alike)", () => {
+    assert.strictEqual(
+      knowledgeDocumentTitle("Fermenter CIP"),
+      "Fermenter CIP | Knowledge Base | Deep Dive Brewing Co"
+    );
+    assert.strictEqual(
+      knowledgeDocumentTitle(article({ status: "draft" }).title),
+      "Fermenter CIP | Knowledge Base | Deep Dive Brewing Co"
+    );
+  });
+
+  it("trims surrounding whitespace", () => {
+    assert.strictEqual(
+      knowledgeDocumentTitle("  Fermenter CIP  "),
+      "Fermenter CIP | Knowledge Base | Deep Dive Brewing Co"
+    );
+  });
+
+  it("falls back to a generic title when the title is missing", () => {
+    assert.strictEqual(
+      knowledgeDocumentTitle("   "),
+      "Article — Knowledge Base | Deep Dive Brewing Co"
+    );
+    assert.strictEqual(
+      knowledgeDocumentTitle(""),
+      "Article — Knowledge Base | Deep Dive Brewing Co"
+    );
   });
 });

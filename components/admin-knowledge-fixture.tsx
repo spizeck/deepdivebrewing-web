@@ -17,6 +17,12 @@ export function AdminKnowledgeFixture({ view }: { view: string }) {
   switch (view) {
     case "article":
       return <KnowledgeArticleShell api={api} slug="example-sop" />;
+    case "draft":
+      return (
+        <KnowledgeArticleShell api={api} slug="example-draft-reference" />
+      );
+    case "missing":
+      return <KnowledgeArticleShell api={api} slug="no-such-article" />;
     case "edit":
       return <KnowledgeEditor api={api} slug="example-sop" />;
     case "new":

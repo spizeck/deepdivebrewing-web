@@ -457,3 +457,16 @@ export function searchKnowledgeArticles(
 
   return hits.sort((a, b) => b.score - a.score).slice(0, 50);
 }
+
+/**
+ * Browser tab/print document title for an article page. Browsers use
+ * document.title as the default filename for Print → Save as PDF, so this
+ * names exports after the SOP instead of the generic page metadata.
+ */
+export function knowledgeDocumentTitle(title: string): string {
+  const trimmed = title.trim();
+  if (!trimmed) {
+    return "Article — Knowledge Base | Deep Dive Brewing Co";
+  }
+  return `${trimmed} | Knowledge Base | Deep Dive Brewing Co`;
+}

@@ -85,6 +85,7 @@ test("private and placeholder routes are marked noindex", async ({ page }) => {
     "/admin",
     "/admin/trade",
     "/admin/knowledge",
+    "/admin/knowledge/example-sop",
     "/admin-fixture",
     "/admin-knowledge-fixture",
     "/admin-trade-fixture",
