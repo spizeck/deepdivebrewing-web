@@ -463,7 +463,7 @@ it is never sent to the browser.
 | Sync record stuck in `failed` | Retryable provider/Stripe outage still ongoing, or `nextAttemptAt` not yet due | Check `lastErrorCode`/`lastErrorMessage` in the sync panel; the next sweep retries automatically |
 | Sync record in `needs_attention` | Mapping/purpose/canonical mismatch, or `retry_exhausted` | Fix the cause (mapping, record, reconnect), then **Retry** in the sync panel |
 | Cash payment stuck at `needs_attention` with `missing_cashDepositAccountId` | No cash deposit account is mapped — posting fails closed rather than guessing | Set **Cash deposit account** in the accounting-mapping panel, then **Retry** the record |
-| Record at `needs_attention` with `missing_cardPaymentMethodId` | A stored mapping predates the payment-method fields | Pick **Card payment method** in the accounting-mapping panel, save, then **Retry** the record |
+| Card posting blocked with `mapping_incomplete` (or `missing_cardPaymentMethodId`) | The stored mapping predates the payment-method fields — the card method is unset | Pick **Card payment method** in the accounting-mapping panel, save, then **Retry** the record |
 | Cash record at `needs_attention` with `missing_cashPaymentMethodId` | No cash payment method is mapped | Set **Cash payment method** in the accounting-mapping panel, then **Retry** the record |
 | Sync panel shows paused / records not draining | Connection `reauthorization_required` or `disconnected` | Reconnect QuickBooks; the backlog resumes on the next sweep (or "Run sync sweep") |
 | Cron runs but nothing posts | `CRON_SECRET` unset in the deployment (route fails closed) | Vercel env scope; check for `401` on the cron invocation and `qbo.sweep.*` log lines |
