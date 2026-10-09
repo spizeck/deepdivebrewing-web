@@ -302,6 +302,9 @@ describe("isKnowledgeAttachmentName", () => {
   it("accepts storage basenames", () => {
     assert.ok(isKnowledgeAttachmentName("1700000000000-photo.jpg"));
     assert.ok(isKnowledgeAttachmentName("manual.pdf"));
+    // Long sanitized upload names plus their timestamp prefix must stay
+    // deletable — the bound is the GCS object-name limit, not 200 chars.
+    assert.ok(isKnowledgeAttachmentName(`1700000000000-${"x".repeat(300)}`));
   });
 
   it("rejects anything that could leave the article prefix", () => {
@@ -314,7 +317,7 @@ describe("isKnowledgeAttachmentName", () => {
       ".hidden",
       "a\\b.png",
       "has space.png",
-      "x".repeat(201),
+      "x".repeat(1025),
     ]) {
       assert.strictEqual(isKnowledgeAttachmentName(bad), false, bad);
     }

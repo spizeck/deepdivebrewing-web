@@ -98,8 +98,10 @@ export interface KnowledgeAttachmentView {
 // Attachment basenames are produced by the upload sanitizer plus a
 // timestamp prefix. Validation only needs to guarantee a single flat object
 // name — no "/" means no cross-article path traversal, and the leading
-// alphanumeric rules out dot segments like "..".
-const ATTACHMENT_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/;
+// alphanumeric rules out dot segments like "..". The length bound tracks
+// the GCS object-name limit (1024 bytes) rather than filename conventions —
+// uploaded names can legitimately run long.
+const ATTACHMENT_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,1023}$/;
 
 export function isKnowledgeAttachmentName(value: string): boolean {
   return ATTACHMENT_NAME_PATTERN.test(value);

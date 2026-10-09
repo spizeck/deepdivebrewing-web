@@ -245,9 +245,10 @@ export function createFixtureKnowledgeApi(): KnowledgeApi {
       throw new Error("Uploads are disabled in the fixture.");
     },
     listAttachments: async (slug) => {
-      const bodies = articles
-        .filter((a) => a.slug === slug)
-        .map((a) => a.bodyMarkdown);
+      // Corpus-wide like the server: a `kb:` link in any article's body can
+      // point at another article's prefix, so every body counts as a
+      // reference source.
+      const bodies = articles.map((a) => a.bodyMarkdown);
       return attachments
         .filter((a) => a.slug === slug)
         .map((a) => ({
@@ -267,9 +268,7 @@ export function createFixtureKnowledgeApi(): KnowledgeApi {
       if (index === -1) {
         throw new KnowledgeApiError("Attachment not found.", 404);
       }
-      const bodies = articles
-        .filter((a) => a.slug === slug)
-        .map((a) => a.bodyMarkdown);
+      const bodies = articles.map((a) => a.bodyMarkdown);
       if (
         bodies.some((body) =>
           knowledgeMarkdownReferencesAttachment(body, slug, name)

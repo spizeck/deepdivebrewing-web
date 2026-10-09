@@ -85,9 +85,11 @@ files (PDFs) as `[name](kb:…)` links.
 Deleting the Markdown line only detaches a file from the draft — the object
 stays in Storage. To remove it permanently, use **Delete** in the
 Attachments panel and confirm. Deletion is blocked while the file is still
-referenced by the draft, the stored article, or any saved version in
-History, so published snapshots never lose their images. Unreferenced files
-are kept — they remain available to reinsert or delete later.
+referenced by the draft, any article's stored body, or any saved version in
+History — a `kb:` link in one article can point at another article's
+files, so the check is corpus-wide and published snapshots never lose their
+images. Unreferenced files are kept — they remain available to reinsert or
+delete later.
 
 ## Publishing and versions
 

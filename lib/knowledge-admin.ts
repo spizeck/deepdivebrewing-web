@@ -362,27 +362,41 @@ export async function restoreKnowledgeVersion(
  * Attachment objects for one article (#205). Objects live under
  * `knowledge/<slug>/`; uploads use the client SDK while listing and deletion
  * go through the Admin SDK so the reference check below can read the article
- * and its version snapshots — `knowledgeArticles` is deny-all to clients.
+ * documents and their version snapshots — `knowledgeArticles` is deny-all
+ * to clients.
  *
  * Reference detection scans every body that could still render the file:
- * the stored article document (whatever state it is in) plus every stored
- * version snapshot. Anything still referenced is marked `referenced` and
- * refused by deleteKnowledgeAttachment — removing a Markdown line is only a
- * detach; deleting the object is always an explicit, guarded action.
+ * every article document in the corpus (a `kb:other-slug/file` reference in
+ * one article legitimately points at another article's prefix) plus every
+ * stored version snapshot across all articles. The scan is corpus-wide
+ * because deleting an object that another article's draft or history still
+ * references would break that article. Anything still referenced is marked
+ * `referenced` and refused by deleteKnowledgeAttachment — removing a
+ * Markdown line is only a detach; deleting the object is always an
+ * explicit, guarded action.
+ *
+ * The bounds cap worst-case reads — same tradeoff as the bounded search
+ * above; the SOP corpus is tens of documents, not thousands.
  */
-async function knowledgeAttachmentReferenceTexts(
-  slug: string
-): Promise<string[]> {
+const ATTACHMENT_REF_ARTICLE_SCAN_LIMIT = 500;
+const ATTACHMENT_REF_VERSION_SCAN_LIMIT = 1000;
+
+async function knowledgeAttachmentReferenceTexts(): Promise<string[]> {
   const texts: string[] = [];
-  const ref = collection().doc(slug);
-  const articleSnap = await ref.get();
-  if (articleSnap.exists) {
-    const body = (articleSnap.data() as KnowledgeArticleDoc).bodyMarkdown;
+  const db = getFirebaseAdminDb();
+  const articlesSnap = await db
+    .collection(KNOWLEDGE_COLLECTION)
+    .select("bodyMarkdown")
+    .limit(ATTACHMENT_REF_ARTICLE_SCAN_LIMIT)
+    .get();
+  for (const doc of articlesSnap.docs) {
+    const body = (doc.data() as { bodyMarkdown?: unknown }).bodyMarkdown;
     if (typeof body === "string") texts.push(body);
   }
-  const versionsSnap = await ref
-    .collection(KNOWLEDGE_VERSIONS_SUBCOLLECTION)
+  const versionsSnap = await db
+    .collectionGroup(KNOWLEDGE_VERSIONS_SUBCOLLECTION)
     .select("snapshot.bodyMarkdown")
+    .limit(ATTACHMENT_REF_VERSION_SCAN_LIMIT)
     .get();
   for (const doc of versionsSnap.docs) {
     const body = (doc.data() as { snapshot?: { bodyMarkdown?: unknown } })
@@ -403,7 +417,7 @@ export async function listKnowledgeAttachments(
   }
   const prefix = `${KNOWLEDGE_STORAGE_PREFIX}/${slug}/`;
   const [files] = await getFirebaseAdminBucket().getFiles({ prefix });
-  const texts = await knowledgeAttachmentReferenceTexts(slug);
+  const texts = await knowledgeAttachmentReferenceTexts();
 
   const attachments: KnowledgeAttachmentView[] = [];
   for (const file of files) {
@@ -443,7 +457,7 @@ export async function deleteKnowledgeAttachment(
     throw new KnowledgeError("Invalid attachment name.", 400);
   }
 
-  const texts = await knowledgeAttachmentReferenceTexts(slug);
+  const texts = await knowledgeAttachmentReferenceTexts();
   if (
     texts.some((text) =>
       knowledgeMarkdownReferencesAttachment(text, slug, name)
@@ -454,6 +468,13 @@ export async function deleteKnowledgeAttachment(
       409
     );
   }
+
+  // Check-then-delete cannot be atomic — a concurrent save can add a
+  // reference while the object is being removed, leaving a stale `kb:` link
+  // (which renders the "unavailable" fallback rather than crashing). The
+  // window is milliseconds on an internal admin tool; serializing saves and
+  // deletes would need a corpus-wide lock that Firestore/Storage do not
+  // offer.
 
   const file = getFirebaseAdminBucket().file(
     `${KNOWLEDGE_STORAGE_PREFIX}/${slug}/${name}`
