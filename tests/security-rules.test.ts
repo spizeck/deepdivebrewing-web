@@ -164,6 +164,27 @@ describe("firestore.rules", () => {
       "Expected stripeEvents to deny all client access"
     );
   });
+
+  it("keeps knowledgeArticles and its versions fully server-side (Issue #201)", () => {
+    const start = rules.indexOf("match /knowledgeArticles/{articleId}");
+    const end = rules.indexOf("match /adminAuditLogs/{logId}", start);
+    assert.ok(start > -1, "Expected the knowledgeArticles deny-all match");
+    assert.ok(end > start, "Expected adminAuditLogs match after knowledgeArticles");
+    const section = rules.slice(start, end);
+    assert.ok(
+      section.includes("allow read, write: if false"),
+      "Expected knowledgeArticles to deny all client access"
+    );
+    const versionsStart = section.indexOf("match /versions/{versionId}");
+    assert.ok(
+      versionsStart > -1,
+      "Expected the nested versions deny-all match"
+    );
+    assert.ok(
+      section.slice(versionsStart).includes("allow read, write: if false"),
+      "Expected the versions subcollection to deny all client access"
+    );
+  });
 });
 
 describe("storage.rules", () => {
@@ -217,5 +238,32 @@ describe("storage.rules", () => {
         `storage.rules still contains legacy email: ${email}`
       );
     }
+  });
+
+  it("restricts knowledge/ objects to active admins (Issue #201)", () => {
+    const knowledgeStart = rules.indexOf("match /knowledge/{allPaths=**}");
+    assert.ok(knowledgeStart > -1, "Expected the knowledge/ match block");
+    const section = rules.slice(knowledgeStart, knowledgeStart + 250);
+    assert.ok(
+      section.includes("allow read, write: if hasActiveAdmin()"),
+      "Expected knowledge/ reads and writes gated by hasActiveAdmin()"
+    );
+    // The public-read rule must carve out the knowledge/ prefix — a blanket
+    // catch-all read would re-expose internal attachments to everyone.
+    const catchAllStart = rules.indexOf("match /{firstSegment}/{allPaths=**}");
+    assert.ok(catchAllStart > -1, "Expected the segmented catch-all block");
+    const nextMatch = rules.indexOf("match /", catchAllStart + 10);
+    const catchAll = rules.slice(
+      catchAllStart,
+      nextMatch > -1 ? nextMatch : undefined
+    );
+    assert.ok(
+      catchAll.includes("allow read: if firstSegment != 'knowledge'"),
+      "Expected the public-read rule to exclude the knowledge/ prefix"
+    );
+    assert.ok(
+      !catchAll.includes("allow read: if true"),
+      "Expected no unconditional public-read on the multi-segment catch-all"
+    );
   });
 });

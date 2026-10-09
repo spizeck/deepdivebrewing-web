@@ -149,3 +149,52 @@ describe("storage reads", () => {
     await assertSucceeds(getBytes(ref(anonStorage, "beers/existing/card.jpg")));
   });
 });
+
+// Knowledge Base attachments (#201) are internal — knowledge/ is carved out
+// of the public-read catch-all and restricted to active admins.
+describe("knowledge attachment access", () => {
+  it("denies unauthenticated reads of knowledge objects", async () => {
+    await seedObject("knowledge/example-sop/diagram.png");
+    const anonStorage = testEnv.unauthenticatedContext().storage();
+    await assertFails(
+      getBytes(ref(anonStorage, "knowledge/example-sop/diagram.png"))
+    );
+  });
+
+  it("denies reads by authenticated non-admins", async () => {
+    await seedObject("knowledge/example-sop/diagram.png");
+    const userStorage = testEnv.authenticatedContext("plain-user").storage();
+    await assertFails(
+      getBytes(ref(userStorage, "knowledge/example-sop/diagram.png"))
+    );
+  });
+
+  it("denies reads with a stale claim and no adminUsers record", async () => {
+    await seedObject("knowledge/example-sop/diagram.png");
+    const storage = adminContext("ghost", "admin").storage();
+    await assertFails(
+      getBytes(ref(storage, "knowledge/example-sop/diagram.png"))
+    );
+  });
+
+  it("allows active admins to read and write knowledge objects", async () => {
+    await seedAdminRecord("admin1", "admin", "active");
+    const storage = adminContext("admin1", "admin").storage();
+    await assertSucceeds(
+      uploadBytes(ref(storage, "knowledge/example-sop/diagram.png"), imageBytes)
+    );
+    await assertSucceeds(
+      getBytes(ref(storage, "knowledge/example-sop/diagram.png"))
+    );
+  });
+
+  it("denies non-admin writes to knowledge objects", async () => {
+    const userStorage = testEnv.authenticatedContext("plain-user").storage();
+    await assertFails(
+      uploadBytes(
+        ref(userStorage, "knowledge/example-sop/diagram.png"),
+        imageBytes
+      )
+    );
+  });
+});

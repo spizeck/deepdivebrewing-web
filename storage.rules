@@ -29,7 +29,24 @@ service firebase.storage {
       return hasAdminClaim() && adminRecordAllows();
     }
 
-    match /{allPaths=**} {
+    // Knowledge Base attachments (#201) are internal — admins read and write
+    // them through the client SDK, and this match must win for the prefix
+    // because the general rules below keep public read for everything else.
+    match /knowledge/{allPaths=**} {
+      allow read, write: if hasActiveAdmin();
+    }
+
+    // Objects two or more segments deep keep the historical public read for
+    // every prefix except knowledge/ (admins read that via the rule above).
+    // The segment test is evaluated first so public reads never pay for the
+    // cross-service adminUsers lookup inside hasActiveAdmin().
+    match /{firstSegment}/{allPaths=**} {
+      allow read: if firstSegment != 'knowledge';
+      allow write: if hasActiveAdmin();
+    }
+
+    // Single-segment objects at the bucket root keep public read.
+    match /{rootFile} {
       allow read: if true;
       allow write: if hasActiveAdmin();
     }

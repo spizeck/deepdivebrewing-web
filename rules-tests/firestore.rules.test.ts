@@ -537,3 +537,43 @@ describe("QuickBooks collections deny all client access (issue #161)", () => {
     }
   });
 });
+
+describe("knowledgeArticles deny all client access (issue #201)", () => {
+  it("denies unauthenticated and non-admin reads and writes", async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore();
+    const userDb = testEnv.authenticatedContext("visitor1").firestore();
+    for (const db of [anonDb, userDb]) {
+      await assertFails(getDoc(doc(db, "knowledgeArticles", "some-sop")));
+      await assertFails(getDocs(collection(db, "knowledgeArticles")));
+      await assertFails(
+        setDoc(doc(db, "knowledgeArticles", "some-sop"), { title: "x" })
+      );
+      await assertFails(
+        getDoc(
+          doc(db, "knowledgeArticles", "some-sop", "versions", "v001")
+        )
+      );
+      await assertFails(
+        setDoc(doc(db, "knowledgeArticles", "some-sop", "versions", "v002"), {
+          version: 2,
+        })
+      );
+    }
+  });
+
+  it("denies even active admins — content flows through the Admin SDK", async () => {
+    await seedAdminRecord("admin1", "admin", "active");
+    const db = adminContext("admin1", "admin").firestore();
+    await assertFails(getDoc(doc(db, "knowledgeArticles", "some-sop")));
+    await assertFails(
+      setDoc(doc(db, "knowledgeArticles", "some-sop"), { title: "x" })
+    );
+    await assertFails(
+      updateDoc(doc(db, "knowledgeArticles", "some-sop"), { title: "y" })
+    );
+    await assertFails(deleteDoc(doc(db, "knowledgeArticles", "some-sop")));
+    await assertFails(
+      getDoc(doc(db, "knowledgeArticles", "some-sop", "versions", "v001"))
+    );
+  });
+});
