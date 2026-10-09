@@ -376,12 +376,18 @@ export async function restoreKnowledgeVersion(
  * explicit, guarded action.
  *
  * The bounds cap worst-case reads — same tradeoff as the bounded search
- * above; the SOP corpus is tens of documents, not thousands.
+ * above; the SOP corpus is tens of documents, not thousands. A full page
+ * means the scan was truncated and cannot prove a file is unreferenced, so
+ * `truncated` fails closed: deletion is refused and listings mark every
+ * file as referenced rather than risk orphaning live references.
  */
 const ATTACHMENT_REF_ARTICLE_SCAN_LIMIT = 500;
 const ATTACHMENT_REF_VERSION_SCAN_LIMIT = 1000;
 
-async function knowledgeAttachmentReferenceTexts(): Promise<string[]> {
+async function knowledgeAttachmentReferenceTexts(): Promise<{
+  texts: string[];
+  truncated: boolean;
+}> {
   const texts: string[] = [];
   const db = getFirebaseAdminDb();
   const articlesSnap = await db
@@ -403,7 +409,10 @@ async function knowledgeAttachmentReferenceTexts(): Promise<string[]> {
       .snapshot?.bodyMarkdown;
     if (typeof body === "string") texts.push(body);
   }
-  return texts;
+  const truncated =
+    articlesSnap.size >= ATTACHMENT_REF_ARTICLE_SCAN_LIMIT ||
+    versionsSnap.size >= ATTACHMENT_REF_VERSION_SCAN_LIMIT;
+  return { texts, truncated };
 }
 
 // The article document is allowed to be absent: uploads can land under a
@@ -417,7 +426,7 @@ export async function listKnowledgeAttachments(
   }
   const prefix = `${KNOWLEDGE_STORAGE_PREFIX}/${slug}/`;
   const [files] = await getFirebaseAdminBucket().getFiles({ prefix });
-  const texts = await knowledgeAttachmentReferenceTexts();
+  const { texts, truncated } = await knowledgeAttachmentReferenceTexts();
 
   const attachments: KnowledgeAttachmentView[] = [];
   for (const file of files) {
@@ -438,9 +447,11 @@ export async function listKnowledgeAttachments(
       contentType:
         typeof meta.contentType === "string" ? meta.contentType : "",
       updatedAt: updated,
-      referenced: texts.some((text) =>
-        knowledgeMarkdownReferencesAttachment(text, slug, name)
-      ),
+      referenced:
+        truncated ||
+        texts.some((text) =>
+          knowledgeMarkdownReferencesAttachment(text, slug, name)
+        ),
     });
   }
   return attachments.sort((a, b) => a.name.localeCompare(b.name));
@@ -457,7 +468,13 @@ export async function deleteKnowledgeAttachment(
     throw new KnowledgeError("Invalid attachment name.", 400);
   }
 
-  const texts = await knowledgeAttachmentReferenceTexts();
+  const { texts, truncated } = await knowledgeAttachmentReferenceTexts();
+  if (truncated) {
+    throw new KnowledgeError(
+      "The reference check hit its scan limit, so deletion is disabled until fewer articles or versions exist.",
+      409
+    );
+  }
   if (
     texts.some((text) =>
       knowledgeMarkdownReferencesAttachment(text, slug, name)

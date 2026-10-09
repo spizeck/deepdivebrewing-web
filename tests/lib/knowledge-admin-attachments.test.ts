@@ -22,6 +22,7 @@ mock.module("@/lib/firebase-admin-db", {
               docs: articleBodies.map((bodyMarkdown) => ({
                 data: () => ({ bodyMarkdown }),
               })),
+              size: articleBodies.length,
             }),
           }),
         }),
@@ -33,6 +34,7 @@ mock.module("@/lib/firebase-admin-db", {
               docs: versionBodies.map((bodyMarkdown) => ({
                 data: () => ({ snapshot: { bodyMarkdown } }),
               })),
+              size: versionBodies.length,
             }),
           }),
         }),
@@ -184,6 +186,21 @@ describe("deleteKnowledgeAttachment", () => {
     );
     assert.strictEqual(status, 409);
     assert.deepStrictEqual(deletedPaths, []);
+  });
+
+  it("fails closed when the corpus scan is truncated", async () => {
+    const { deleteKnowledgeAttachment, listKnowledgeAttachments } =
+      await import("@/lib/knowledge-admin");
+    // A full page means the scan cannot prove the file is unreferenced.
+    articleBodies = Array.from({ length: 500 }, () => "no refs here");
+    objects = [{ name: "knowledge/keg-washer/a.png" }];
+    const status = await statusOf(() =>
+      deleteKnowledgeAttachment("keg-washer", "a.png")
+    );
+    assert.strictEqual(status, 409);
+    assert.deepStrictEqual(deletedPaths, []);
+    const list = await listKnowledgeAttachments("keg-washer");
+    assert.strictEqual(list[0].referenced, true);
   });
 
   it("rejects invalid slugs and names before any storage call", async () => {
