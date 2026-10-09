@@ -1,0 +1,20 @@
+[
+  {
+    "origin": [
+      "https://deepdivebrewing.com",
+      "https://www.deepdivebrewing.com",
+      "http://localhost:3000"
+    ],
+    "method": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT"
+    ],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
