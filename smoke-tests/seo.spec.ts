@@ -11,6 +11,7 @@ const INDEXABLE_ROUTES = [
   "/",
   "/beers",
   "/about",
+  "/brewed-on-saba",
   "/contact",
   "/where-to-buy",
   "/trade",
@@ -175,6 +176,7 @@ test("structured data blocks parse and use accurate types", async ({
   );
   expect(await jsonLdTypes("/contact")).toContain("Brewery");
   expect(await jsonLdTypes("/trade")).toContain("Brewery");
+  expect(await jsonLdTypes("/brewed-on-saba")).toContain("Brewery");
 
   // Beer detail pages render only when Firestore data is available; when one
   // exists, it must emit BreadcrumbList and never a Product candidate.
@@ -191,7 +193,8 @@ test("every Brewery-schema page emits the identical canonical entity", async ({
   page,
 }) => {
   // Issue #107: one Brewery entity (`@id: <site>/#brewery`) is shared by all
-  // four pages via buildBreweryJsonLd — field sets must never diverge again.
+  // Brewery-schema pages via buildBreweryJsonLd — field sets must never
+  // diverge again.
   const breweryFor = async (route: string) => {
     await page.goto(route);
     const blocks = await page
@@ -204,7 +207,7 @@ test("every Brewery-schema page emits the identical canonical entity", async ({
     return brewery!;
   };
 
-  const routes = ["/", "/contact", "/trade", "/where-to-buy"];
+  const routes = ["/", "/contact", "/trade", "/where-to-buy", "/brewed-on-saba"];
   const entities: Record<string, unknown>[] = [];
   for (const route of routes) {
     entities.push(await breweryFor(route));
