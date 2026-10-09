@@ -324,24 +324,37 @@ in code are listed.
 
 ### `payments`
 
-- **Purpose:** internal record for one-off card charges taken in the admin
+- **Purpose:** internal record for one-off charges taken in the admin
   payments workspace (`/admin/payments`, issue #155) — brewery tours and
-  other charges that do not fit the B2B beer-sales workflow. Stripe is the
-  payment processor; this collection is the operational record.
+  other charges that do not fit the B2B beer-sales workflow. A payment is
+  the business transaction first: `paymentMethod` (`"card" | "cash"`,
+  issue #206) selects the payment rail — `card` settles through Stripe
+  Checkout, `cash` is recorded directly by staff. Stripe is the processor
+  for the card rail only; this collection is the operational record for
+  both.
 - **Key fields (`PaymentRecord` in `lib/payments-common.ts`):** the document
   id is the client-generated `clientRequestId` (UUID) — it is also the
-  Stripe idempotency key, so a retried create can never double-charge.
+  Stripe idempotency key for the card rail, and the replay guard for both
+  rails: a retried create replays the stored record instead of
+  double-charging or double-recording, while a resubmission with drifted
+  details conflicts.
+  `paymentMethod` selects the rail (records written before the field
+  existed carry none and normalize to `"card"`).
   `purpose` (`brewery_tour | brewery_tour_tasting | additional_guests |
   private_tour | other`), `description`, `amountMinor` (integer USD cents —
   never a float), `currency` (`"usd"` — fixed), `customerName`,
   optional `customerEmail`/`tourDate` (`YYYY-MM-DD` calendar string)/
   `attendeeCount`/`internalNote`, `status` (`created | awaiting_payment |
-  processing | paid | refunding | refunded | failed | expired | canceled`),
+  processing | paid | refunding | refunded | failed | expired | canceled` —
+  cash payments are born `paid`; the pre-settlement statuses only apply to
+  the card rail),
   `livemode`, `eventCount`,
   `createdByUid`/`createdByName`, `createdAt`/`updatedAt`, Stripe
   identifiers (`stripeCheckoutSessionId`, `stripeSessionUrl`,
   `stripePaymentIntentId`, `stripeChargeId`, `stripeCustomerId`,
-  `sessionExpiresAt`), `receiptUrl`, safe card display metadata
+  `sessionExpiresAt` — card rail only; a cash record carries none of
+  them, so the rail is decided by `paymentMethod`, never inferred from a
+  missing Stripe id), `receiptUrl`, safe card display metadata
   (`paymentMethodBrand`/`paymentMethodLast4`), `reconciliationIssue` (set
   when Stripe's canonical report contradicted the stored snapshot —
   settlement refused, flag cleared by a later verified `paid`), refund
@@ -735,21 +748,29 @@ Email is a channel on the lead, not a separate inbox:
 - **Logging** — operational logs carry ids and event names only; email
   bodies, recipients, and customer addresses are never logged.
 
-### Admin payments (`/admin/payments`, issue #155)
+### Admin payments (`/admin/payments`, issues #155 and #206)
 
-One-off card charges (tours, ad-hoc) flow through **Stripe Checkout** —
-Stripe's hosted payment page — chosen over Payment Element because the card
-entry surface lives entirely on Stripe: no `NEXT_PUBLIC_` publishable key,
-no Stripe.js in the bundle, no CSP change, and the session `url` doubles as
-a shareable customer link (copy/QR/open) covering both counter and remote
-collection. The Stripe client is built lazily via `getStripeClient()`
+One **Accept payment** workspace handles two rails, selected by the
+admin and persisted as `paymentMethod` on the record (`lib/payments-common.ts`;
+an absent `paymentMethod` in the request body defaults to `card` so older
+clients stay compatible). **Card / Stripe** charges flow through **Stripe
+Checkout** — Stripe's hosted payment page — chosen over Payment Element
+because the card entry surface lives entirely on Stripe: no `NEXT_PUBLIC_`
+publishable key, no Stripe.js in the bundle, no CSP change, and the session
+`url` doubles as a shareable customer link (copy/QR/open) covering both
+counter and remote collection. **Cash** never touches Stripe: staff take
+the money, the server writes the record, and nothing else happens. The
+Stripe client is built lazily via `getStripeClient()`
 (`lib/stripe.ts`), so `next build` needs no Stripe values; `stripe` is
 listed in `serverExternalPackages` alongside `firebase-admin`.
 
 1. **Create:** `POST /api/admin/payments` validates input
-   (`parsePaymentCreateBody` — required `clientRequestId` UUID, purpose
-   enum, integer-minor-unit amount bounded by `PAYMENT_MAX_AMOUNT_MINOR`,
-   optional email/tour-date/attendees/note bounds), then writes the
+   (`parsePaymentCreateBody` — required `clientRequestId` UUID,
+   `paymentMethod` enum, purpose enum, integer-minor-unit amount bounded
+   by `PAYMENT_MAX_AMOUNT_MINOR`, optional email/tour-date/attendees/note
+   bounds). `createAdminPayment` then dispatches on the rail.
+
+   For **card**, it writes the
    `payments/{clientRequestId}` record + `payment_created` event in a
    transaction (existing doc → replay/recovery, never overwrite), creates
    the Checkout Session with `idempotencyKey: paymentId`,
@@ -771,13 +792,26 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    deployments (`VERCEL_BRANCH_URL ?? VERCEL_URL`), the canonical site
    origin in production, localhost in dev. Server-derived only — no
    caller-supplied return origin.
-2. **Collect:** the workspace (`components/admin-payments-workspace.tsx`
+
+   For **cash**, `createAdminCashPayment` commits the same durable
+   `payments/{clientRequestId}` record in one transaction — already
+   `status: "paid"` with a concrete `paidAt` — plus `payment_created` and
+   `cash_payment_recorded` events and, when the accounting integration is
+   enabled, the `cash_payment` QBO sync record. No Stripe client is
+   constructed and no session, PaymentIntent, link, or QR ever exists —
+   Stripe-side fields stay absent rather than nulled. The replay contract
+   is identical to card's (`paymentCreateMatches`): an identical retry
+   returns `replayed: true`; a resubmission whose stored fields drifted
+   (including the rail itself) returns 409.
+2. **Collect (card rail):** the workspace (`components/admin-payments-workspace.tsx`
    behind `AdminAuthGate`) shows the session URL with copy, QR
    (`GET /api/admin/payments/[id]/qr` renders it server-side via `qrcode`),
    and open-link actions, and polls the refresh route while unresolved.
+   None of this is offered for a cash payment — the record is already
+   `paid`, so the detail shows the method and history instead of a link.
    Quick-pick tour purposes derive suggestions from the canonical
    `TOUR_PRODUCTS` prices; amounts are always staff-editable.
-3. **Reconcile:** `POST /api/webhooks/stripe` verifies the signature
+3. **Reconcile (card rail):** `POST /api/webhooks/stripe` verifies the signature
    (`STRIPE_WEBHOOK_SECRET`, raw body). A signed event is treated as a
    *hint*, not financial truth — `readStripeEventRefs` extracts only the
    event id/type + session id from
@@ -804,7 +838,9 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    confirmation}` — the browser supplies intent, never a financial fact;
    the amount always comes from the stored record. `parseRefundBody`
    requires a non-empty reason (≤ `REFUND_REASON_MAX_LENGTH`) and the
-   exact typed phrase `REFUND`. `refundAdminPayment` then runs a
+   exact typed phrase `REFUND`.
+
+   For the **card** rail, `refundAdminPayment` runs a
    claim → canonical-verify → provider → commit/revert pipeline (details
    and race/idempotency analysis in
    [operations/payments.md](operations/payments.md#refunds)): a Firestore
@@ -829,7 +865,21 @@ listed in `serverExternalPackages` alongside `firebase-admin`.
    canonical re-fetch covers this workflow. Refunded payments drop out of
    the collected-today total (`isCollectedForDailyTotal`) while every
    original fact and history entry is preserved.
-5. **Mode:** `livemode` from the Stripe object is stored per payment; the
+
+   For the **cash** rail the refund is a manual reversal, never a
+   provider call: the same eligibility rule (paid, recorded `paidAt`,
+   inside the 1-hour window — `paymentRefundEligibility` skips the
+   Stripe-reference check for cash) and the same reason + typed-phrase
+   gate apply, then a single Firestore transaction moves `paid →
+   refunded`, records `refundAmountMinor`/`refundReason`/
+   `refundedBy*`/`refundRequestedAt`/`refundedAt` and a
+   `cash_refund_recorded` event. There is no `refunding` state to
+   reconcile — handing cash back is synchronous — and no Stripe field is
+   read or written. After the window there is no fallback surface for
+   cash (the Stripe Dashboard guidance is card-only), matching
+   `paymentRefundEligibility`'s cash-specific messages.
+5. **Mode:** `livemode` from the Stripe object is stored per payment —
+   card rail only, since cash carries no Stripe mode; the
    UI badges test-mode payments. No analytics events carry payment data.
 
 Two Stripe API versions coexist by design: the registered webhook

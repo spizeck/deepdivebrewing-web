@@ -67,7 +67,11 @@ export interface FakeFirestore {
   db: {
     collection(name: string): FakeCollectionRef;
     runTransaction<T>(fn: (tx: FakeTx) => T | Promise<T>): Promise<T>;
-    batch(): { update(ref: FakeDocRef, data: Doc): void; commit(): Promise<void> };
+    batch(): {
+      update(ref: FakeDocRef, data: Doc): void;
+      set(ref: FakeDocRef, data: Doc): void;
+      commit(): Promise<void>;
+    };
   };
   /** Live document contents keyed by "collection/docId". Tests may read
    * or mutate between calls — e.g. to simulate a disconnect landing
@@ -326,6 +330,9 @@ export function createFakeFirestore(): FakeFirestore {
       const writes: [string, Doc][] = [];
       return {
         update: (ref: FakeDocRef, data: Doc) => {
+          writes.push([ref.path, data]);
+        },
+        set: (ref: FakeDocRef, data: Doc) => {
           writes.push([ref.path, data]);
         },
         commit: () => {

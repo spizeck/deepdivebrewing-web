@@ -613,6 +613,7 @@ const PAYMENT = {
   customerEmail: "dana@example.com",
   tourDate: "2026-10-15",
   attendeeCount: 2,
+  paymentMethod: "card",
   status: "awaiting_payment",
   livemode: false,
   createdByUid: "u-1",
@@ -642,6 +643,44 @@ const PAYMENT_EVENTS = [
   },
 ];
 
+// A cash payment (#206): born paid, carries the explicit rail, and has no
+// Stripe identifiers at all.
+const CASH_PAYMENT = {
+  id: "9f8e7d6c-1234-4abc-9def-0123456789ab",
+  purpose: "other",
+  description: "Walk-in merch",
+  amountMinor: 2500,
+  currency: "usd",
+  customerName: "Walk-in Customer",
+  internalNote: "counter sale",
+  paymentMethod: "cash",
+  status: "paid",
+  paidAt: "2026-10-03T12:00:00.000Z",
+  createdByUid: "u-1",
+  createdByName: "Chad",
+  createdAt: "2026-10-03T12:00:00.000Z",
+};
+
+const CASH_EVENTS = [
+  {
+    id: "ce-0",
+    type: "payment_created",
+    seq: 0,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: "2026-10-03T12:00:00.000Z",
+  },
+  {
+    id: "ce-1",
+    type: "cash_payment_recorded",
+    seq: 1,
+    actorUid: "u-1",
+    actorName: "Chad",
+    createdAt: "2026-10-03T12:00:00.000Z",
+    details: { amountMinor: "2500" },
+  },
+];
+
 function mockPaymentsApi(page: import("playwright/test").Page) {
   return page.route(/\/api\/admin\/payments/, (route) => {
     const url = route.request().url();
@@ -659,11 +698,21 @@ function mockPaymentsApi(page: import("playwright/test").Page) {
     if (method === "GET" && url.endsWith("/qr")) {
       return json({ ok: false, error: "QR not needed in fixture" }, 400);
     }
+    if (method === "GET" && url.includes(CASH_PAYMENT.id)) {
+      return json({ ok: true, payment: CASH_PAYMENT, events: CASH_EVENTS });
+    }
     if (method === "GET" && url.includes("/api/admin/payments/")) {
       return json({ ok: true, payment: PAYMENT, events: PAYMENT_EVENTS });
     }
     if (method === "POST" && url.endsWith("/api/admin/payments")) {
-      return json({ ok: true, payment: PAYMENT, replayed: false });
+      const body = route.request().postDataJSON() as {
+        paymentMethod?: string;
+      } | null;
+      return json({
+        ok: true,
+        payment: body?.paymentMethod === "cash" ? CASH_PAYMENT : PAYMENT,
+        replayed: false,
+      });
     }
     if (method === "POST") {
       return json({ ok: true, payment: PAYMENT, events: PAYMENT_EVENTS });
@@ -778,6 +827,40 @@ test("axe: payments workspace has no serious/critical violations", async ({
     blocking,
     formatBlocking(`${PAYMENTS_FIXTURE} (detail)`, blocking)
   ).toEqual([]);
+});
+
+test("cash method records the payment immediately and labels it everywhere", async ({
+  page,
+}) => {
+  await mockPaymentsApi(page);
+  await page.goto(PAYMENTS_FIXTURE);
+  await waitForAnimations(page);
+
+  // Method selection sits inside the one take-payment flow.
+  await page.getByRole("radio", { name: "Cash" }).check();
+  await page.getByLabel("Customer name").fill("Walk-in Customer");
+  await page.getByLabel("Amount (USD)").fill("25");
+  await page.getByRole("button", { name: "Review payment" }).press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Confirm cash payment" })
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Record cash payment" }).press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Cash payment recorded" })
+  ).toBeVisible();
+  await expect(page.getByText("Payment received.")).toBeVisible();
+
+  // The list row is labelled Cash.
+  const row = page.getByRole("button", { name: /Walk-in Customer/ });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Cash");
+
+  // Detail: the method is explicit and no Stripe internals are invented.
+  await row.press("Enter");
+  await expect(page.getByText("Cash payment recorded").first()).toBeVisible();
+  await expect(page.getByText("Stripe session")).toHaveCount(0);
+  await expect(page.getByText("PaymentIntent")).toHaveCount(0);
 });
 
 test("take-payment form validates the amount before review", async ({

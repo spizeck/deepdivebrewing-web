@@ -22,6 +22,8 @@ import {
 const FIELD_DESCRIPTIONS: Record<keyof QboAccountingMapping, string> = {
   stripeClearingAccountId:
     "Account that collects sales receipts until Stripe payouts reconcile — e.g. “Stripe Balance”. Not the bank account.",
+  cashDepositAccountId:
+    "Account that collects cash sales receipts — e.g. “Cash on hand”. Required before cash payments can post to QuickBooks.",
   tourIncomeItemId:
     "Service item for tour sales: brewery tours, additional guests, and private tours.",
   tastingIncomeItemId: "Service item for tour-and-tasting sales.",

@@ -163,13 +163,25 @@ card refunds can be asynchronous (`pending`), but reconciliation is driven
 by the next staff refund request checking canonical `Refund.status`, so
 a webhook subscription would add surface without changing the outcome.
 
+Cash refunds are different by construction (#206): a cash payment's
+refund records that staff handed the money back — `paid → refunded` in
+one transaction with a `cash_refund_recorded` event and the same refund
+facts minus the Stripe ids. The same 1-hour window and reason + typed
+`REFUND` gates apply, but no Stripe call exists anywhere in the path
+(the claim→canonical-verify→provider→commit pipeline above is
+card-only), and no Dashboard fallback exists either — after the window a
+cash reversal is a bookkeeping conversation, not an app action.
+
 ## QuickBooks posting (settled payments)
 
-Every canonical `paid` commit — webhook-applied or manual-refresh — also
-hands the payment to the QuickBooks sync (`postPaidPaymentToQbo`,
-`lib/qbo-sync.ts`): a durable `qboSyncRecords` entry keyed
-`{environment}:stripe_payment:{paymentId}` and an inline attempt to post
-one gross Sales Receipt to the mapped Stripe clearing account. The
+Every canonical `paid` commit — webhook-applied or manual-refresh for
+card, the create transaction itself for cash — also hands the payment to
+the QuickBooks sync (`postPaidPaymentToQbo`, `lib/qbo-sync.ts`): a
+durable `qboSyncRecords` entry keyed
+`{environment}:{stripe_payment|cash_payment}:{paymentId}` (the source
+type follows the record's `paymentMethod`) and an inline attempt to post
+one gross Sales Receipt to the mapped account for that rail — Stripe
+clearing for card, the cash deposit account for cash. The
 export is strictly downstream: it is best-effort, idempotent, and can
 never change the payment's status. Only payments originating in this
 tool qualify — Ollie/Spreedly and other foreign Stripe activity have no

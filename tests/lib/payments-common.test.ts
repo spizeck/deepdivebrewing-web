@@ -10,15 +10,19 @@ import {
   formatUsdMinor,
   isCollectedForDailyTotal,
   isPaymentCancelable,
+  isPaymentMethod,
   isPaymentPayable,
+  normalizePaymentMethod,
   normalizePaymentStatus,
   outcomeFromSession,
   parseAmountMinor,
   parsePaymentCreateBody,
   parseRefundBody,
   paymentCreateMatchesRecord,
+  paymentMethodLabel,
   paymentRefundEligibility,
   paymentStatusLabel,
+  planCashRefund,
   planRefundClaim,
   planStripeEventApply,
   processStripeEvent,
@@ -897,6 +901,7 @@ describe("assertCheckoutSessionUrl", () => {
 describe("paymentCreateMatchesRecord", () => {
   const input = {
     clientRequestId: VALID_ID,
+    paymentMethod: "card" as const,
     purpose: "brewery_tour_tasting",
     description: "Brewery Tour + Tasting",
     amountMinor: 8000,
@@ -941,6 +946,22 @@ describe("paymentCreateMatchesRecord", () => {
         `${name} drift must conflict`
       );
     }
+  });
+
+  it("a rail mismatch conflicts — the same reference can never flip between card and cash", () => {
+    assert.strictEqual(
+      paymentCreateMatchesRecord(
+        { ...record, paymentMethod: "cash" },
+        input
+      ),
+      false
+    );
+    // Legacy card records carry no field — they still match a card retry.
+    assert.strictEqual(paymentCreateMatchesRecord(record, input), true);
+    assert.strictEqual(
+      paymentCreateMatchesRecord(record, { ...input, paymentMethod: "cash" }),
+      false
+    );
   });
 });
 
@@ -1487,5 +1508,153 @@ describe("refund event rendering and serialization", () => {
   it("labels the new statuses for staff", () => {
     assert.strictEqual(paymentStatusLabel("refunding"), "Refunding");
     assert.strictEqual(paymentStatusLabel("refunded"), "Refunded");
+  });
+});
+
+// --- Payment method / rail (issue #206) ---
+
+describe("payment method vocabulary", () => {
+  it("accepts exactly card and cash; everything else fails closed", () => {
+    assert.strictEqual(isPaymentMethod("card"), true);
+    assert.strictEqual(isPaymentMethod("cash"), true);
+    for (const bad of ["stripe", "CASH", "", 0, null, undefined, {}]) {
+      assert.strictEqual(isPaymentMethod(bad), false, JSON.stringify(bad));
+    }
+  });
+
+  it("legacy records resolve to card — the rail is explicit, never inferred", () => {
+    assert.strictEqual(normalizePaymentMethod("cash"), "cash");
+    for (const legacy of [undefined, null, "card", "stripe", 42, {}]) {
+      assert.strictEqual(
+        normalizePaymentMethod(legacy),
+        "card",
+        JSON.stringify(legacy)
+      );
+    }
+    assert.strictEqual(paymentMethodLabel("cash"), "Cash");
+    assert.strictEqual(paymentMethodLabel(undefined), "Card / Stripe");
+  });
+
+  it("serializes the rail onto the view — legacy records read as card", () => {
+    const legacy = serializePayment("p1", {
+      status: "paid",
+      amountMinor: 8000,
+      livemode: true,
+    });
+    assert.strictEqual(legacy.paymentMethod, "card");
+
+    const cash = serializePayment("p2", {
+      status: "paid",
+      amountMinor: 4000,
+      paymentMethod: "cash",
+    });
+    assert.strictEqual(cash.paymentMethod, "cash");
+    // Cash carries no Stripe livemode — the field stays absent so the
+    // "Test mode" badge can never appear on a cash record.
+    assert.strictEqual(cash.livemode, undefined);
+  });
+});
+
+describe("parsePaymentCreateBody paymentMethod", () => {
+  it("absent means card — earlier clients stay compatible", () => {
+    const r = parsePaymentCreateBody(baseBody);
+    assert.strictEqual(r.ok, true);
+    if (r.ok) assert.strictEqual(r.input.paymentMethod, "card");
+  });
+
+  it("accepts an explicit cash rail", () => {
+    const r = parsePaymentCreateBody({ ...baseBody, paymentMethod: "cash" });
+    assert.strictEqual(r.ok, true);
+    if (r.ok) assert.strictEqual(r.input.paymentMethod, "cash");
+  });
+
+  it("rejects an unrecognized rail rather than guessing", () => {
+    for (const bad of ["stripe", "CASH", "check", 0, true]) {
+      assert.strictEqual(
+        parsePaymentCreateBody({ ...baseBody, paymentMethod: bad }).ok,
+        false,
+        JSON.stringify(bad)
+      );
+    }
+  });
+});
+
+describe("cash refund eligibility and planning", () => {
+  it("cash does not require a Stripe reference — the rest of the rule is identical", () => {
+    const r = paymentRefundEligibility(
+      refundArgs({ hasStripePaymentRef: false, paymentMethod: "cash" })
+    );
+    assert.deepStrictEqual(r, { ok: true });
+  });
+
+  it("cash failures never point staff at the Stripe Dashboard", () => {
+    const expired = paymentRefundEligibility(
+      refundArgs({
+        hasStripePaymentRef: false,
+        paymentMethod: "cash",
+        nowMillis: PAID_AT + REFUND_WINDOW_MS,
+      })
+    );
+    assert.strictEqual(expired.ok, false);
+    if (!expired.ok) {
+      assert.strictEqual(expired.code, "window_expired");
+      assert.ok(!/Stripe Dashboard/.test(expired.message));
+    }
+    const noPaidAt = paymentRefundEligibility(
+      refundArgs({ paidAtMillis: null, paymentMethod: "cash" })
+    );
+    assert.strictEqual(noPaidAt.ok, false);
+    if (!noPaidAt.ok) assert.ok(!/Stripe Dashboard/.test(noPaidAt.message));
+  });
+
+  it("planCashRefund applies paid→refunded in one step with an audit event", () => {
+    const plan = planCashRefund(
+      {
+        status: "paid",
+        paymentMethod: "cash",
+        amountMinor: 4000,
+        currency: "usd",
+        paidAt: new Date(PAID_AT),
+      },
+      "entered twice by mistake",
+      PAID_AT + 60_000
+    );
+    assert.strictEqual(plan.kind, "apply");
+    if (plan.kind !== "apply") return;
+    assert.strictEqual(plan.updates.status, "refunded");
+    assert.strictEqual(plan.updates.refundAmountMinor, 4000);
+    assert.strictEqual(plan.updates.refundCurrency, "usd");
+    assert.strictEqual(plan.updates.refundReason, "entered twice by mistake");
+    // No Stripe refund identity — the facts are the staff record.
+    assert.ok(!("stripeRefundId" in plan.updates));
+    assert.strictEqual(plan.event.type, "cash_refund_recorded");
+    assert.strictEqual(plan.event.details?.amountMinor, "4000");
+    assert.strictEqual(
+      describePaymentEvent(plan.event),
+      "Cash refund recorded — $40.00 (entered twice by mistake)"
+    );
+  });
+
+  it("planCashRefund is idempotent and enforces the window", () => {
+    const record = {
+      status: "paid",
+      paymentMethod: "cash",
+      amountMinor: 4000,
+      paidAt: new Date(PAID_AT),
+    };
+    assert.strictEqual(
+      planCashRefund({ ...record, status: "refunded" }, "x", PAID_AT + 1).kind,
+      "already_refunded"
+    );
+    const late = planCashRefund(record, "x", PAID_AT + REFUND_WINDOW_MS);
+    assert.strictEqual(late.kind, "reject");
+    if (late.kind === "reject") assert.strictEqual(late.code, "window_expired");
+  });
+
+  it("renders the cash payment history event", () => {
+    assert.strictEqual(
+      describePaymentEvent({ type: "cash_payment_recorded" }),
+      "Cash payment recorded"
+    );
   });
 });

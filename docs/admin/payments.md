@@ -1,6 +1,6 @@
 # Payments
 
-This guide explains how staff take card payments for brewery tours and other one-off charges from the admin app — and what happens behind the scenes so the record stays trustworthy.
+This guide explains how staff take card payments and record cash payments for brewery tours and other one-off charges from the admin app — and what happens behind the scenes so the record stays trustworthy.
 
 ## Where it lives
 
@@ -13,24 +13,27 @@ The workspace has two halves:
 
 ## Taking a payment
 
-1. Choose a **Purpose** — Brewery Tour, Brewery Tour + Tasting, Additional guest(s), Private tour, or Other. The tour purposes carry the published per-person prices, so entering an **Attendees** count suggests the amount automatically. You can always edit the amount — staff judgment wins for private tours, partial payments, and custom arrangements.
-2. Fill in the **Description** (prefilled from the purpose), **Amount (USD)**, and **Customer name**. Receipt email, tour date, attendee count, and an internal note are all optional.
-3. Click **Review payment** — the app shows the exact charge on a confirmation panel. Check the amount carefully.
-4. Click **Create payment**. This creates the payment record and a secure Stripe payment link.
+1. Choose how the customer is paying — **Card / Stripe** (the customer pays through a secure Stripe link) or **Cash** (the customer is handing you money right now).
+2. Choose a **Purpose** — Brewery Tour, Brewery Tour + Tasting, Additional guest(s), Private tour, or Other. The tour purposes carry the published per-person prices, so entering an **Attendees** count suggests the amount automatically. You can always edit the amount — staff judgment wins for private tours, partial payments, and custom arrangements.
+3. Fill in the **Description** (prefilled from the purpose), **Amount (USD)**, and **Customer name**. Receipt email, tour date, attendee count, and an internal note are all optional.
+4. Click **Review payment** — the app shows the exact charge on a confirmation panel. Check the amount carefully.
+5. Complete it. **Card / Stripe** shows **Create payment** — this creates the payment record and a secure Stripe payment link. **Cash** shows **Record cash payment** — the money is already in hand, so the payment is recorded as paid immediately and shows a **Cash** label in history and detail. Count the cash before confirming — there is nothing else to do, and nothing is sent to Stripe.
 
 > The customer **never types their card into this app**. Card entry happens only on Stripe's hosted page — the app never sees, stores, or logs card numbers.
 
 On Stripe's page the customer can pay by card. Depending on their device and Stripe account they may also see faster card-based options — Apple Pay, Google Pay, or Link — which settle immediately just like a card. Bank transfers and pay-later options are intentionally not offered: the brewery needs to know the money arrived before the customer walks out.
 
-## Getting the customer to pay
+## Getting the customer to pay (card only)
 
-Once created, the payment shows a live **payment link** with three ways to reach it:
+Once a card payment is created, the payment shows a live **payment link** with three ways to reach it:
 
 - **Show QR** — best at the counter: the customer scans with their phone and pays on their own device.
 - **Copy link** — paste it into WhatsApp, SMS, or email for a customer who isn't present.
 - **Open payment page** — opens Stripe's hosted page in a new tab, useful on a shared tablet.
 
 The status updates automatically while the customer pays (the app checks Stripe for a few minutes). **Refresh status** reconciles on demand — Stripe is the source of truth, so a slow notification never leaves a paid payment looking unpaid.
+
+Cash payments skip this section entirely — a recorded cash payment is already **Paid**, so there is no link, QR code, or Refresh status to use.
 
 ## Payment states
 
@@ -46,7 +49,7 @@ The status updates automatically while the customer pays (the app checks Stripe 
 | **Expired** | The payment link timed out (~24 hours) unpaid. |
 | **Canceled** | Staff canceled the payment before the customer paid. |
 
-A payment is never marked paid because a browser landed on a success page — Stripe tells the server directly, and only then does the record become **Paid**.
+A payment is never marked paid because a browser landed on a success page — Stripe tells the server directly, and only then does the record become **Paid**. The pre-settlement states (**Setting up**, **Awaiting payment**, **Processing**, **Failed**, **Expired**, **Canceled**) only exist for card payments — a cash payment is **Paid** from the moment it is recorded.
 
 ## Canceling a payment
 
@@ -60,19 +63,21 @@ A **Refund payment** button appears on a **Paid** payment for **1 hour after it 
 2. Check the confirmation panel — it shows the customer, the original amount and purpose, when they paid, and the amount going back.
 3. Enter a **refund reason** (required — it goes on the permanent record, e.g. "charged twice" or "customer changed their mind").
 4. Type **REFUND** in the confirmation box. The destructive button stays disabled until both the reason and the exact phrase are entered.
-5. Click **Refund $X.XX**. The payment moves through **Refunding** to **Refunded** within a few seconds.
+5. Click **Refund $X.XX**. The payment moves through **Refunding** to **Refunded** within a few seconds — for cash it becomes **Refunded** immediately, since handing cash back is instant and nothing goes through Stripe.
 
-After the window closes the button is replaced by a note — **refunds can be issued here for 1 hour after payment; after that, use the Stripe Dashboard**. Anything older, anything partial, and anything unusual (a refund Stripe won't accept) is a Dashboard job — ask an owner if unsure.
+A cash refund records that you gave the full amount back in cash — the customer already has the money when you confirm, so only record it after the cash has actually changed hands.
+
+After the window closes the button is replaced by a note — for card, **refunds can be issued here for 1 hour after payment; after that, use the Stripe Dashboard**. Anything older, anything partial, and anything unusual (a refund Stripe won't accept) is a Dashboard job — ask an owner if unsure. For cash there is no Dashboard fallback — after the window a reversal is a bookkeeping question for an owner, not an app action.
 
 Refunds are **permanent**: the money does not come back through this tool. The payment itself is never deleted or rewritten — the detail view keeps the original charge, shows the refund amount, reason, who issued it and when, and the Stripe refund id, and the **History** keeps the original payment entries alongside `Refund requested`/`Refund completed`. A refund completed **through the app** no longer counts toward the **collected today** total — the money is gone, so the number stays honest. A refund issued in the Stripe Dashboard is not automatically reconciled into the app: the payment may still show **Paid** and count toward the total — the Stripe Dashboard remains the authority for those refunds. If a refund attempt fails, the payment stays **Paid**, the detail shows the failed attempt, and you can try again inside the window (each attempt is safe — a double-click or retry can never refund the customer twice).
 
 ## Receipts
 
-The **Receipt email** field pre-fills the customer's email on the Stripe Checkout page and associates it with the payment. Stripe emails a receipt automatically when the payment succeeds **if** automatic receipts for successful payments are enabled in the Stripe Dashboard (Dashboard → Settings → Emails → "Email customers about successful payments"). Stripe never sends email in test mode, so use **View receipt** when checking a test payment. After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page — the fallback regardless of email settings (if it is ever missing on a paid payment, find the charge's receipt in the Stripe Dashboard) — plus the card brand and last four digits, the only card details ever stored, and only as display metadata.
+Receipts are a card-rail feature — cash payments have no Stripe receipt or receipt email. For card payments, the **Receipt email** field pre-fills the customer's email on the Stripe Checkout page and associates it with the payment. Stripe emails a receipt automatically when the payment succeeds **if** automatic receipts for successful payments are enabled in the Stripe Dashboard (Dashboard → Settings → Emails → "Email customers about successful payments"). Stripe never sends email in test mode, so use **View receipt** when checking a test payment. After a payment is **Paid**, the detail view also shows a **View receipt** link to Stripe's hosted receipt page — the fallback regardless of email settings (if it is ever missing on a paid payment, find the charge's receipt in the Stripe Dashboard) — plus the card brand and last four digits, the only card details ever stored, and only as display metadata.
 
 ## Payment detail
 
-Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the Stripe identifiers, receipt link, refund facts when refunded (amount, reason, issuer, Stripe refund id), and an append-only **History** (created, link issued, succeeded/failed/expired, canceled, refund requested/completed/failed, flagged-for-review). History entries marked "(manual refresh)" were applied by a staff refresh; unmarked status changes came from Stripe's webhook.
+Selecting a payment shows everything the app recorded: amount, purpose, description, customer, receipt email, tour date, attendees, who created it and when, the **Method** (Card / Stripe or Cash), the Stripe identifiers and receipt link for card payments, refund facts when refunded (amount, reason, issuer, Stripe refund id for card), and an append-only **History** (created, link issued, cash payment recorded, succeeded/failed/expired, canceled, refund requested/completed/failed, flagged-for-review). History entries marked "(manual refresh)" were applied by a staff refresh; unmarked status changes came from Stripe's webhook.
 
 ## Test mode
 

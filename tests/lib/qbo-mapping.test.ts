@@ -243,6 +243,41 @@ describe("saveQboMapping — required-field enforcement", () => {
     assert.strictEqual(mappingDoc()?.taxCodeId, "tax-1");
   });
 
+  it("accepts an optional cash deposit account when one is selected (#206)", async () => {
+    reset(undefined, {
+      account: [
+        { id: "acct-1", name: "Stripe Balance", type: "Bank", active: true },
+        { id: "acct-cash", name: "Cash on hand", type: "Bank", active: true },
+      ],
+      item: [
+        { id: "item-tour", name: "Brewery Tour", type: "Service", active: true },
+        { id: "item-tasting", name: "Tasting", type: "Service", active: true },
+        { id: "item-other", name: "Other Income", type: "Service", active: true },
+      ],
+      customer: [{ id: "cust-1", name: "Stripe Checkout", active: true }],
+      "tax-code": [],
+    });
+    const result = await save({
+      ...FULL_MAPPING,
+      cashDepositAccountId: "acct-cash",
+    });
+    assert.strictEqual(result.configured, true);
+    assert.strictEqual(mappingDoc()?.cashDepositAccountId, "acct-cash");
+  });
+
+  it("rejects a cash deposit account that does not resolve in the company", async () => {
+    reset();
+    await assert.rejects(
+      save({ ...FULL_MAPPING, cashDepositAccountId: "acct-nope" }),
+      (error) => {
+        assert.ok(error instanceof QboError);
+        assert.match(error.message, /Cash deposit account/);
+        return true;
+      }
+    );
+    assert.strictEqual(mappingDoc(), undefined);
+  });
+
   it("rejects malformed ids before any provider lookup", async () => {
     reset();
     await assert.rejects(

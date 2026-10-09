@@ -205,19 +205,26 @@ misconfiguration fails closed instead of posting to the wrong books.
 ## Sales Receipt sync (DDB payments only)
 
 Implemented in #179 per the
-[accounting design](../architecture/quickbooks-accounting-sync.md).
-Exactly one thing is posted to QuickBooks: **one gross Sales Receipt per
-settled DDB-admin payment, deposited to the mapped Stripe clearing
-account.**
+[accounting design](../architecture/quickbooks-accounting-sync.md), and
+extended to the cash rail in #206. Exactly one thing is posted to
+QuickBooks: **one gross Sales Receipt per settled DDB-admin payment,
+deposited to the account that matches the payment's rail** — the mapped
+Stripe clearing account for `card` payments (`stripe_payment` source
+type), the mapped cash deposit account for `cash` payments
+(`cash_payment` source type).
 
 ### What qualifies
 
 A payment qualifies only through **positive DDB identity** — a canonical
-record in the app's own `payments` collection that reached `paid`
-through the normal Stripe-verified path. The worker re-verifies the
-canonical Checkout Session before writing (session belongs to the same
-internal payment id, `complete` + `paid`, amount and currency match the
-stored record).
+record in the app's own `payments` collection that reached `paid`. The
+sync record's source type must match the payment's own `paymentMethod`
+(a mismatch lands in `needs_attention`, so a stale or tampered sync
+record can never steer a payment into the wrong account). For the card
+rail the worker additionally re-verifies the canonical Checkout Session
+before writing (session belongs to the same internal payment id,
+`complete` + `paid`, amount and currency match the stored record). For
+the cash rail there is no provider — the server's own paid record, which
+only an authorized admin could create, is the whole of the verification.
 
 Ollie/Spreedly wholesale charges and every other foreign Stripe
 activity can never qualify: they have no `payments/` record, no
@@ -232,11 +239,11 @@ for it would double-count revenue.
 | Entity | `SalesReceipt` — never Invoice + Payment, never a Deposit |
 | Amount | **Gross** customer charge (`amountMinor / 100`). Stripe fee/net are not part of this leg |
 | Date | `TxnDate` = the payment's `paidAt`, not processing time |
-| Account | `DepositToAccountRef` = mapped Stripe clearing/balance account (e.g. `Stripe Balance`) — never Undeposited Funds, never the bank, never hardcoded |
+| Account | `DepositToAccountRef` by rail — card: mapped Stripe clearing/balance account (e.g. `Stripe Balance`); cash: mapped cash deposit account. Never Undeposited Funds, never the bank, never hardcoded |
 | Item | `ItemRef` = mapped income item by purpose: tour (`brewery_tour`, `additional_guests`, `private_tour`), tasting (`brewery_tour_tasting`), other (`other`) |
 | Customer | `CustomerRef` = mapped generic customer |
 | Tax | No `TaxCodeRef`; `GlobalTaxCalculation: "NotApplicable"` sent for non-US companies, omitted for US (the field is required there and rejected here). Tax policy is #184 |
-| Correlation | `PrivateNote` carries `ddb:<paymentId>` + Stripe PI/charge refs; `DocNumber` = `DDB-…` derived from the payment id |
+| Correlation | `PrivateNote` carries `ddb:<paymentId>` plus the rail — card receipts add Stripe PI/charge refs, cash receipts carry a `Cash payment` label; `DocNumber` = `DDB-…` derived from the payment id |
 
 ### Accounting mapping
 
@@ -250,7 +257,8 @@ applied.
 
 | Field | Required | Used for |
 | --- | --- | --- |
-| **Stripe clearing account** | Required | `DepositToAccountRef` — holds gross receipts until Stripe payouts reconcile (expected choice: `Stripe Balance`). Never the bank account or Undeposited Funds. |
+| **Stripe clearing account** | Required | `DepositToAccountRef` for card payments — holds gross receipts until Stripe payouts reconcile (expected choice: `Stripe Balance`). Never the bank account or Undeposited Funds. |
+| **Cash deposit account** | Optional | `DepositToAccountRef` for cash payments (e.g. a petty-cash/`Cash on Hand`-style account). Optional at save time so a card-only rollout is never blocked — but a cash payment without one lands in `needs_attention` (`missing_cashDepositAccountId`) instead of posting to a guessed account. |
 | **Tour income item** | Required | Line `ItemRef` for `brewery_tour`, `additional_guests`, `private_tour` |
 | **Tasting income item** | Required | Line `ItemRef` for `brewery_tour_tasting` |
 | **Other income item** | Required | Line `ItemRef` for `other` |
@@ -263,7 +271,9 @@ required fields on a stored mapping that predates the requirement. The
 stored field names are unchanged from the original configuration model
 (e.g. the generic sales customer is stored as `fallbackCustomerId`) —
 only the labels were finalized, so an existing saved mapping needs no
-migration.
+migration. The cash deposit account is the one optional operational
+field: when it is provided the save validates it against live account
+entities like every other selection.
 
 A payment whose `purpose` matches none of the rows above lands in
 `needs_attention` rather than posting to a generic item.
@@ -277,9 +287,12 @@ place.
 
 ### Lifecycle and retry
 
-- On a canonical `paid` commit (webhook or manual refresh) the app
-  enqueues a durable `qboSyncRecords/{environment}:stripe_payment:{paymentId}`
-  record and attempts the write inline. The inline attempt keeps the
+- On a canonical `paid` commit — webhook/manual-refresh for the card
+  rail, the create transaction itself for cash — the app enqueues a
+  durable `qboSyncRecords/{environment}:{sourceType}:{paymentId}` record
+  (`stripe_payment` or `cash_payment` — the source type is derived from
+  the payment's own `paymentMethod`, never supplied by a caller) and
+  attempts the write inline. The inline attempt keeps the
   common path instant; everything after it is the sweeps' business.
 - `synced` — done; replays return the stored entity id. `failed` —
   transient provider/Stripe/token failure; the record retries on a
@@ -401,7 +414,12 @@ admin action, not a sweep configuration change.
 - Refund posting (`RefundReceipt` mirroring the original lines) — #180;
   Stripe Dashboard refunds remain invisible to the app. The sweeps
   already enqueue `refunded` payments so the original Sales Receipt
-  exists, but no reversal entity is posted.
+  exists, but no reversal entity is posted. For the card rail Stripe
+  payout reconciliation surfaces the difference; for a **cash** refund
+  there is no external signal at all — the receipt stays in the cash
+  deposit account until someone reverses it by hand in QBO. When staff
+  record a cash refund, reverse the matching Sales Receipt (`PrivateNote`
+  marker `ddb:<paymentId>`) in QuickBooks the same day.
 - Stripe payout posting, Mercury deposit creation, clearing/balance
   reconciliation, and fee accounting — #181 (mixed Ollie+DDB payouts
   make this a distinct design problem)
@@ -439,6 +457,7 @@ it is never sent to the browser.
 | Mapping save rejected with "does not exist" | Selected entity id isn't in the connected company | Re-load entity lists; the mapping validates against live QBO data |
 | Sync record stuck in `failed` | Retryable provider/Stripe outage still ongoing, or `nextAttemptAt` not yet due | Check `lastErrorCode`/`lastErrorMessage` in the sync panel; the next sweep retries automatically |
 | Sync record in `needs_attention` | Mapping/purpose/canonical mismatch, or `retry_exhausted` | Fix the cause (mapping, record, reconnect), then **Retry** in the sync panel |
+| Cash payment stuck at `needs_attention` with `missing_cashDepositAccountId` | No cash deposit account is mapped — posting fails closed rather than guessing | Set **Cash deposit account** in the accounting-mapping panel, then **Retry** the record |
 | Sync panel shows paused / records not draining | Connection `reauthorization_required` or `disconnected` | Reconnect QuickBooks; the backlog resumes on the next sweep (or "Run sync sweep") |
 | Cron runs but nothing posts | `CRON_SECRET` unset in the deployment (route fails closed) | Vercel env scope; check for `401` on the cron invocation and `qbo.sweep.*` log lines |
 | Same payment appears twice in QBO | Should never happen — report it | `qboSyncRecords` for the payment id; `PrivateNote` marker `ddb:<paymentId>` on the receipts |

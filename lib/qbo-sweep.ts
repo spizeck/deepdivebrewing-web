@@ -11,7 +11,7 @@ import {
 import {
   enqueueAccountingTransaction,
   processQboSyncRecord,
-  qboStripePaymentCandidate,
+  qboPaymentCandidate,
   type QboSyncProcessResult,
 } from "@/lib/qbo-sync";
 import { qboConnectionRef, usableQboConnection } from "@/lib/qbo-tokens";
@@ -122,7 +122,7 @@ async function sweepMissedEnqueues(
     if (status !== "paid" && status !== "refunded") continue;
     try {
       const { outcome } = await enqueueAccountingTransaction(
-        qboStripePaymentCandidate(payment, doc.id)
+        qboPaymentCandidate(payment, doc.id)
       );
       if (outcome === "pending") summary.enqueued += 1;
     } catch {
