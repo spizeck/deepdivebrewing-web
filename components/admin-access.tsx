@@ -5,6 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatAdminDate, formatAdminDateTime } from "@/lib/admin-format";
 import { isValidEmail } from "@/lib/email";
+import {
+  ADMIN_PERMISSIONS,
+  ADMIN_PERMISSION_LABELS,
+  type AdminPermission,
+} from "@/lib/admin-permissions";
 import type { AdminRole, AdminUserView, AdminInvitationView } from "@/lib/types";
 
 // The panel only needs a token source — the real Firebase `User` satisfies
@@ -199,6 +204,47 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
     }
   }
 
+  // Capability grants (issue #210): toggling sends the complete resulting
+  // permission set — the server validates every entry and fails closed on
+  // anything unknown.
+  async function togglePermission(
+    target: AdminUserView,
+    permission: AdminPermission,
+    checked: boolean
+  ) {
+    const actionKey = `perm-${target.uid}`;
+    if (actionInProgress === actionKey) return;
+
+    const next = checked
+      ? [...new Set([...target.permissions, permission])]
+      : target.permissions.filter((p) => p !== permission);
+
+    setActionInProgress(actionKey);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/admin/users/${target.uid}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ permissions: next }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        onStatusMessage(data.error ?? "Permission update failed.");
+        return;
+      }
+      onStatusMessage(`Permissions updated for ${target.email}.`);
+      await load();
+    } catch (error) {
+      console.error(error);
+      onStatusMessage("Permission update failed. Please try again.");
+    } finally {
+      setActionInProgress(null);
+    }
+  }
+
   async function revoke(target: AdminUserView) {
     if (
       !window.confirm(
@@ -294,6 +340,45 @@ export function AdminAccessPanel({ user, onStatusMessage }: AdminAccessPanelProp
                         {admin.status}
                       </Badge>
                     </div>
+                    {admin.role === "superadmin" ? (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Holds every permission as a superadmin.
+                      </p>
+                    ) : (
+                      <fieldset className="mt-3 space-y-1">
+                        <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Permissions
+                        </legend>
+                        {ADMIN_PERMISSIONS.map((permission) => (
+                          <label
+                            key={permission}
+                            className="flex items-start gap-2 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={admin.permissions.includes(permission)}
+                              disabled={actionInProgress === `perm-${admin.uid}`}
+                              onChange={(e) =>
+                                void togglePermission(
+                                  admin,
+                                  permission,
+                                  e.target.checked
+                                )
+                              }
+                            />
+                            <span>
+                              <span className="font-medium">
+                                {ADMIN_PERMISSION_LABELS[permission].label}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {ADMIN_PERMISSION_LABELS[permission].description}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </fieldset>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {admin.role === "admin" && admin.status === "active" && (

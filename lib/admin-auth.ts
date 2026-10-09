@@ -8,6 +8,10 @@ import {
   type AdminClaims,
 } from "@/lib/admin-common";
 import { checkAdminActorRecord } from "@/lib/admin-policy";
+import {
+  recordHasPermission,
+  type AdminPermission,
+} from "@/lib/admin-permissions";
 import { getAdminUser } from "@/lib/admin-users";
 import type { AdminUserRecord } from "@/lib/admin-types";
 import type { DecodedIdToken } from "firebase-admin/auth";
@@ -90,6 +94,32 @@ export async function requireSuperAdminActor(idToken: string): Promise<AdminActo
   const token = await verifyAdminIdToken(idToken);
   assertSuperAdmin(token);
   return resolveActiveAdminActor(token);
+}
+
+export function adminActorHasPermission(
+  actor: AdminActor,
+  permission: AdminPermission
+): boolean {
+  return recordHasPermission(actor.record, permission);
+}
+
+// Capability gate for sensitive admin surfaces (issue #210). The check reads
+// the live adminUsers record already fetched by resolveActiveAdminActor, so
+// revoking a permission denies the very next request — no token refresh and
+// no stale-claim window. Routes for a permissioned surface must use this
+// helper rather than requireAdminActor.
+export async function requireAdminPermission(
+  idToken: string,
+  permission: AdminPermission
+): Promise<AdminActor> {
+  const actor = await requireAdminActor(idToken);
+  if (!adminActorHasPermission(actor, permission)) {
+    throw new AdminAuthError(
+      `This action requires the "${permission}" admin permission.`,
+      403
+    );
+  }
+  return actor;
 }
 
 export function assertBootstrapEligible(token: DecodedIdToken): void {

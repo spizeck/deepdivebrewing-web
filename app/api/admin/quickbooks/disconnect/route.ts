@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import {
   badRequestResponse,
   getBearerToken,
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const actor = await requireAdminActor(idToken);
+    const actor = await requireAdminPermission(idToken, "accounting");
     await disconnectQbo(actor);
     const connection = await getQboAdminView();
     return NextResponse.json({ ok: true, connection });

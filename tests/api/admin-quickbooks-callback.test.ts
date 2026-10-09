@@ -92,6 +92,9 @@ function adminUser(
     email: "admin@example.com",
     role: "admin",
     status: "active",
+    // The default initiator holds the accounting capability (issue #210);
+    // a plain admin-role record without it must not complete the flow.
+    permissions: ["accounting"],
     createdAt: Timestamp.now(),
     ...overrides,
   };
@@ -170,6 +173,25 @@ describe("quickbooks oauth callback", () => {
       "qbo",
       "qbo_reason",
     ]);
+  });
+
+  it("refuses when the initiator lost the accounting permission mid-flow", async () => {
+    // A still-active admin whose "accounting" grant was revoked between
+    // connect and callback must not complete the connection (issue #210).
+    adminRecord = adminUser({ permissions: [] });
+    const res = await callRoute(callbackRequest(validParams(), "state-1"));
+    assert.strictEqual(
+      redirectParams(res).get("qbo_reason"),
+      "connect_failed"
+    );
+    assert.strictEqual(completed.length, 0);
+    assert.ok(
+      logs.some(
+        (line) =>
+          line.event === "qbo.oauth.failed" &&
+          line.context?.reason === "initiating_admin_inactive"
+      )
+    );
   });
 
   it("refuses when the initiator was disabled mid-flow", async () => {

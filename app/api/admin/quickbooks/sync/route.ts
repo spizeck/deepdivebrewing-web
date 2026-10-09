@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
 import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId, logInfo, logWarn } from "@/lib/log";
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    await requireAdminActor(idToken);
+    await requireAdminPermission(idToken, "accounting");
     const sync = await getQboSyncAdminView();
     return NextResponse.json({ ok: true, sync });
   } catch (error) {
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    const actor = await requireAdminActor(idToken);
+    const actor = await requireAdminPermission(idToken, "accounting");
     const summary = await runQboSyncSweep();
     try {
       await logAdminAudit({

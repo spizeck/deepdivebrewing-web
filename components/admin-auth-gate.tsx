@@ -12,19 +12,31 @@ import {
 } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { getFirebaseAuth } from "@/lib/firebase";
+import {
+  ADMIN_PERMISSION_LABELS,
+  isAdminPermission,
+  type AdminPermission,
+} from "@/lib/admin-permissions";
 
 // Minimal sign-in/authorization shell for admin sub-pages (/admin/trade).
 // The full bootstrap + invitation flow stays on /admin — a signed-in user
 // without admin claims is pointed there rather than duplicating that flow.
+//
+// Capability gating (issue #210): when `requiredPermission` is set, the gate
+// also fetches /api/admin/me and renders an access-denied state unless the
+// live adminUsers record grants that capability. This is presentation only —
+// every API the workspace calls enforces the same permission server-side.
 export function AdminAuthGate({
   heading,
   description,
+  requiredPermission,
   children,
 }: {
   heading: string;
   // Surface-specific sign-in prompt — each admin sub-page names what the
   // authorized account manages (trade leads, payments, QuickBooks, …).
   description: string;
+  requiredPermission?: AdminPermission;
   children: (user: User) => ReactNode;
 }) {
   const [user, setUser] = useState<User | null>(null);
@@ -33,6 +45,13 @@ export function AdminAuthGate({
   // Claims are resolved asynchronously after each auth event; while pending,
   // the gate must show neither the workspace nor a false "not authorized".
   const [claimsResolved, setClaimsResolved] = useState(false);
+  // Effective permissions resolved from /api/admin/me. null = still pending
+  // (or not applicable because no permission is required); [] is a resolved
+  // empty set — fail closed.
+  const [permissions, setPermissions] = useState<AdminPermission[] | null>(
+    null
+  );
+  const [permissionCheckFailed, setPermissionCheckFailed] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   // uid of the most recent auth event — a slow getIdTokenResult must never
   // apply claims to a user that has since signed out or been replaced.
@@ -49,6 +68,8 @@ export function AdminAuthGate({
           setUser(nextUser);
           setIsAdmin(false);
           setClaimsResolved(false);
+          setPermissions(null);
+          setPermissionCheckFailed(false);
           setAuthReady(true);
           if (!nextUser) {
             setClaimsResolved(true);
@@ -62,10 +83,31 @@ export function AdminAuthGate({
               admin?: boolean;
               role?: string;
             };
-            setIsAdmin(
+            const admin =
               claims.admin === true &&
-                (claims.role === "admin" || claims.role === "superadmin")
-            );
+              (claims.role === "admin" || claims.role === "superadmin");
+            setIsAdmin(admin);
+            if (admin && requiredPermission) {
+              // Permissions live on the adminUsers record, not in claims —
+              // resolve them from the canonical /api/admin/me check so the
+              // gate sees exactly what the server enforces right now.
+              try {
+                const idToken = await nextUser.getIdToken();
+                const res = await fetch("/api/admin/me", {
+                  headers: { Authorization: `Bearer ${idToken}` },
+                });
+                const me = (await res.json()) as { permissions?: unknown };
+                if (latestUidRef.current !== uid) return;
+                setPermissions(
+                  Array.isArray(me.permissions)
+                    ? me.permissions.filter(isAdminPermission)
+                    : []
+                );
+              } catch {
+                if (latestUidRef.current !== uid) return;
+                setPermissionCheckFailed(true);
+              }
+            }
           } catch (error) {
             console.error("Failed to resolve admin session:", error);
           }
@@ -89,7 +131,7 @@ export function AdminAuthGate({
       return;
     }
     return () => unsub();
-  }, []);
+  }, [requiredPermission]);
 
   async function handleGoogleSignIn() {
     setStatusMessage("");
@@ -101,7 +143,16 @@ export function AdminAuthGate({
     }
   }
 
-  if (!authReady || (user && !claimsResolved)) {
+  const permissionPending =
+    isAdmin && !!requiredPermission && !permissionCheckFailed && permissions === null;
+  const permissionDenied =
+    isAdmin &&
+    !!requiredPermission &&
+    !permissionCheckFailed &&
+    permissions !== null &&
+    !permissions.includes(requiredPermission);
+
+  if (!authReady || (user && (!claimsResolved || permissionPending))) {
     return (
       <p role="status" className="text-sm text-muted-foreground">
         Loading admin...
@@ -137,6 +188,54 @@ export function AdminAuthGate({
           If you were invited, accept the invitation from the{" "}
           <Link href="/admin" className="font-medium text-ocean hover:underline">
             admin dashboard
+          </Link>
+          .
+        </p>
+        <Button
+          onClick={() => void signOut(getFirebaseAuth())}
+          variant="outline"
+          className="mt-4"
+        >
+          Sign out
+        </Button>
+      </div>
+    );
+  }
+
+  if (permissionCheckFailed) {
+    return (
+      <div className="rounded-lg border border-stone bg-paper p-6">
+        <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
+        <p role="alert" className="mt-2 text-sm text-ember">
+          Your admin permissions could not be verified. Sign out and sign back
+          in, or try again later.
+        </p>
+        <Button
+          onClick={() => void signOut(getFirebaseAuth())}
+          variant="outline"
+          className="mt-4"
+        >
+          Sign out
+        </Button>
+      </div>
+    );
+  }
+
+  if (permissionDenied) {
+    const label = requiredPermission
+      ? ADMIN_PERMISSION_LABELS[requiredPermission].label
+      : heading;
+    return (
+      <div className="rounded-lg border border-stone bg-paper p-6">
+        <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
+        <p role="status" className="mt-2 text-sm text-ember">
+          {user.email} does not have {label} access.
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Ask a superadmin to grant this permission from the admin dashboard,
+          or return to{" "}
+          <Link href="/admin" className="font-medium text-ocean hover:underline">
+            the admin dashboard
           </Link>
           .
         </p>

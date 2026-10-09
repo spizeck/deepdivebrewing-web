@@ -30,6 +30,10 @@ import {
   type RebuildMeta,
 } from "@/components/admin-workspace";
 import { refreshAdminAccess } from "@/lib/admin-session-refresh";
+import {
+  isAdminPermission,
+  type AdminPermission,
+} from "@/lib/admin-permissions";
 import { resolveVenueIsland } from "@/lib/venue-filters";
 import { isVenueIsland } from "@/lib/venue-islands";
 import type { AdminRole, Beer, Venue } from "@/lib/types";
@@ -97,6 +101,10 @@ export function AdminDashboard() {
   const [currentTimeMs, setCurrentTimeMs] = useState(Date.now());
   const [rebuildMeta, setRebuildMeta] = useState<RebuildMeta>({});
   const [role, setRole] = useState<AdminRole | null>(null);
+  // Effective capability permissions (issue #210), resolved from
+  // /api/admin/me — claims carry only role, and the live record is the
+  // canonical source the server enforces. Empty = fail closed.
+  const [permissions, setPermissions] = useState<AdminPermission[]>([]);
   const [showBootstrap, setShowBootstrap] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [pendingInvitation, setPendingInvitation] = useState<{
@@ -131,6 +139,7 @@ export function AdminDashboard() {
           setUser(nextUser);
           setShowBootstrap(false);
           setRole(null);
+          setPermissions([]);
           setPendingInvitation(null);
           setIsRefreshingAccess(false);
           setAccessRefreshFailed(false);
@@ -144,6 +153,7 @@ export function AdminDashboard() {
                 (claims.role === "superadmin" || claims.role === "admin")
               ) {
                 setRole(claims.role as AdminRole);
+                setPermissions(await fetchAdminPermissions(nextUser));
                 await loadData();
                 await loadRebuildMeta();
               } else {
@@ -218,6 +228,26 @@ export function AdminDashboard() {
 
     return () => window.clearInterval(interval);
   }, [rebuildCooldownUntil]);
+
+  // The capability set is not in the ID token — /api/admin/me resolves it
+  // from the live adminUsers record, the same source the API routes enforce.
+  // Any failure resolves to no permissions (fail closed for display only).
+  async function fetchAdminPermissions(
+    currentUser: User
+  ): Promise<AdminPermission[]> {
+    try {
+      const idToken = await currentUser.getIdToken();
+      const res = await fetch("/api/admin/me", {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const me = (await res.json()) as { permissions?: unknown };
+      return Array.isArray(me.permissions)
+        ? me.permissions.filter(isAdminPermission)
+        : [];
+    } catch {
+      return [];
+    }
+  }
 
   async function loadData() {
     const [beerSnap, venueSnap] = await Promise.all([
@@ -294,13 +324,23 @@ export function AdminDashboard() {
     const auth = getFirebaseAuth();
     const isInitiatorCurrent = () => auth.currentUser?.uid === expectedUid;
 
+    let grantedPermissions: AdminPermission[] = [];
     const confirmedRole = await refreshAdminAccess({
       forceRefreshIdToken: () => initiatingUser.getIdToken(true),
       checkAdminAccess: async (idToken) => {
         const res = await fetch("/api/admin/me", {
           headers: { Authorization: `Bearer ${idToken}` },
         });
-        const me = (await res.json()) as { isAdmin?: boolean; role?: AdminRole };
+        const me = (await res.json()) as {
+          isAdmin?: boolean;
+          role?: AdminRole;
+          permissions?: unknown;
+        };
+        if (me.isAdmin === true) {
+          grantedPermissions = Array.isArray(me.permissions)
+            ? me.permissions.filter(isAdminPermission)
+            : [];
+        }
         return { isAdmin: me.isAdmin === true, role: me.role };
       },
       isInitiatorCurrent,
@@ -311,6 +351,7 @@ export function AdminDashboard() {
     if (!confirmedRole || !isInitiatorCurrent()) return false;
 
     setRole(confirmedRole);
+    setPermissions(grantedPermissions);
     setPendingInvitation(null);
     setShowBootstrap(false);
     setAccessRefreshFailed(false);
@@ -709,6 +750,7 @@ export function AdminDashboard() {
     <AdminWorkspace
       userEmail={user.email}
       isSuperAdmin={isSuperAdmin}
+      permissions={permissions}
       accessUser={user}
       onSignOut={handleSignOut}
       statusMessage={statusMessage}

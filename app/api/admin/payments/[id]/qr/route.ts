@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import {
   badRequestResponse,
   getBearerToken,
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    await requireAdminActor(idToken);
+    await requireAdminPermission(idToken, "payments");
     const { id } = await params;
     const payment = await getPayment(id);
     if (!payment) {

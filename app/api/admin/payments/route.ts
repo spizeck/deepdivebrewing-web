@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import { getBearerToken, badRequestResponse, unauthorizedResponse } from "@/lib/api-auth";
 import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId, logInfo } from "@/lib/log";
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    await requireAdminActor(idToken);
+    await requireAdminPermission(idToken, "payments");
     const payments = await listPayments();
     return NextResponse.json({
       ok: true,
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const actor = await requireAdminActor(idToken);
+    const actor = await requireAdminPermission(idToken, "payments");
     const parsed = parsePaymentCreateBody(body);
     if (!parsed.ok) return badRequestResponse(parsed.error);
 

@@ -12,6 +12,7 @@ import {
 import { AdminPaymentsSummary } from "@/components/admin-payments-summary";
 import { AdminQuickbooksSummary } from "@/components/admin-quickbooks-summary";
 import { AdminTradeSummary } from "@/components/admin-trade-summary";
+import type { AdminPermission } from "@/lib/admin-permissions";
 import type { Beer, Venue } from "@/lib/types";
 import { VENUE_ISLAND_OPTIONS, type VenueIsland } from "@/lib/venue-islands";
 
@@ -27,6 +28,10 @@ export interface RebuildMeta {
 export interface AdminWorkspaceProps {
   userEmail: string | null;
   isSuperAdmin: boolean;
+  // Effective capability set for the signed-in admin (issue #210) — controls
+  // which sensitive-area entry points render. Display only; the APIs enforce
+  // the same permissions server-side.
+  permissions: AdminPermission[];
   accessUser: AdminPanelUser;
   onSignOut: () => void;
   statusMessage: string;
@@ -102,6 +107,7 @@ const fieldClass = "w-full rounded-md border border-ink/50 px-3 py-2";
 export function AdminWorkspace({
   userEmail,
   isSuperAdmin,
+  permissions,
   accessUser,
   onSignOut,
   statusMessage,
@@ -202,9 +208,13 @@ export function AdminWorkspace({
 
       <AdminTradeSummary user={accessUser} />
 
-      <AdminPaymentsSummary user={accessUser} />
+      {permissions.includes("payments") && (
+        <AdminPaymentsSummary user={accessUser} />
+      )}
 
-      <AdminQuickbooksSummary user={accessUser} />
+      {permissions.includes("accounting") && (
+        <AdminQuickbooksSummary user={accessUser} />
+      )}
 
       <section
         aria-label="Knowledge Base"

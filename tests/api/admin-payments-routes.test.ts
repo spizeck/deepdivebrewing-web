@@ -12,10 +12,15 @@ import { NextRequest } from "next/server";
 mock.module("server-only", { namedExports: {} });
 
 let adminError: { message: string; status: number } | null = null;
+const requestedPermissions: string[] = [];
 
 mock.module("@/lib/admin-auth", {
   namedExports: {
-    requireAdminActor: async () => {
+    // Routes now authorize by capability (issue #210); the mock records the
+    // requested permission so the tests can assert which one the route
+    // requires.
+    requireAdminPermission: async (_idToken: string, permission: string) => {
+      requestedPermissions.push(permission);
       if (adminError) {
         throw Object.assign(new Error(adminError.message), {
           clientSafe: true,
@@ -75,6 +80,27 @@ function post(body: unknown, authorized = true) {
 }
 
 describe("POST /api/admin/payments", () => {
+  it("requires the payments capability (not just admin status)", async () => {
+    requestedPermissions.length = 0;
+    const { POST } = await import("@/app/api/admin/payments/route");
+    const res = await POST(post({ ...VALID_BODY, paymentMethod: "cash" }));
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(requestedPermissions, ["payments"]);
+  });
+
+  it("returns 403 when the payments capability is denied", async () => {
+    adminError = {
+      message: 'This action requires the "payments" admin permission.',
+      status: 403,
+    };
+    createCalls.length = 0;
+    const { POST } = await import("@/app/api/admin/payments/route");
+    const res = await POST(post({ ...VALID_BODY, paymentMethod: "cash" }));
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual(createCalls.length, 0);
+    adminError = null;
+  });
+
   it("requires a bearer token", async () => {
     const { POST } = await import("@/app/api/admin/payments/route");
     const res = await POST(post({ ...VALID_BODY, paymentMethod: "cash" }, false));

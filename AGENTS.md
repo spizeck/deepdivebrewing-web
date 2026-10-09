@@ -143,6 +143,13 @@ server-only `SUPER_ADMIN_EMAIL`; `admin/bootstrap` and
 `admin/invitations/accept` are documented lifecycle exceptions that create
 the record.
 
+Sensitive surfaces add a capability layer (issue #210): a typed
+`permissions` array on the `adminUsers` record, enforced server-side by
+`requireAdminPermission(idToken, permission)` in `lib/admin-auth.ts` with
+definitions in `lib/admin-permissions.ts`. A superadmin holds every
+permission implicitly; permission changes apply on the next request (the
+record, not the token, is canonical).
+
 The following are security-sensitive and require **tests** when changed:
 custom-claim checks, superadmin/admin role boundaries, the invitation
 lifecycle, audit logging, the rebuild endpoint, and any rules changes in

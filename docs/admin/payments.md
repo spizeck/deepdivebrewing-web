@@ -4,7 +4,7 @@ This guide explains how staff take card payments and record cash payments for br
 
 ## Where it lives
 
-Sign in at https://deepdivebrewing.com/admin, then open **Payments** from the dashboard summary — or go directly to `/admin/payments`.
+Sign in at https://deepdivebrewing.com/admin, then open **Payments** from the dashboard summary — or go directly to `/admin/payments`. The workspace requires the **Take Payments** permission, which a superadmin grants from the Access tab (see [Managing Administrator Access](./managing-access.md#permissions-capabilities)). Taking payments does not grant any QuickBooks or accounting access — those are separate permissions.
 
 The workspace has two halves:
 

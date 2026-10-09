@@ -37,6 +37,36 @@ describe("serializeAdminUser", () => {
     assert.strictEqual(view.lastLoginAt, lastLoginAt.toISOString());
   });
 
+  it("serializes the effective permission set (issue #210)", () => {
+    const admin = serializeAdminUser({
+      uid: "uid-p",
+      email: "p@example.com",
+      role: "admin",
+      status: "active",
+      permissions: ["payments"],
+      createdAt: timestamp(new Date()) as unknown as AdminUserRecord["createdAt"],
+    });
+    assert.deepStrictEqual(admin.permissions, ["payments"]);
+
+    const superadmin = serializeAdminUser({
+      uid: "uid-s",
+      email: "s@example.com",
+      role: "superadmin",
+      status: "active",
+      createdAt: timestamp(new Date()) as unknown as AdminUserRecord["createdAt"],
+    });
+    assert.deepStrictEqual(superadmin.permissions, ["accounting", "payments"]);
+
+    const unpermissioned = serializeAdminUser({
+      uid: "uid-n",
+      email: "n@example.com",
+      role: "admin",
+      status: "active",
+      createdAt: timestamp(new Date()) as unknown as AdminUserRecord["createdAt"],
+    });
+    assert.deepStrictEqual(unpermissioned.permissions, []);
+  });
+
   it("leaves optional timestamp fields undefined when absent", () => {
     const record: AdminUserRecord = {
       uid: "uid-2",

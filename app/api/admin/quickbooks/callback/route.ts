@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getAdminUser } from "@/lib/admin-users";
+import { recordHasPermission } from "@/lib/admin-permissions";
 import { getRequestId, logError, logWarn } from "@/lib/log";
 import { QboError } from "@/lib/qbo-errors";
 import {
@@ -82,11 +83,15 @@ export async function GET(req: NextRequest) {
 
     // The consumed state identifies who started the flow; it does not
     // prove they are still allowed to act. Re-verify the adminUsers
-    // record — an admin disabled or removed between connect and callback
-    // must not complete the connection. Both admin roles may connect, so
-    // any still-active record passes regardless of role.
+    // record — an admin disabled between connect and callback must not
+    // complete the connection. Permission gating (issue #210): the
+    // initiator must still hold the "accounting" capability — a record
+    // whose permission was revoked mid-flow fails here too.
     const initiator = await getAdminUser(consumed.uid);
-    if (initiator?.status !== "active") {
+    if (
+      initiator?.status !== "active" ||
+      !recordHasPermission(initiator, "accounting")
+    ) {
       logWarn("qbo.oauth.failed", {
         requestId,
         reason: "initiating_admin_inactive",

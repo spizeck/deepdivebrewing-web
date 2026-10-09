@@ -44,6 +44,8 @@ export interface Venue {
   notesPublic?: string;
 }
 
+import type { AdminPermission } from "@/lib/admin-permissions";
+
 export type AdminRole = "superadmin" | "admin";
 export type AdminStatus = "active" | "disabled";
 
@@ -53,6 +55,9 @@ export interface AdminUserView {
   displayName?: string;
   role: AdminRole;
   status: AdminStatus;
+  // Effective capability set (issue #210): superadmins always serialize as
+  // holding every permission.
+  permissions: AdminPermission[];
   createdAt: string;
   createdBy?: string;
   updatedAt?: string;
