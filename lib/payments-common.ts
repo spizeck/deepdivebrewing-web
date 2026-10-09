@@ -129,6 +129,38 @@ export function suggestedAmountMinor(
   return entry.perPersonMinor * attendeeCount;
 }
 
+// --- Payment method / rail (issue #206) ---
+
+// The canonical rail a payment was taken on. `card` is the Stripe Checkout
+// rail (card + accelerated card methods); `cash` is recorded directly by
+// staff with no provider involvement. Every record written before this
+// field existed was created through the Stripe flow, so absence resolves
+// to `card` — the rail is never inferred from the presence or absence of
+// Stripe identifiers.
+export const PAYMENT_METHODS = [
+  { value: "card", label: "Card / Stripe" },
+  { value: "cash", label: "Cash" },
+] as const;
+
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number]["value"];
+
+const PAYMENT_METHOD_VALUES: ReadonlySet<string> = new Set(
+  PAYMENT_METHODS.map((m) => m.value)
+);
+
+export function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return typeof value === "string" && PAYMENT_METHOD_VALUES.has(value);
+}
+
+export function normalizePaymentMethod(value: unknown): PaymentMethod {
+  return value === "cash" ? "cash" : "card";
+}
+
+export function paymentMethodLabel(value: unknown): string {
+  const method = normalizePaymentMethod(value);
+  return PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method;
+}
+
 // --- Status model ---
 
 // `created` is the brief window where the internal record exists but the
@@ -203,6 +235,7 @@ export interface PaymentRecord {
   tourDate?: string;
   attendeeCount?: number;
   internalNote?: string;
+  paymentMethod?: string;
   status?: string;
   livemode?: boolean;
   eventCount?: number;
@@ -261,8 +294,12 @@ export interface PaymentView {
   tourDate?: string;
   attendeeCount?: number;
   internalNote?: string;
+  paymentMethod: PaymentMethod;
   status: PaymentStatus;
-  livemode: boolean;
+  // Absent when Stripe never reported a mode — cash payments carry no
+  // Stripe concept of livemode, so the "Test mode" badge only ever
+  // appears on an explicit `false`.
+  livemode?: boolean;
   createdByUid: string;
   createdByName: string;
   createdAt?: string;
@@ -318,8 +355,14 @@ export function serializePayment(
     attendeeCount:
       typeof data.attendeeCount === "number" ? data.attendeeCount : undefined,
     internalNote: optStr("internalNote"),
+    paymentMethod: normalizePaymentMethod(data.paymentMethod),
     status: normalizePaymentStatus(data.status),
-    livemode: data.livemode === true,
+    livemode:
+      data.livemode === true
+        ? true
+        : data.livemode === false
+          ? false
+          : undefined,
     createdByUid: str("createdByUid"),
     createdByName: str("createdByName"),
     createdAt: toIsoString(data.createdAt),
@@ -368,6 +411,8 @@ export const PAYMENT_EVENT_TYPES = [
   "refund_requested",
   "refund_succeeded",
   "refund_failed",
+  "cash_payment_recorded",
+  "cash_refund_recorded",
 ] as const;
 
 export type PaymentEventType = (typeof PAYMENT_EVENT_TYPES)[number];
@@ -448,6 +493,12 @@ export function describePaymentEvent(
     case "refund_failed": {
       const msg = detailStr("message");
       return msg ? `Refund failed — ${msg}` : "Refund failed";
+    }
+    case "cash_payment_recorded":
+      return "Cash payment recorded";
+    case "cash_refund_recorded": {
+      const reason = detailStr("reason");
+      return `Cash refund recorded — ${refundAmountLine(details)}${reason ? ` (${reason})` : ""}`;
     }
     default:
       return event.type;
@@ -540,6 +591,7 @@ export const CLIENT_REQUEST_ID_PATTERN =
 
 export interface PaymentCreateInput {
   clientRequestId: string;
+  paymentMethod: PaymentMethod;
   purpose: string;
   description: string;
   amountMinor: number;
@@ -563,6 +615,19 @@ export function parsePaymentCreateBody(
   const clientRequestId = str("clientRequestId");
   if (!CLIENT_REQUEST_ID_PATTERN.test(clientRequestId)) {
     return { ok: false, error: "Missing or invalid payment request id." };
+  }
+
+  // The rail decides the whole downstream flow — absent means the card
+  // rail for compatibility with earlier clients, anything unrecognized
+  // is rejected rather than guessed.
+  const paymentMethodRaw = raw.paymentMethod;
+  if (
+    paymentMethodRaw !== undefined &&
+    paymentMethodRaw !== null &&
+    paymentMethodRaw !== "" &&
+    !isPaymentMethod(paymentMethodRaw)
+  ) {
+    return { ok: false, error: "Choose a payment method." };
   }
 
   const purpose = str("purpose");
@@ -638,6 +703,9 @@ export function parsePaymentCreateBody(
     ok: true,
     input: {
       clientRequestId,
+      paymentMethod: isPaymentMethod(paymentMethodRaw)
+        ? paymentMethodRaw
+        : "card",
       purpose,
       description,
       amountMinor: amount.minor,
@@ -661,6 +729,7 @@ export function paymentCreateMatchesRecord(
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   const num = (v: unknown) => (typeof v === "number" ? v : undefined);
   return (
+    normalizePaymentMethod(record.paymentMethod) === input.paymentMethod &&
     str(record.purpose) === input.purpose &&
     str(record.description) === input.description &&
     num(record.amountMinor) === input.amountMinor &&
@@ -1405,12 +1474,18 @@ export type RefundEligibility =
 // The single eligibility rule, enforced server-side and mirrored as an
 // advisory check in the UI. All inputs are already-resolved facts so the
 // same function serves the Firestore record and the serialized view.
+// `paymentMethod` selects the rail-specific requirements: cash has no
+// Stripe reference to require (or Stripe Dashboard to fall back to) —
+// everything else (paid, recorded paid time, the 1-hour window) applies
+// to both rails.
 export function paymentRefundEligibility(args: {
   status: unknown;
   paidAtMillis: number | null;
   hasStripePaymentRef: boolean;
   nowMillis: number;
+  paymentMethod?: unknown;
 }): RefundEligibility {
+  const isCash = args.paymentMethod === "cash";
   const status = normalizePaymentStatus(args.status);
   if (status === "refunded") {
     return {
@@ -1437,11 +1512,12 @@ export function paymentRefundEligibility(args: {
     return {
       ok: false,
       code: "missing_paid_at",
-      message:
-        "This payment has no recorded paid time — refund it in the Stripe Dashboard.",
+      message: isCash
+        ? "This payment has no recorded paid time — a cash refund cannot be recorded."
+        : "This payment has no recorded paid time — refund it in the Stripe Dashboard.",
     };
   }
-  if (!args.hasStripePaymentRef) {
+  if (!isCash && !args.hasStripePaymentRef) {
     return {
       ok: false,
       code: "missing_stripe_reference",
@@ -1453,8 +1529,9 @@ export function paymentRefundEligibility(args: {
     return {
       ok: false,
       code: "window_expired",
-      message:
-        "Refunds can be issued here for 1 hour after payment. After that, use Stripe Dashboard.",
+      message: isCash
+        ? "Cash refunds can only be recorded here within 1 hour of the payment."
+        : "Refunds can be issued here for 1 hour after payment. After that, use Stripe Dashboard.",
     };
   }
   return { ok: true };
@@ -1553,6 +1630,67 @@ export function planRefundClaim(
           typeof record.amountMinor === "number"
             ? String(record.amountMinor)
             : null,
+        reason,
+      },
+    },
+  };
+}
+
+export type CashRefundPlan =
+  | { kind: "already_refunded" }
+  | {
+      kind: "apply";
+      updates: Record<string, unknown>;
+      event: PaymentEventDraft;
+    }
+  | { kind: "reject"; code: RefundDenyCode; message: string };
+
+// Cash refunds are a staff bookkeeping action, not a provider call — the
+// money is handed back at the counter, so the whole transition commits in
+// a single transaction: `paid` → `refunded` with a `cash_refund_recorded`
+// audit event and no `refunding` phase. Eligibility mirrors the Stripe
+// rail (paid, recorded paid time, the 1-hour window) minus the Stripe
+// reference requirement — there is no provider state to verify and no
+// Stripe refund is ever created.
+export function planCashRefund(
+  record: PaymentRecord,
+  reason: string,
+  nowMillis: number
+): CashRefundPlan {
+  const status = normalizePaymentStatus(record.status);
+  if (status === "refunded") return { kind: "already_refunded" };
+  const eligibility = paymentRefundEligibility({
+    status: record.status,
+    paidAtMillis: timestampMillis(record.paidAt),
+    hasStripePaymentRef: false,
+    nowMillis,
+    paymentMethod: "cash",
+  });
+  if (!eligibility.ok) {
+    return {
+      kind: "reject",
+      code: eligibility.code,
+      message: eligibility.message,
+    };
+  }
+  const amountMinor =
+    typeof record.amountMinor === "number" ? record.amountMinor : null;
+  return {
+    kind: "apply",
+    updates: {
+      status: "refunded",
+      refundReason: reason,
+      refundAmountMinor: amountMinor,
+      refundCurrency:
+        typeof record.currency === "string" && record.currency
+          ? record.currency
+          : PAYMENT_CURRENCY,
+      refundFailureMessage: null,
+    },
+    event: {
+      type: "cash_refund_recorded",
+      details: {
+        amountMinor: amountMinor === null ? null : String(amountMinor),
         reason,
       },
     },

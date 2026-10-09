@@ -592,6 +592,9 @@ export interface QboSalesReceiptSpec {
   clearingAccountId: string;
   incomeItemId: string;
   customerId: string;
+  /** Human-readable rail note for PrivateNote (e.g. "Cash payment") —
+   *  card receipts carry the Stripe refs instead. */
+  methodLabel?: string;
   paymentIntentId?: string;
   chargeId?: string;
   /** `"NotApplicable"` for non-US companies (QBO requires the field on
@@ -614,6 +617,7 @@ export function buildQboSalesReceiptPayload(
   const gross = spec.amountMinor / 100;
   const refs = [
     `Deep Dive Brewing payment ${qboSalesReceiptMarker(spec.sourceId)}`,
+    spec.methodLabel ?? null,
     spec.paymentIntentId ? `Stripe PI ${spec.paymentIntentId}` : null,
     spec.chargeId ? `charge ${spec.chargeId}` : null,
   ].filter((part): part is string => part !== null);

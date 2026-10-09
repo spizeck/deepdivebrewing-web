@@ -21,10 +21,12 @@ import {
   isPaymentCancelable,
   isPaymentPayable,
   parseAmountMinor,
+  paymentMethodLabel,
   paymentPurposeLabel,
   paymentRefundEligibility,
   paymentStatusLabel,
   suggestedAmountMinor,
+  PAYMENT_METHODS,
   PAYMENT_PURPOSES,
   REFUND_CONFIRMATION_PHRASE,
   REFUND_REASON_MAX_LENGTH,
@@ -45,6 +47,7 @@ interface PaymentDetail {
 }
 
 const EMPTY_FORM = {
+  paymentMethod: "card",
   purpose: "brewery_tour",
   // Prefilled from the default purpose so the form never shows "Brewery
   // Tour" selected with a blank required description.
@@ -330,6 +333,7 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
         method: "POST",
         body: JSON.stringify({
           clientRequestId: clientRequestIdRef.current,
+          paymentMethod: form.paymentMethod,
           purpose: form.purpose,
           description: form.description,
           amount: form.amount,
@@ -349,7 +353,11 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
       upsertPayment(payment);
       setActivePayment(next);
       setStep("created");
-      setStatusMessage("Payment link created.");
+      setStatusMessage(
+        payment.paymentMethod === "cash"
+          ? "Cash payment recorded."
+          : "Payment link created."
+      );
       setStatusIsError(false);
     } catch (error) {
       setFormError(
@@ -454,6 +462,7 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
       paidAtMillis: payment.paidAt ? paymentMillis(payment.paidAt) : null,
       hasStripePaymentRef: !!payment.stripePaymentIntentId,
       nowMillis: Date.now(),
+      paymentMethod: payment.paymentMethod,
     });
     if (!eligibility.ok) {
       setRefundError(eligibility.message);
@@ -534,6 +543,7 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
           : null,
         hasStripePaymentRef: !!shownPayment.stripePaymentIntentId,
         nowMillis,
+        paymentMethod: shownPayment.paymentMethod,
       })
     : null;
   const timeline = detail
@@ -629,6 +639,28 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
             <>
               <h2 className="font-semibold">Take payment</h2>
               <form className="mt-3 space-y-3" onSubmit={reviewPayment}>
+                <fieldset className="text-sm">
+                  <legend className="mb-1 font-medium">Payment method</legend>
+                  <div className="flex gap-4">
+                    {PAYMENT_METHODS.map((method) => (
+                      <label
+                        key={method.value}
+                        className="flex items-center gap-1.5"
+                      >
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value={method.value}
+                          checked={form.paymentMethod === method.value}
+                          onChange={() =>
+                            updateField("paymentMethod", method.value)
+                          }
+                        />
+                        {method.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">Purpose</span>
                   <select
@@ -756,7 +788,11 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
 
           {step === "confirm" && reviewMinor.ok && (
             <>
-              <h2 className="font-semibold">Confirm charge</h2>
+              <h2 className="font-semibold">
+                {form.paymentMethod === "cash"
+                  ? "Confirm cash payment"
+                  : "Confirm charge"}
+              </h2>
               <div className="mt-3 rounded-md border border-stone bg-stone/20 p-4 text-center">
                 <p className="text-3xl font-bold tracking-tight">
                   {formatUsdMinor(reviewMinor.minor)}
@@ -775,7 +811,13 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                   onClick={() => void createPayment()}
                   disabled={creating}
                 >
-                  {creating ? "Creating…" : "Create payment"}
+                  {creating
+                    ? form.paymentMethod === "cash"
+                      ? "Recording…"
+                      : "Creating…"
+                    : form.paymentMethod === "cash"
+                      ? "Record cash payment"
+                      : "Create payment"}
                 </Button>
                 <Button
                   variant="outline"
@@ -786,8 +828,9 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                 </Button>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                The customer enters their card on Stripe&apos;s secure page —
-                card details never touch this app.
+                {form.paymentMethod === "cash"
+                  ? "Recording marks this payment as received immediately — no card or Stripe payment link is created."
+                  : "The customer enters their card on Stripe's secure page — card details never touch this app."}
               </p>
             </>
           )}
@@ -795,7 +838,11 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
           {step === "created" && activePayment && (
             <>
               <div className="flex items-center justify-between gap-2">
-                <h2 className="font-semibold">Payment created</h2>
+                <h2 className="font-semibold">
+                  {activePayment.payment.paymentMethod === "cash"
+                    ? "Cash payment recorded"
+                    : "Payment created"}
+                </h2>
                 <div className="flex items-center gap-2">
                   {activePayment.payment.livemode === false && (
                     <Badge
@@ -897,6 +944,14 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                       <span className="font-medium">
                         {formatUsdMinor(p.amountMinor)}
                       </span>
+                      {p.paymentMethod === "cash" && (
+                        <Badge
+                          variant="outline"
+                          className="border-stone text-muted-foreground"
+                        >
+                          Cash
+                        </Badge>
+                      )}
                       <StatusBadge status={p.status} />
                     </span>
                   </button>
@@ -1018,6 +1073,10 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                   <dd>{shownPayment.createdByName || "—"}</dd>
                 </div>
                 <div>
+                  <dt className={sectionLabelClass}>Method</dt>
+                  <dd>{paymentMethodLabel(shownPayment.paymentMethod)}</dd>
+                </div>
+                <div>
                   <dt className={sectionLabelClass}>Receipt email</dt>
                   <dd>{shownPayment.customerEmail || "—"}</dd>
                 </div>
@@ -1037,43 +1096,47 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                   <dt className={sectionLabelClass}>Paid at</dt>
                   <dd>{formatAdminDateTime(shownPayment.paidAt)}</dd>
                 </div>
-                <div>
-                  <dt className={sectionLabelClass}>Card</dt>
-                  <dd>
-                    {shownPayment.paymentMethodBrand
-                      ? `${shownPayment.paymentMethodBrand} ···· ${shownPayment.paymentMethodLast4 ?? ""}`
-                      : "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className={sectionLabelClass}>Receipt</dt>
-                  <dd>
-                    {shownPayment.receiptUrl ? (
-                      <a
-                        href={shownPayment.receiptUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-ocean hover:underline"
-                      >
-                        View receipt
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className={sectionLabelClass}>Stripe session</dt>
-                  <dd className="break-all text-xs">
-                    {shownPayment.stripeCheckoutSessionId ?? "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className={sectionLabelClass}>PaymentIntent</dt>
-                  <dd className="break-all text-xs">
-                    {shownPayment.stripePaymentIntentId ?? "—"}
-                  </dd>
-                </div>
+                {shownPayment.paymentMethod === "card" && (
+                  <>
+                    <div>
+                      <dt className={sectionLabelClass}>Card</dt>
+                      <dd>
+                        {shownPayment.paymentMethodBrand
+                          ? `${shownPayment.paymentMethodBrand} ···· ${shownPayment.paymentMethodLast4 ?? ""}`
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className={sectionLabelClass}>Receipt</dt>
+                      <dd>
+                        {shownPayment.receiptUrl ? (
+                          <a
+                            href={shownPayment.receiptUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-ocean hover:underline"
+                          >
+                            View receipt
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className={sectionLabelClass}>Stripe session</dt>
+                      <dd className="break-all text-xs">
+                        {shownPayment.stripeCheckoutSessionId ?? "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className={sectionLabelClass}>PaymentIntent</dt>
+                      <dd className="break-all text-xs">
+                        {shownPayment.stripePaymentIntentId ?? "—"}
+                      </dd>
+                    </div>
+                  </>
+                )}
                 {shownPayment.status === "refunded" && (
                   <>
                     <div>
@@ -1096,12 +1159,14 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
                       <dt className={sectionLabelClass}>Refunded by</dt>
                       <dd>{shownPayment.refundedByName || "—"}</dd>
                     </div>
-                    <div>
-                      <dt className={sectionLabelClass}>Stripe refund</dt>
-                      <dd className="break-all text-xs">
-                        {shownPayment.stripeRefundId ?? "—"}
-                      </dd>
-                    </div>
+                    {shownPayment.paymentMethod === "card" && (
+                      <div>
+                        <dt className={sectionLabelClass}>Stripe refund</dt>
+                        <dd className="break-all text-xs">
+                          {shownPayment.stripeRefundId ?? "—"}
+                        </dd>
+                      </div>
+                    )}
                   </>
                 )}
                 {shownPayment.status === "paid" &&
@@ -1171,9 +1236,9 @@ export function AdminPaymentsWorkspace({ user }: { user: AdminPanelUser }) {
             Refund payment
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            A full refund returns the entire charge to the customer&apos;s
-            card. This is permanent — the payment and its history are kept,
-            but the money does not come back through this tool.
+            {refundTarget?.paymentMethod === "cash"
+              ? "A cash refund records that the full amount was handed back to the customer in cash. This is permanent — the payment and its history are kept."
+              : "A full refund returns the entire charge to the customer's card. This is permanent — the payment and its history are kept, but the money does not come back through this tool."}
           </DialogDescription>
           {refundTarget && (
             <>

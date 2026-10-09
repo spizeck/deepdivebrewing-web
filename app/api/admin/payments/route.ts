@@ -55,9 +55,11 @@ export async function POST(req: NextRequest) {
       parsed.input,
       paymentActorOf(actor)
     );
-    // Payment id and replay flag only — never the customer PII in the body.
+    // Payment id, rail, and replay flag only — never the customer PII in
+    // the body.
     logInfo("payment.created", {
       paymentId: created.id,
+      paymentMethod: parsed.input.paymentMethod,
       replayed: created.replayed,
       requestId,
     });

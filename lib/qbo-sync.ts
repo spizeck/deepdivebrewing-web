@@ -5,6 +5,7 @@ import { getQboEnvironment } from "@/lib/qbo-config";
 import { logError, logInfo, logWarn } from "@/lib/log";
 import { getStripeClient } from "@/lib/stripe";
 import {
+  normalizePaymentMethod,
   normalizePaymentStatus,
   paymentIdFromSession,
   timestampMillis,
@@ -29,6 +30,7 @@ import {
   qboIncomeItemKeyForPurpose,
   qboSalesReceiptMarker,
   qboSyncIdFor,
+  QBO_CASH_PAYMENT_SOURCE_TYPE,
   QBO_CONNECTIONS_COLLECTION,
   QBO_SALES_RECEIPT_ENTITY_TYPE,
   QBO_STRIPE_PAYMENT_SOURCE_TYPE,
@@ -311,16 +313,21 @@ async function finalizeSyncClaim(
   });
 }
 
-// The bookkeeping work for one claimed stripe_payment record: verify the
-// payment is genuinely settled (own record + canonical Stripe session),
-// gate on mapping, then find-or-create exactly one Sales Receipt.
+// The bookkeeping work for one claimed stripe_payment/cash_payment
+// record: verify the payment is genuinely settled (own record +, for the
+// card rail, the canonical Stripe session), gate on mapping, then
+// find-or-create exactly one Sales Receipt.
 async function runSyncWrite(
   sourceType: string | undefined,
   sourceId: string | undefined,
   environment: QboEnvironment,
   leaseUntilMs: number
 ): Promise<SyncWriteResult> {
-  if (sourceType !== QBO_STRIPE_PAYMENT_SOURCE_TYPE || !sourceId) {
+  const isCash = sourceType === QBO_CASH_PAYMENT_SOURCE_TYPE;
+  if (
+    (sourceType !== QBO_STRIPE_PAYMENT_SOURCE_TYPE && !isCash) ||
+    !sourceId
+  ) {
     return attention(
       "unsupported_source",
       "This sync record type is not supported by the QBO writer."
@@ -335,6 +342,19 @@ async function runSyncWrite(
     return attention(
       "payment_missing",
       "The DDB payment record for this sync no longer exists."
+    );
+  }
+  // The sync record's source type must match the payment's own canonical
+  // rail — a tampered or stale sync record can never steer a card payment
+  // into the cash account or a cash payment into Stripe clearing.
+  const paymentSourceType =
+    normalizePaymentMethod(payment.paymentMethod) === "cash"
+      ? QBO_CASH_PAYMENT_SOURCE_TYPE
+      : QBO_STRIPE_PAYMENT_SOURCE_TYPE;
+  if (sourceType !== paymentSourceType) {
+    return attention(
+      "method_mismatch",
+      "The sync record's source type does not match the payment's payment method."
     );
   }
   const status = normalizePaymentStatus(payment.status);
@@ -355,7 +375,7 @@ async function runSyncWrite(
     typeof payment.currency === "string" && payment.currency
       ? payment.currency.toUpperCase()
       : "USD";
-  if (!settled || !paidAtMs || !sessionId || !amountMinor) {
+  if (!settled || !paidAtMs || !amountMinor || (!isCash && !sessionId)) {
     return attention(
       "payment_not_settled",
       "The payment record does not show a verified settled charge."
@@ -400,10 +420,17 @@ async function runSyncWrite(
       "The income item required for this payment's purpose is not mapped."
     );
   }
-  if (!mapping.stripeClearingAccountId) {
+  const depositAccountId = isCash
+    ? mapping.cashDepositAccountId
+    : mapping.stripeClearingAccountId;
+  if (!depositAccountId) {
     return attention(
-      "missing_stripeClearingAccountId",
-      "No Stripe clearing account is mapped for QuickBooks posting."
+      isCash
+        ? "missing_cashDepositAccountId"
+        : "missing_stripeClearingAccountId",
+      isCash
+        ? "No cash deposit account is mapped for QuickBooks posting."
+        : "No Stripe clearing account is mapped for QuickBooks posting."
     );
   }
   if (!mapping.fallbackCustomerId) {
@@ -413,67 +440,74 @@ async function runSyncWrite(
     );
   }
 
-  // --- Canonical Stripe verification (provider boundary, never the
-  // stored record alone) ---
-  let session: Record<string, unknown>;
-  try {
-    session = (await getStripeClient().checkout.sessions.retrieve(
-      sessionId
-    )) as unknown as Record<string, unknown>;
-  } catch (error) {
-    return failure(
-      toPaymentProviderError(error).code,
-      "Stripe settlement could not be re-verified — retry later."
-    );
+  // --- Canonical Stripe verification (card rail only; the provider
+  // boundary, never the stored record alone). Cash has no provider —
+  // the server's own paid record is the whole of the verification.
+  let paymentIntentId: string | undefined;
+  let chargeId: string | undefined;
+  if (!isCash && sessionId) {
+    let session: Record<string, unknown>;
+    try {
+      session = (await getStripeClient().checkout.sessions.retrieve(
+        sessionId
+      )) as unknown as Record<string, unknown>;
+    } catch (error) {
+      return failure(
+        toPaymentProviderError(error).code,
+        "Stripe settlement could not be re-verified — retry later."
+      );
+    }
+    if (paymentIdFromSession(session) !== sourceId) {
+      return attention(
+        "identity_mismatch",
+        "The Stripe session does not belong to this payment record."
+      );
+    }
+    if (session.status === "open") {
+      return failure(
+        "stripe_not_settled",
+        "Stripe has not finished settling this payment — retry later."
+      );
+    }
+    if (session.status !== "complete" || session.payment_status !== "paid") {
+      return attention(
+        "stripe_not_settled",
+        "Stripe's canonical state does not show this payment as settled."
+      );
+    }
+    if (session.amount_total !== amountMinor) {
+      return attention(
+        "amount_mismatch",
+        "Stripe's settled amount differs from the payment record."
+      );
+    }
+    const sessionCurrency =
+      typeof session.currency === "string"
+        ? session.currency.toUpperCase()
+        : null;
+    if (sessionCurrency !== currency) {
+      return attention(
+        "currency_mismatch",
+        "Stripe's settled currency differs from the payment record."
+      );
+    }
+    const sessionPi = session.payment_intent;
+    paymentIntentId =
+      (typeof sessionPi === "string"
+        ? sessionPi
+        : sessionPi &&
+            typeof sessionPi === "object" &&
+            typeof (sessionPi as { id?: unknown }).id === "string"
+          ? (sessionPi as { id: string }).id
+          : undefined) ??
+      (typeof payment.stripePaymentIntentId === "string"
+        ? payment.stripePaymentIntentId
+        : undefined);
+    chargeId =
+      typeof payment.stripeChargeId === "string"
+        ? payment.stripeChargeId
+        : undefined;
   }
-  if (paymentIdFromSession(session) !== sourceId) {
-    return attention(
-      "identity_mismatch",
-      "The Stripe session does not belong to this payment record."
-    );
-  }
-  if (session.status === "open") {
-    return failure(
-      "stripe_not_settled",
-      "Stripe has not finished settling this payment — retry later."
-    );
-  }
-  if (session.status !== "complete" || session.payment_status !== "paid") {
-    return attention(
-      "stripe_not_settled",
-      "Stripe's canonical state does not show this payment as settled."
-    );
-  }
-  if (session.amount_total !== amountMinor) {
-    return attention(
-      "amount_mismatch",
-      "Stripe's settled amount differs from the payment record."
-    );
-  }
-  const sessionCurrency =
-    typeof session.currency === "string"
-      ? session.currency.toUpperCase()
-      : null;
-  if (sessionCurrency !== currency) {
-    return attention(
-      "currency_mismatch",
-      "Stripe's settled currency differs from the payment record."
-    );
-  }
-  const sessionPi = session.payment_intent;
-  const paymentIntentId =
-    (typeof sessionPi === "string"
-      ? sessionPi
-      : sessionPi &&
-          typeof sessionPi === "object" &&
-          typeof (sessionPi as { id?: unknown }).id === "string"
-        ? (sessionPi as { id: string }).id
-        : undefined) ??
-    (typeof payment.stripePaymentIntentId === "string"
-      ? payment.stripePaymentIntentId
-      : undefined);
-  const chargeId =
-    typeof payment.stripeChargeId === "string" ? payment.stripeChargeId : undefined;
 
   // --- Provider calls (token + correlation lookup + create) ---
   try {
@@ -532,9 +566,10 @@ async function runSyncWrite(
           typeof payment.description === "string"
             ? payment.description
             : undefined,
-        clearingAccountId: mapping.stripeClearingAccountId,
+        clearingAccountId: depositAccountId,
         incomeItemId,
         customerId: mapping.fallbackCustomerId,
+        methodLabel: isCash ? "Cash payment" : undefined,
         paymentIntentId,
         chargeId,
         globalTaxCalculation,
@@ -711,35 +746,18 @@ export async function processQboSyncRecord(
   return { outcome: "failed", reason: result.code };
 }
 
-// --- Producer seam (#179) ---
+// --- Producer seam (#179; cash rail #206) ---
 
-// Builds the sync candidate from a settled payment record. Shared by the
-// post-commit helper and the atomic in-commit create the payments seam
-// performs inside the `paid` transition transaction — pass the merged
-// post-update record there so paidAt/externalRefs are already populated.
-export function qboStripePaymentCandidate(
+// The shared candidate fields for one settled payment — identical across
+// payment rails; only the source type and provider refs differ.
+function qboPaymentCandidateBase(
   payment: Record<string, unknown>,
-  paymentId: string
+  paymentId: string,
+  sourceType: string
 ): QuickBooksSyncCandidate {
   const paidAtMs = timestampMillis(payment.paidAt);
-  const externalRefs: Record<string, string> = {};
-  if (
-    typeof payment.stripeCheckoutSessionId === "string" &&
-    payment.stripeCheckoutSessionId
-  ) {
-    externalRefs.checkoutSessionId = payment.stripeCheckoutSessionId;
-  }
-  if (
-    typeof payment.stripePaymentIntentId === "string" &&
-    payment.stripePaymentIntentId
-  ) {
-    externalRefs.paymentIntentId = payment.stripePaymentIntentId;
-  }
-  if (typeof payment.stripeChargeId === "string" && payment.stripeChargeId) {
-    externalRefs.chargeId = payment.stripeChargeId;
-  }
   return {
-    sourceType: QBO_STRIPE_PAYMENT_SOURCE_TYPE,
+    sourceType,
     sourceId: paymentId,
     amountMinorUnits:
       typeof payment.amountMinor === "number" ? payment.amountMinor : 0,
@@ -762,7 +780,6 @@ export function qboStripePaymentCandidate(
       typeof payment.description === "string"
         ? payment.description
         : undefined,
-    externalRefs: Object.keys(externalRefs).length ? externalRefs : undefined,
     tourDate:
       typeof payment.tourDate === "string" ? payment.tourDate : undefined,
     attendeeCount:
@@ -770,6 +787,66 @@ export function qboStripePaymentCandidate(
         ? payment.attendeeCount
         : undefined,
   };
+}
+
+// Builds the sync candidate from a settled payment record. Shared by the
+// post-commit helper and the atomic in-commit create the payments seam
+// performs inside the `paid` transition transaction — pass the merged
+// post-update record there so paidAt/externalRefs are already populated.
+export function qboStripePaymentCandidate(
+  payment: Record<string, unknown>,
+  paymentId: string
+): QuickBooksSyncCandidate {
+  const externalRefs: Record<string, string> = {};
+  if (
+    typeof payment.stripeCheckoutSessionId === "string" &&
+    payment.stripeCheckoutSessionId
+  ) {
+    externalRefs.checkoutSessionId = payment.stripeCheckoutSessionId;
+  }
+  if (
+    typeof payment.stripePaymentIntentId === "string" &&
+    payment.stripePaymentIntentId
+  ) {
+    externalRefs.paymentIntentId = payment.stripePaymentIntentId;
+  }
+  if (typeof payment.stripeChargeId === "string" && payment.stripeChargeId) {
+    externalRefs.chargeId = payment.stripeChargeId;
+  }
+  return {
+    ...qboPaymentCandidateBase(
+      payment,
+      paymentId,
+      QBO_STRIPE_PAYMENT_SOURCE_TYPE
+    ),
+    externalRefs: Object.keys(externalRefs).length ? externalRefs : undefined,
+  };
+}
+
+// Cash payments carry no provider refs — the DDB payment record is the
+// canonical settlement, and the sync record's distinct source type is
+// what steers it to the cash deposit account instead of Stripe clearing.
+export function qboCashPaymentCandidate(
+  payment: Record<string, unknown>,
+  paymentId: string
+): QuickBooksSyncCandidate {
+  return qboPaymentCandidateBase(
+    payment,
+    paymentId,
+    QBO_CASH_PAYMENT_SOURCE_TYPE
+  );
+}
+
+// The rail-aware dispatcher every enqueue site uses — the payment's own
+// canonical `paymentMethod` decides the source type, so a caller can
+// never pick the wrong accounting path for a record.
+export function qboPaymentCandidate(
+  payment: Record<string, unknown>,
+  paymentId: string
+): QuickBooksSyncCandidate {
+  return normalizePaymentMethod(payment.paymentMethod) === "cash"
+    ? qboCashPaymentCandidate(payment, paymentId)
+    : qboStripePaymentCandidate(payment, paymentId);
 }
 
 // Called after a canonical `paid` commit (webhook or manual refresh).
@@ -798,7 +875,7 @@ export async function postPaidPaymentToQbo(paymentId: string): Promise<void> {
       return;
     }
     const { syncId } = await enqueueAccountingTransaction(
-      qboStripePaymentCandidate(payment, paymentId)
+      qboPaymentCandidate(payment, paymentId)
     );
     await processQboSyncRecord(syncId);
   } catch (error) {

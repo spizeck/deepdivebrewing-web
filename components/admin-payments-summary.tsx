@@ -73,7 +73,7 @@ export function AdminPaymentsSummary({ user }: { user: AdminPanelUser }) {
         <p className="mt-0.5 text-sm text-muted-foreground">
           {summary
             ? `${summary.awaiting} awaiting · ${formatUsdMinor(summary.paidTodayMinor)} collected today`
-            : "Card payments for tours and other one-off charges."}
+            : "Card and cash payments for tours and other one-off charges."}
         </p>
       </div>
       <Button asChild variant="outline" size="sm">

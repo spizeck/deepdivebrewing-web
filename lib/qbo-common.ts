@@ -125,6 +125,10 @@ export interface QboAccountingMapping {
   /** Account gross sales receipts deposit into until Stripe payouts
    *  reconcile (the "Stripe clearing account", e.g. `Stripe Balance`). */
   stripeClearingAccountId?: string;
+  /** Account cash sales receipts deposit into (e.g. `Cash on hand` /
+   *  `Undeposited Funds`). Optional at the mapping level — required only
+   *  before a cash payment can post; never the Stripe clearing account. */
+  cashDepositAccountId?: string;
   /** Item used for brewery-tour income lines. */
   tourIncomeItemId?: string;
   /** Item used for tasting/flight income lines. */
@@ -160,6 +164,15 @@ export const QBO_MAPPING_FIELDS: readonly QboMappingFieldSpec[] = [
     entityType: "account",
     label: "Stripe clearing account",
     required: true,
+  },
+  {
+    // Not a completeness requirement — card payments post without it.
+    // A cash payment with no cash account mapped fails closed into
+    // needs_attention rather than guessing a destination (issue #206).
+    key: "cashDepositAccountId",
+    entityType: "account",
+    label: "Cash deposit account",
+    required: false,
   },
   {
     key: "tourIncomeItemId",
@@ -411,10 +424,13 @@ export function persistableQboSyncCandidate(
 
 // --- Sales Receipt write model (issue #179) ---
 
-// The only source type the sync worker posts today — a settled payment
-// from the app's own `payments` collection. Positive identity is
-// structural: only records the tool itself issued can carry this type.
+// The only source types the sync worker posts — a settled payment from
+// the app's own `payments` collection, one per payment rail (issue #206).
+// Positive identity is structural: only records the tool itself issued
+// can carry these types, and the worker re-verifies that the sync
+// record's source type matches the canonical payment's own rail.
 export const QBO_STRIPE_PAYMENT_SOURCE_TYPE = "stripe_payment";
+export const QBO_CASH_PAYMENT_SOURCE_TYPE = "cash_payment";
 export const QBO_SALES_RECEIPT_ENTITY_TYPE = "SalesReceipt";
 
 // Maps a payment-tool `purpose` onto the income-item mapping field, per

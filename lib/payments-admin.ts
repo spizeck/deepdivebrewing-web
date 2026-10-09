@@ -5,13 +5,12 @@ import { getStripeClient } from "@/lib/stripe";
 import {
   buildQboSyncRecordDoc,
   postPaidPaymentToQbo,
-  qboStripePaymentCandidate,
+  qboPaymentCandidate,
 } from "@/lib/qbo-sync";
 import { getQboEnvironment } from "@/lib/qbo-config";
 import {
   normalizeQboSyncCandidate,
   qboSyncIdFor,
-  QBO_STRIPE_PAYMENT_SOURCE_TYPE,
   QBO_SYNC_RECORDS_COLLECTION,
   type QboEnvironment,
 } from "@/lib/qbo-common";
@@ -26,12 +25,14 @@ import {
   canonicalSessionDecision,
   enrichmentFromPaymentIntent,
   isPaymentCancelable,
+  normalizePaymentMethod,
   normalizePaymentStatus,
   outcomeFromSession,
   paymentCreateMatchesRecord,
   paymentIdFromSession,
   PaymentError,
   PaymentNotFoundError,
+  planCashRefund,
   planRefundClaim,
   planStripeEventApply,
   processStripeEvent,
@@ -142,14 +143,25 @@ export interface CreatedPayment {
   replayed: boolean;
 }
 
-// Creates the internal record + Stripe Checkout Session.
-//
-// Duplicate-charge protection is structural: the clientRequestId is both
-// the document id and the Stripe idempotency key. A retried POST either
-// returns the existing record or resumes a half-finished creation (doc
-// exists, session missing) — it can never mint a second session for the
-// same logical action.
+// One Accept-payment entry point — the rail on the validated input picks
+// the implementation. Card takes the Stripe Checkout path; cash records
+// the payment immediately.
 export async function createAdminPayment(
+  input: PaymentCreateInput,
+  actor: PaymentActor
+): Promise<CreatedPayment> {
+  return input.paymentMethod === "cash"
+    ? createAdminCashPayment(input, actor)
+    : createAdminCardPayment(input, actor);
+}
+
+// Cash rail (issue #206): the money is already in hand, so the record is
+// born `paid` — no Stripe session, no hosted page, nothing to reconcile.
+// Same structural duplicate protection as the card rail: clientRequestId
+// is the document id and a replayed POST must carry identical details.
+// The paid commit is a single transaction — payment record, both audit
+// events, and the durable QBO sync record land together.
+async function createAdminCashPayment(
   input: PaymentCreateInput,
   actor: PaymentActor
 ): Promise<CreatedPayment> {
@@ -166,6 +178,93 @@ export async function createAdminPayment(
     ...(input.tourDate ? { tourDate: input.tourDate } : {}),
     ...(input.attendeeCount ? { attendeeCount: input.attendeeCount } : {}),
     ...(input.internalNote ? { internalNote: input.internalNote } : {}),
+    paymentMethod: "cash",
+    status: "paid",
+    // A concrete timestamp like the paid transition's `paidAt = now` —
+    // the in-commit QBO candidate derives its transaction date from it.
+    paidAt: new Date(),
+    eventCount: 2,
+    createdByUid: actor.uid,
+    createdByName: actor.name,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  const seed = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists) {
+      return { existed: true, data: snap.data() as Record<string, unknown> };
+    }
+    // Same atomic paid-commit shape as the card rail — the read must run
+    // before this transaction's writes.
+    const syncCreate = await qboSyncCreateForPaidCommit(
+      tx,
+      input.clientRequestId,
+      baseRecord
+    );
+    tx.set(ref, baseRecord);
+    tx.set(
+      ref.collection(PAYMENT_EVENTS_SUBCOLLECTION).doc(),
+      eventDoc({ type: "payment_created" }, 0, actor)
+    );
+    tx.set(
+      ref.collection(PAYMENT_EVENTS_SUBCOLLECTION).doc(),
+      eventDoc(
+        {
+          type: "cash_payment_recorded",
+          details: { amountMinor: String(input.amountMinor) },
+        },
+        1,
+        actor
+      )
+    );
+    if (syncCreate) tx.create(syncCreate.ref, syncCreate.doc);
+    return { existed: false, data: baseRecord };
+  });
+
+  if (seed.existed) {
+    if (!paymentCreateMatchesRecord(seed.data, input)) {
+      throw new PaymentError(
+        "A payment with this reference already exists with different details. Start a new payment instead.",
+        409
+      );
+    }
+    return { id: ref.id, data: seed.data, replayed: true };
+  }
+
+  // Best-effort accounting export — identical semantics to the card
+  // rail's post-commit helper; never rolls the recorded payment back.
+  await postPaidPaymentToQbo(input.clientRequestId);
+
+  const created = await getPayment(input.clientRequestId);
+  return { id: input.clientRequestId, data: created?.data ?? {}, replayed: false };
+}
+
+// Card rail: creates the internal record + Stripe Checkout Session.
+//
+// Duplicate-charge protection is structural: the clientRequestId is both
+// the document id and the Stripe idempotency key. A retried POST either
+// returns the existing record or resumes a half-finished creation (doc
+// exists, session missing) — it can never mint a second session for the
+// same logical action.
+async function createAdminCardPayment(
+  input: PaymentCreateInput,
+  actor: PaymentActor
+): Promise<CreatedPayment> {
+  const db = getFirebaseAdminDb();
+  const ref = getPaymentsCollection().doc(input.clientRequestId);
+
+  const baseRecord: Record<string, unknown> = {
+    purpose: input.purpose,
+    description: input.description,
+    amountMinor: input.amountMinor,
+    currency: "usd",
+    customerName: input.customerName,
+    ...(input.customerEmail ? { customerEmail: input.customerEmail } : {}),
+    ...(input.tourDate ? { tourDate: input.tourDate } : {}),
+    ...(input.attendeeCount ? { attendeeCount: input.attendeeCount } : {}),
+    ...(input.internalNote ? { internalNote: input.internalNote } : {}),
+    paymentMethod: "card",
     status: "created",
     eventCount: 1,
     createdByUid: actor.uid,
@@ -401,15 +500,15 @@ async function qboSyncCreateForPaidCommit(
   doc: Record<string, unknown>;
 } | null> {
   let environment: QboEnvironment;
+  let sourceType: string;
   let doc: Record<string, unknown>;
   try {
     environment = getQboEnvironment();
-    doc = buildQboSyncRecordDoc(
-      environment,
-      normalizeQboSyncCandidate(
-        qboStripePaymentCandidate(settledPayment, paymentId)
-      )
+    const candidate = normalizeQboSyncCandidate(
+      qboPaymentCandidate(settledPayment, paymentId)
     );
+    sourceType = candidate.sourceType;
+    doc = buildQboSyncRecordDoc(environment, candidate);
   } catch {
     // Unconfigured environment or a malformed candidate — the payment
     // commit proceeds regardless; the post-commit enqueue logs it.
@@ -417,9 +516,7 @@ async function qboSyncCreateForPaidCommit(
   }
   const ref = getFirebaseAdminDb()
     .collection(QBO_SYNC_RECORDS_COLLECTION)
-    .doc(
-      qboSyncIdFor(environment, QBO_STRIPE_PAYMENT_SOURCE_TYPE, paymentId)
-    );
+    .doc(qboSyncIdFor(environment, sourceType, paymentId));
   if ((await tx.get(ref)).exists) return null;
   return { ref, doc };
 }
@@ -753,6 +850,37 @@ export async function refundAdminPayment(
     const snap = await tx.get(ref);
     if (!snap.exists) throw new PaymentNotFoundError();
     const record = (snap.data() ?? {}) as Record<string, unknown>;
+
+    // Cash rail (issue #206): the refund is a staff bookkeeping action —
+    // money handed back at the counter, never a Stripe call. The whole
+    // `paid` → `refunded` transition commits here in one transaction:
+    // there is no provider operation to survive a crash between, so the
+    // `refunding` claim phase is unnecessary.
+    if (normalizePaymentMethod(record.paymentMethod) === "cash") {
+      const cashPlan = planCashRefund(record, input.reason, Date.now());
+      if (cashPlan.kind === "reject") {
+        throw new PaymentError(cashPlan.message, 409);
+      }
+      if (cashPlan.kind === "apply") {
+        const base =
+          typeof record.eventCount === "number" ? record.eventCount : 0;
+        tx.update(ref, {
+          ...cashPlan.updates,
+          refundedByUid: actor.uid,
+          refundedByName: actor.name,
+          refundRequestedAt: FieldValue.serverTimestamp(),
+          refundedAt: FieldValue.serverTimestamp(),
+          eventCount: base + 1,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        tx.set(
+          ref.collection(PAYMENT_EVENTS_SUBCOLLECTION).doc(),
+          eventDoc(cashPlan.event, base, actor)
+        );
+      }
+      return { kind: "done" as const };
+    }
+
     const plan = planRefundClaim(record, input.reason, Date.now());
     switch (plan.kind) {
       case "already_refunded":
@@ -789,8 +917,9 @@ export async function refundAdminPayment(
     };
   });
 
-  // Idempotent replay — the payment is already refunded.
-  if (claim.kind === "already_refunded") return;
+  // Cash commit landed in the claim transaction, or an idempotent
+  // replay — the payment is already refunded.
+  if (claim.kind === "done" || claim.kind === "already_refunded") return;
 
   const record = claim.record;
 
