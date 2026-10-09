@@ -2,6 +2,7 @@ import type {
   KnowledgeArticleInput,
   KnowledgeArticleSummary,
   KnowledgeArticleView,
+  KnowledgeAttachmentView,
   KnowledgeSearchHit,
   KnowledgeVersionView,
 } from "@/lib/knowledge-common";
@@ -52,6 +53,14 @@ export interface KnowledgeApi {
   // Uploads an article attachment to Storage under knowledge/<slug>/ and
   // returns the `kb:` reference to embed in Markdown.
   uploadAttachment: (slug: string, file: File) => Promise<string>;
+  // Lists the Storage objects under knowledge/<slug>/ (server-side, so the
+  // response can flag files still referenced by the article or its history).
+  listAttachments: (
+    slug: string
+  ) => Promise<KnowledgeAttachmentView[]>;
+  // Deletes one attachment object. The server refuses (409) while the stored
+  // article or any saved version still references it.
+  deleteAttachment: (slug: string, name: string) => Promise<void>;
 }
 
 export class KnowledgeApiError extends Error {
@@ -179,6 +188,22 @@ export function createKnowledgeApi(user: KnowledgeApiUser): KnowledgeApi {
       const objectPath = `${KNOWLEDGE_STORAGE_PREFIX}/${slug}/${Date.now()}-${safeName}`;
       await uploadBytes(ref(getFirebaseStorage(), objectPath), file);
       return `kb:${slug}/${objectPath.split("/").pop()}`;
+    },
+    listAttachments: async (slug) => {
+      const data = await request<{
+        attachments: KnowledgeAttachmentView[];
+      }>(
+        user,
+        `/api/admin/knowledge/${encodeURIComponent(slug)}/attachments`
+      );
+      return data.attachments;
+    },
+    deleteAttachment: async (slug, name) => {
+      await request(
+        user,
+        `/api/admin/knowledge/${encodeURIComponent(slug)}/attachments`,
+        { method: "DELETE", body: JSON.stringify({ name }) }
+      );
     },
   };
 }
