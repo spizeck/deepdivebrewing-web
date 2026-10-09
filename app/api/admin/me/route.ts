@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getAdminClaims, verifyAdminIdToken } from "@/lib/admin-auth";
 import { getProtectedAdminEmail, isProtectedAdmin } from "@/lib/admin-common";
+import { recordPermissions } from "@/lib/admin-permissions";
 import { checkAdminActorRecord } from "@/lib/admin-policy";
 import { getAdminUser } from "@/lib/admin-users";
 import { getPendingInvitationByEmail } from "@/lib/admin-invitations";
@@ -42,6 +43,10 @@ export async function GET(req: NextRequest) {
         isAdmin: true,
         isSuperAdmin: claims.role === "superadmin",
         role: claims.role,
+        // Effective capability set from the live record (superadmin => all).
+        // Clients use this to decide what to render; enforcement stays
+        // server-side on every protected route.
+        permissions: recordPermissions(adminRecord),
         uid: decoded.uid,
         email: decoded.email,
       });

@@ -19,6 +19,10 @@ import {
 import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId, logError } from "@/lib/log";
 import { canModifyAdministrator, canRevokeAdministrator, isValidAdminRole, isValidAdminStatus } from "@/lib/admin-policy";
+import {
+  normalizeAdminPermissions,
+  type AdminPermission,
+} from "@/lib/admin-permissions";
 
 interface RouteParams {
   params: Promise<{ uid: string }>;
@@ -51,7 +55,26 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const desiredStatus =
       body.status !== undefined && isValidAdminStatus(body.status) ? body.status : undefined;
 
-    if (!desiredRole && !desiredStatus && body.displayName === undefined) {
+    // Permission grants fail closed: a `permissions` field that is not an
+    // array of known capability keys is rejected outright — a malformed list
+    // must never silently grant or silently drop access (issue #210).
+    let desiredPermissions: AdminPermission[] | undefined;
+    if (body.permissions !== undefined) {
+      const parsed = normalizeAdminPermissions(body.permissions);
+      if (!parsed) {
+        return badRequestResponse(
+          "permissions must be an array of known admin permissions."
+        );
+      }
+      desiredPermissions = parsed;
+    }
+
+    if (
+      !desiredRole &&
+      !desiredStatus &&
+      desiredPermissions === undefined &&
+      body.displayName === undefined
+    ) {
       return badRequestResponse("No valid fields provided to update.");
     }
 
@@ -77,12 +100,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const updates: Partial<Pick<AdminUserRecord, "displayName" | "role" | "status">> = {};
+    const updates: Partial<
+      Pick<AdminUserRecord, "displayName" | "role" | "status" | "permissions">
+    > = {};
     if (body.displayName !== undefined) {
       updates.displayName = String(body.displayName);
     }
     if (desiredRole) updates.role = desiredRole;
     if (desiredStatus) updates.status = desiredStatus;
+    if (desiredPermissions) updates.permissions = desiredPermissions;
 
     await updateAdminUser(targetUid, updates, actor.token.uid);
 
@@ -121,6 +147,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       newRole: desiredRole ?? target.role,
       oldStatus: target.status,
       newStatus: desiredStatus ?? target.status,
+      oldPermissions: target.permissions ?? [],
+      newPermissions: desiredPermissions ?? target.permissions ?? [],
       actingUid: actor.token.uid,
       actingEmail: normalizeEmail(actor.token.email),
     });

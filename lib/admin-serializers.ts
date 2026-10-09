@@ -1,4 +1,5 @@
 import type { AdminUserRecord, AdminInvitation } from "@/lib/admin-types";
+import { recordPermissions } from "@/lib/admin-permissions";
 import type { AdminUserView, AdminInvitationView } from "@/lib/types";
 
 interface TimestampLike {
@@ -36,6 +37,7 @@ export function serializeAdminUser(record: AdminUserRecord): AdminUserView {
     displayName: record.displayName,
     role: record.role,
     status: record.status,
+    permissions: recordPermissions(record),
     createdAt: toIsoString(record.createdAt) ?? "",
     createdBy: record.createdBy,
     updatedAt: toIsoString(record.updatedAt),

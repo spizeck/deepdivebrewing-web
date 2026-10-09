@@ -1,4 +1,5 @@
 import type { Timestamp } from "firebase-admin/firestore";
+import type { AdminPermission } from "@/lib/admin-permissions";
 
 export type AdminRole = "superadmin" | "admin";
 export type AdminStatus = "active" | "disabled";
@@ -9,6 +10,10 @@ export interface AdminUserRecord {
   displayName?: string;
   role: AdminRole;
   status: AdminStatus;
+  // Explicit capability grants for sensitive admin surfaces (issue #210).
+  // Absent/empty means none; superadmins hold every permission implicitly —
+  // see lib/admin-permissions.ts for the authorization contract.
+  permissions?: AdminPermission[];
   createdAt: Timestamp;
   createdBy?: string;
   updatedAt?: Timestamp;
@@ -56,6 +61,10 @@ export interface AdminAuditRecord {
   newRole?: AdminRole | null;
   oldStatus?: AdminStatus | null;
   newStatus?: AdminStatus | null;
+  // Capability-set transitions for update_admin entries (issue #210) — the
+  // stored permission arrays before/after the change.
+  oldPermissions?: AdminPermission[];
+  newPermissions?: AdminPermission[];
   actingUid: string;
   actingEmail?: string;
   metadata?: Record<string, unknown>;

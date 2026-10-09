@@ -6,8 +6,46 @@
 
 | Role | What it can do |
 |---|---|
-| **superadmin** | Manage beers and venues, manage all administrators, trigger rebuilds. |
-| **admin** | Manage beers and venues, trigger rebuilds. Cannot manage other administrators. |
+| **superadmin** | Manage beers and venues, manage all administrators, trigger rebuilds — and holds **every permission** implicitly (see below). |
+| **admin** | Manage beers and venues, trigger rebuilds, plus the specific permissions a superadmin has granted. Cannot manage other administrators. |
+
+## Permissions (capabilities)
+
+Sensitive admin areas require an explicit **permission** on top of being an
+active admin. Permissions live on the administrator's `adminUsers` record and
+are enforced server-side on every request — hiding a button is never the
+authorization.
+
+| Permission | Unlocks |
+|---|---|
+| **QuickBooks & Accounting** | The `/admin/integrations/quickbooks` page and every `/api/admin/quickbooks/*` endpoint: connection state, connect/disconnect, accounting mappings, entity lists, and sync records/retry/sweep. |
+| **Take Payments** | The `/admin/payments` page and every `/api/admin/payments*` endpoint: creating card/cash payments, links, QR codes, cancellations, refreshes, and refunds. |
+
+The two permissions are independent: a staff member can be allowed to take
+customer payments without any access to QuickBooks or accounting data.
+
+Key rules:
+
+- **Superadmins hold every permission implicitly.** Their checkboxes are not
+  shown because role already grants everything — this also means the
+  bootstrap owner can never lose access.
+- **New and existing ordinary admins start with no permissions.** Accepting
+  an invitation does not grant any capability; a superadmin grants them
+  afterwards from the Access tab.
+- **Beers/venues, rebuilds, the Knowledge Base, and the trade pipeline are
+  not permissioned** — any active admin can use them.
+- Changes take effect **immediately** on the next request — no sign-out or
+  token refresh is needed, because permissions are checked against the live
+  record rather than the ID token.
+- Every grant/revoke is recorded in the audit log with the acting admin, the
+  target, and the before/after permission sets.
+
+### Granting or revoking a permission
+
+1. Sign in as a superadmin and open the **Access** tab.
+2. Under the administrator's entry, tick or untick the capability checkboxes
+   (e.g. **Take Payments**, **QuickBooks & Accounting**).
+3. The change is saved immediately and applies to their next action.
 
 ## How administrator access is enforced
 

@@ -49,10 +49,14 @@ mock.module("@/lib/qbo-sync-admin", {
 });
 
 let adminError: { message: string; status: number } | null = null;
+const requestedPermissions: string[] = [];
 
 mock.module("@/lib/admin-auth", {
   namedExports: {
-    requireAdminActor: async () => {
+    // QBO routes now authorize by the "accounting" capability (issue #210);
+    // the mock records the requested permission so the tests can assert it.
+    requireAdminPermission: async (_idToken: string, permission: string) => {
+      requestedPermissions.push(permission);
       if (adminError) {
         throw Object.assign(new Error(adminError.message), {
           clientSafe: true,
@@ -83,6 +87,7 @@ beforeEach(() => {
   sweepCalls = 0;
   requeueCalls.length = 0;
   adminError = null;
+  requestedPermissions.length = 0;
 });
 
 describe("GET /api/cron/qbo-sweep — cron secret gate (#183)", () => {
@@ -156,6 +161,28 @@ describe("admin sync routes — actor requirement (#183)", () => {
     assert.deepStrictEqual(body.sync, { paused: false });
   });
 
+  it("GET /api/admin/quickbooks/sync requires the accounting capability", async () => {
+    const { GET } = await import("@/app/api/admin/quickbooks/sync/route");
+    await GET(
+      req("/api/admin/quickbooks/sync", {
+        headers: { authorization: "Bearer id-token" },
+      })
+    );
+    assert.deepStrictEqual(requestedPermissions, ["accounting"]);
+  });
+
+  it("POST sweep requires the accounting capability", async () => {
+    const { POST } = await import("@/app/api/admin/quickbooks/sync/route");
+    await POST(
+      req("/api/admin/quickbooks/sync", {
+        method: "POST",
+        headers: { authorization: "Bearer id-token" },
+      })
+    );
+    assert.deepStrictEqual(requestedPermissions, ["accounting"]);
+    assert.strictEqual(sweepCalls, 1);
+  });
+
   it("GET /api/admin/quickbooks/sync enforces the admin actor check", async () => {
     const { GET } = await import("@/app/api/admin/quickbooks/sync/route");
     adminError = {
@@ -211,6 +238,7 @@ describe("admin sync routes — actor requirement (#183)", () => {
     const body = await res.json();
     assert.strictEqual(body.ok, true);
     assert.deepStrictEqual(requeueCalls, ["sandbox:stripe_payment:x"]);
+    assert.deepStrictEqual(requestedPermissions, ["accounting"]);
   });
 
   it("POST retry enforces the admin actor check", async () => {

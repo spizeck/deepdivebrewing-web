@@ -8,6 +8,7 @@ export function AdminPaymentsPage() {
     <AdminAuthGate
       heading="Payments"
       description="Sign in with an authorized Google account to manage payments."
+      requiredPermission="payments"
     >
       {(user) => <AdminPaymentsWorkspace user={user} />}
     </AdminAuthGate>

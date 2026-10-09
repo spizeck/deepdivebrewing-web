@@ -27,6 +27,7 @@ const ADMINS_RESPONSE = {
       email: "manager@example.com",
       role: "admin",
       status: "active",
+      permissions: ["payments"],
       createdAt: "2025-02-01T00:00:00.000Z",
     },
   ],
@@ -203,6 +204,33 @@ test("non-superadmin view hides the Access tab", async ({ page }) => {
   await expect(page.getByRole("tab", { name: "Venues" })).toBeVisible();
 });
 
+test("limited admin sees payments but not QuickBooks navigation (#210)", async ({
+  page,
+}) => {
+  // The fixture's plain admin holds "payments" only — the payments card is
+  // the entry point to /admin/payments and the QuickBooks card must not
+  // render at all (UI hiding is convenience; the APIs still 403).
+  await page.goto(`${FIXTURE}?role=admin`);
+  await expect(
+    page.getByRole("link", { name: "Take payment" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Open QuickBooks" })
+  ).toHaveCount(0);
+});
+
+test("superadmin sees both payments and QuickBooks navigation (#210)", async ({
+  page,
+}) => {
+  await page.goto(FIXTURE);
+  await expect(
+    page.getByRole("link", { name: "Take payment" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Open QuickBooks" })
+  ).toBeVisible();
+});
+
 test("invite form has labels, required state, and announces the result", async ({
   page,
 }) => {
@@ -317,6 +345,65 @@ test("status-changing action confirms with a named dialog and announces result",
   await expect(
     page.getByRole("status").filter({ hasText: "Administrator updated." })
   ).toBeVisible();
+});
+
+test("permission checkboxes reflect state and PATCH the capability set (#210)", async ({
+  page,
+}) => {
+  await page.goto(FIXTURE);
+  await openAccessTab(page);
+
+  // The superadmin row carries an implicit-all note instead of checkboxes.
+  await expect(
+    page.getByText("Holds every permission as a superadmin.")
+  ).toBeVisible();
+
+  let patchedBody: unknown;
+  // Later registration wins — intercept the permissions PATCH and the
+  // list reload so the refetched record reflects the granted capability
+  // (the panel reloads after a successful update, and a static response
+  // would flip the checkbox back before .check() finishes verifying).
+  let grantedPermissions = ["payments"];
+  await page.route(/\/api\/admin\/users(\/u-admin)?$/, (route) => {
+    const method = route.request().method();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    if (method === "PATCH") {
+      patchedBody = route.request().postDataJSON();
+      grantedPermissions = (patchedBody as { permissions: string[] })
+        .permissions;
+      return json({ ok: true });
+    }
+    if (method === "GET" && route.request().url().endsWith("/api/admin/users")) {
+      return json({
+        ...ADMINS_RESPONSE,
+        users: ADMINS_RESPONSE.users.map((u) =>
+          u.uid === "u-admin" ? { ...u, permissions: grantedPermissions } : u
+        ),
+      });
+    }
+    return route.fallback();
+  });
+
+  const paymentsBox = page.getByRole("checkbox", { name: /Take Payments/ });
+  const accountingBox = page.getByRole("checkbox", {
+    name: /QuickBooks & Accounting/,
+  });
+  await expect(paymentsBox).toBeChecked();
+  await expect(accountingBox).not.toBeChecked();
+
+  // Controlled input: checked only flips after the PATCH + refetch round
+  // trip, so click and let the status message gate the assertions.
+  await accountingBox.click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Permissions updated" })
+  ).toBeVisible();
+  await expect(accountingBox).toBeChecked();
+  expect(patchedBody).toEqual({ permissions: ["payments", "accounting"] });
 });
 
 test("invitation resend announces its result", async ({ page }) => {

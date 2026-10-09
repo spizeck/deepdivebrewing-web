@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import {
   badRequestResponse,
   getBearerToken,
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    const actor = await requireAdminActor(idToken);
+    const actor = await requireAdminPermission(idToken, "accounting");
     const body = (await req.json().catch(() => ({}))) as {
       syncId?: unknown;
     };

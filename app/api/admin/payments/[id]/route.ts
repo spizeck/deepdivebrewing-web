@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
 import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId } from "@/lib/log";
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    await requireAdminActor(idToken);
+    await requireAdminPermission(idToken, "payments");
     const { id } = await params;
     const [payment, events] = await Promise.all([
       getPayment(id),

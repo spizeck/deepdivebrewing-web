@@ -48,8 +48,15 @@ The client UI checks claims to decide which tabs and buttons to show, but the **
 
 ## Roles
 
-- **superadmin** — Can manage content, administrators, and site rebuilds.
+- **superadmin** — Can manage content, administrators, and site rebuilds, and holds every permission implicitly.
 - **admin** — Can manage content and trigger rebuilds, but cannot open the **Access** tab or call access-management APIs.
+
+Sensitive areas additionally require an explicit **permission** granted by a
+superadmin — for example **Take Payments** for the payments workspace and
+**QuickBooks & Accounting** for the QuickBooks integration. If you open a
+page you do not have permission for, the app explains what is missing; a
+superadmin can grant it from the Access tab. See
+[Managing Administrator Access](./managing-access.md#permissions-capabilities).
 
 ## How a superadmin grants or removes access
 

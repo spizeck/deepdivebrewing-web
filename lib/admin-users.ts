@@ -51,7 +51,9 @@ export async function ensureAdminUser(
 
 export async function updateAdminUser(
   uid: string,
-  updates: Partial<Pick<AdminUserRecord, "displayName" | "role" | "status">>,
+  updates: Partial<
+    Pick<AdminUserRecord, "displayName" | "role" | "status" | "permissions">
+  >,
   actorUid: string
 ): Promise<void> {
   const ref = getAdminUsersCollection().doc(uid);
@@ -66,6 +68,9 @@ export async function updateAdminUser(
   }
   if (updates.status !== undefined) {
     payload.status = updates.status;
+  }
+  if (updates.permissions !== undefined) {
+    payload.permissions = updates.permissions;
   }
   if (updates.displayName !== undefined) {
     const trimmed = updates.displayName.trim();

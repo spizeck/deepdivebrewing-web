@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import {
   badRequestResponse,
   getBearerToken,
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await requireAdminActor(idToken);
+    await requireAdminPermission(idToken, "accounting");
     const { accessToken, realmId } = await getQuickBooksAccessToken();
     const entities = await queryQboEntities({
       environment: getQboEnvironment(),

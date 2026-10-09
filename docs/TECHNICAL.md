@@ -275,7 +275,14 @@ in code are listed.
   (normalized), `role` (`"admin" | "superadmin"`), `status`
   (`"active" | "disabled"`), `createdAt`, `createdBy`, `updatedAt`,
   `updatedBy`, optional `displayName` and `lastLoginAt`, plus revocation
-  fields when disabled.
+  fields when disabled. Optional `permissions` (`AdminPermission[]`,
+  issue #210) holds explicit capability grants for sensitive surfaces —
+  `"accounting"` (all `/api/admin/quickbooks/*`) and `"payments"` (all
+  `/api/admin/payments*`). A superadmin holds every permission implicitly;
+  an `admin` record without the field has none. Permissions are **not**
+  in custom claims — `requireAdminPermission` (lib/admin-auth.ts) checks
+  the live record per request, so grant/revoke applies on the next call
+  with no token refresh.
 - **Reads/writes:** in practice server-side only via Admin SDK
   (`lib/admin-users.ts` and `app/api/admin/users*`). Rules technically allow
   `hasActiveSuperAdmin()` client read/write, but no client code uses it.
@@ -302,7 +309,9 @@ in code are listed.
   fixed union: `bootstrap`, `accept_invitation`, `create_invitation`,
   `resend_invitation`, `cancel_invitation`, `update_admin`, `revoke_admin`,
   `refresh_claims`; plus `targetUid`/`targetEmail`, `oldRole`/`newRole`,
-  `oldStatus`/`newStatus`, `actingUid`/`actingEmail`, `metadata`, `timestamp`.
+  `oldStatus`/`newStatus`, `oldPermissions`/`newPermissions` (capability-set
+  transitions, issue #210), `actingUid`/`actingEmail`, `metadata`,
+  `timestamp`.
   Records are sanitized via `dropUndefinedValues` before write.
 - **Writes:** server-only via `lib/admin-audit.ts` (`logAdminAudit`,
   best-effort — failures are logged, not thrown). Rules allow superadmin
@@ -423,7 +432,9 @@ API routes (with rollback on partial failure — see §7/§8).
   account itself — it is the combination of (a) custom claims on the ID token
   and (b) a matching, active `adminUsers` document for the acting user,
   enforced per request on every privileged route and client-rules path
-  (see §7).
+  (see §7). Sensitive admin surfaces add a third layer: the record's
+  `permissions` capability set, enforced by `requireAdminPermission` and
+  displayed to clients via `/api/admin/me`.
 - **Security rules** (`firestore.rules`, `storage.rules`): `hasAdminClaim()`
   checks `request.auth.token.admin == true`; `hasSuperAdminClaim()` adds
   `role == 'superadmin'`; `isPublicDoc()` gates public reads of

@@ -13,6 +13,10 @@ import {
 } from "@/components/admin-workspace";
 import { resolveVenueIsland } from "@/lib/venue-filters";
 import { isVenueIsland } from "@/lib/venue-islands";
+import {
+  ADMIN_PERMISSIONS,
+  type AdminPermission,
+} from "@/lib/admin-permissions";
 import type { AdminRole, Beer, Venue } from "@/lib/types";
 
 const FIXTURE_BEERS: Beer[] = [
@@ -97,6 +101,11 @@ function arrayToCsv(value?: string[]): string {
 }
 
 export function AdminFixture({ role }: { role: AdminRole }) {
+  // Mirror the server capability rule (issue #210): a superadmin holds every
+  // permission; the fixture's plain admin is a representative limited admin
+  // that can take payments but has no QuickBooks/accounting access.
+  const permissions: AdminPermission[] =
+    role === "superadmin" ? [...ADMIN_PERMISSIONS] : ["payments"];
   const [statusMessage, setStatusMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isTriggeringRebuild, setIsTriggeringRebuild] = useState(false);
@@ -200,6 +209,7 @@ export function AdminFixture({ role }: { role: AdminRole }) {
     <AdminWorkspace
       userEmail="fixture-admin@example.com"
       isSuperAdmin={role === "superadmin"}
+      permissions={permissions}
       accessUser={{ getIdToken: async () => "fixture-token" }}
       onSignOut={() => setStatusMessage("Signed out.")}
       statusMessage={statusMessage}

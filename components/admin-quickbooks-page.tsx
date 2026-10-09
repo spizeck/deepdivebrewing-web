@@ -8,6 +8,7 @@ export function AdminQuickbooksPage() {
     <AdminAuthGate
       heading="QuickBooks"
       description="Sign in with an authorized Google account to manage the QuickBooks integration."
+      requiredPermission="accounting"
     >
       {(user) => <AdminQuickbooksWorkspace user={user} />}
     </AdminAuthGate>

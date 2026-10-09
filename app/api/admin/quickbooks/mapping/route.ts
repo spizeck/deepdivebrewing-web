@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import {
   badRequestResponse,
   getBearerToken,
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    await requireAdminActor(idToken);
+    await requireAdminPermission(idToken, "accounting");
     const mapping = await getQboMappingView();
     return NextResponse.json({ ok: true, mapping });
   } catch (error) {
@@ -43,7 +43,7 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    const actor = await requireAdminActor(idToken);
+    const actor = await requireAdminPermission(idToken, "accounting");
     const mapping = await saveQboMapping(actor, body);
     return NextResponse.json({ ok: true, mapping });
   } catch (error) {

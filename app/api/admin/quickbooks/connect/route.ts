@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { requireAdminActor } from "@/lib/admin-auth";
+import { requireAdminPermission } from "@/lib/admin-auth";
 import { getBearerToken, unauthorizedResponse } from "@/lib/api-auth";
 import { apiErrorResponse } from "@/lib/api-error";
 import { getRequestId } from "@/lib/log";
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   if (!idToken) return unauthorizedResponse();
 
   try {
-    const actor = await requireAdminActor(idToken);
+    const actor = await requireAdminPermission(idToken, "accounting");
     const { authorizationUrl, state } =
       await createQboAuthorizationRequest(actor);
     const res = NextResponse.json({ ok: true, authorizationUrl });
