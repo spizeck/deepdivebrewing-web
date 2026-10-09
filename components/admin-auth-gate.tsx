@@ -53,9 +53,12 @@ export function AdminAuthGate({
   );
   const [permissionCheckFailed, setPermissionCheckFailed] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  // uid of the most recent auth event — a slow getIdTokenResult must never
-  // apply claims to a user that has since signed out or been replaced.
+  // uid + monotonically increasing event index of the most recent auth
+  // event — a slow getIdTokenResult or /api/admin/me fetch must never apply
+  // its result to a user that has since signed out or been replaced, and a
+  // same-UID sign-out/sign-in cycle must not resurrect an older response.
   const latestUidRef = useRef<string | null>(null);
+  const latestAuthEventRef = useRef(0);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -64,7 +67,11 @@ export function AdminAuthGate({
         getFirebaseAuth(),
         async (nextUser) => {
           const uid = nextUser?.uid ?? null;
+          const authEvent = ++latestAuthEventRef.current;
           latestUidRef.current = uid;
+          const isStale = () =>
+            latestUidRef.current !== uid ||
+            latestAuthEventRef.current !== authEvent;
           setUser(nextUser);
           setIsAdmin(false);
           setClaimsResolved(false);
@@ -78,7 +85,7 @@ export function AdminAuthGate({
           try {
             const tokenResult = await getIdTokenResult(nextUser, true);
             // A newer auth event superseded this resolution — drop it.
-            if (latestUidRef.current !== uid) return;
+            if (isStale()) return;
             const claims = tokenResult.claims as {
               admin?: boolean;
               role?: string;
@@ -96,22 +103,28 @@ export function AdminAuthGate({
                 const res = await fetch("/api/admin/me", {
                   headers: { Authorization: `Bearer ${idToken}` },
                 });
+                // A non-OK response is a failed check, not an empty
+                // permission set — show "could not be verified" rather
+                // than a misleading access-denied state.
+                if (!res.ok) {
+                  throw new Error(`/api/admin/me responded ${res.status}`);
+                }
                 const me = (await res.json()) as { permissions?: unknown };
-                if (latestUidRef.current !== uid) return;
+                if (isStale()) return;
                 setPermissions(
                   Array.isArray(me.permissions)
                     ? me.permissions.filter(isAdminPermission)
                     : []
                 );
               } catch {
-                if (latestUidRef.current !== uid) return;
+                if (isStale()) return;
                 setPermissionCheckFailed(true);
               }
             }
           } catch (error) {
             console.error("Failed to resolve admin session:", error);
           }
-          if (latestUidRef.current === uid) {
+          if (!isStale()) {
             setClaimsResolved(true);
           }
         },
