@@ -73,6 +73,10 @@ const ENTITIES = {
   customer: [
     { id: "cust-1", name: "Stripe Checkout", active: true },
   ],
+  "payment-method": [
+    { id: "pm-card", name: "Credit Card", active: true },
+    { id: "pm-cash", name: "Cash", active: true },
+  ],
   "tax-code": [
     { id: "tax-1", name: "Out of scope", active: true },
   ],
@@ -80,6 +84,7 @@ const ENTITIES = {
 
 const FULL_MAPPING_INPUT = {
   stripeClearingAccountId: "acct-1",
+  cardPaymentMethodId: "pm-card",
   tourIncomeItemId: "item-tour",
   tastingIncomeItemId: "item-tasting",
   otherIncomeItemId: "item-other",
@@ -367,6 +372,7 @@ test("a complete mapping lists the selected entities under the finalized labels"
       missingFields: [],
       entityNames: {
         "acct-1": "Stripe Balance",
+        "pm-card": "Credit Card",
         "item-tour": "Brewery Tour",
         "item-tasting": "Tasting",
         "item-other": "Other Income",
@@ -382,12 +388,19 @@ test("a complete mapping lists the selected entities under the finalized labels"
     page.getByText("Stripe clearing account", { exact: true })
   ).toBeVisible();
   await expect(
+    page.getByText("Card payment method", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText("Cash payment method (optional)", { exact: true })
+  ).toBeVisible();
+  await expect(
     page.getByText("Generic sales customer", { exact: true })
   ).toBeVisible();
   await expect(
     page.getByText("Tax code (optional)", { exact: true })
   ).toBeVisible();
   await expect(page.getByText("Stripe Balance")).toBeVisible();
+  await expect(page.getByText("Credit Card")).toBeVisible();
   await expect(page.getByText("Stripe Checkout")).toBeVisible();
 });
 
@@ -401,6 +414,7 @@ test("an incomplete mapping names the missing required fields", async ({
       configured: true,
       mapping: { stripeClearingAccountId: "acct-1" },
       missingFields: [
+        "cardPaymentMethodId",
         "tourIncomeItemId",
         "tastingIncomeItemId",
         "otherIncomeItemId",
@@ -414,10 +428,10 @@ test("an incomplete mapping names the missing required fields", async ({
   await expect(
     page
       .getByRole("status")
-      .filter({ hasText: /Missing required fields: Tour income item/ })
+      .filter({ hasText: /Missing required fields: Card payment method/ })
   ).toBeVisible();
   await expect(page.getByText("Stripe Balance")).toBeVisible();
-  await expect(page.getByText("Not set — required")).toHaveCount(4);
+  await expect(page.getByText("Not set — required")).toHaveCount(5);
 });
 
 test("the mapping editor blocks save until every required field is set", async ({
@@ -436,11 +450,12 @@ test("the mapping editor blocks save until every required field is set", async (
   const save = page.getByRole("button", { name: "Save mapping" });
   await expect(save).toBeDisabled();
   await expect(page.getByText(/Still required:/)).toBeVisible();
-  await expect(page.getByText("(required)")).toHaveCount(5);
+  await expect(page.getByText("(required)")).toHaveCount(6);
 
   await page
     .getByLabel(/Stripe clearing account/)
     .selectOption("acct-1");
+  await page.getByLabel(/Card payment method/).selectOption("pm-card");
   await page.getByLabel(/Tour income item/).selectOption("item-tour");
   await page.getByLabel(/Tasting income item/).selectOption("item-tasting");
   await page.getByLabel(/Other income item/).selectOption("item-other");

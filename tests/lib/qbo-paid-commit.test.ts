@@ -22,6 +22,7 @@ const state = {
     configured: true,
     mapping: {
       stripeClearingAccountId: "acct-stripe-balance",
+      cardPaymentMethodId: "pm-card",
       tourIncomeItemId: "item-tour",
       tastingIncomeItemId: "item-tasting",
       otherIncomeItemId: "item-other",

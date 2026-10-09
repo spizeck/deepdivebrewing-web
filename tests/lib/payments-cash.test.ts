@@ -22,6 +22,8 @@ const state = {
     mapping: {
       stripeClearingAccountId: "acct-stripe-balance",
       cashDepositAccountId: "acct-cash",
+      cardPaymentMethodId: "pm-card",
+      cashPaymentMethodId: "pm-cash",
       tourIncomeItemId: "item-tour",
       tastingIncomeItemId: "item-tasting",
       otherIncomeItemId: "item-other",
@@ -192,6 +194,8 @@ function reset() {
     mapping: {
       stripeClearingAccountId: "acct-stripe-balance",
       cashDepositAccountId: "acct-cash",
+      cardPaymentMethodId: "pm-card",
+      cashPaymentMethodId: "pm-cash",
       tourIncomeItemId: "item-tour",
       tastingIncomeItemId: "item-tasting",
       otherIncomeItemId: "item-other",
@@ -256,6 +260,11 @@ describe("cash payment creation (issue #206)", () => {
       state.createCalls[0].DepositToAccountRef,
       { value: "acct-cash" },
       "cash receipts deposit to the cash account, never Stripe clearing"
+    );
+    assert.deepStrictEqual(
+      state.createCalls[0].PaymentMethodRef,
+      { value: "pm-cash" },
+      "cash receipts name the mapped Cash payment method"
     );
     assert.match(String(state.createCalls[0].PrivateNote), /Cash payment/);
 
@@ -394,6 +403,22 @@ describe("cash QuickBooks posting (issue #206)", () => {
     assert.strictEqual(paymentDoc()?.status, "paid");
   });
 
+  it("fails closed into needs_attention when no cash payment method is mapped", async () => {
+    reset();
+    state.mapping.mapping = {
+      ...state.mapping.mapping!,
+      cashPaymentMethodId: undefined,
+    };
+    const { createAdminPayment } = await import("@/lib/payments-admin");
+    await withEnv(ENV, () => createAdminPayment(cashInput(), ACTOR));
+
+    const sync = firestore.docs.get(`${RECORDS}/${CASH_SYNC_ID}`);
+    assert.strictEqual(sync?.status, "needs_attention");
+    assert.strictEqual(sync?.lastErrorCode, "missing_cashPaymentMethodId");
+    assert.strictEqual(state.createCalls.length, 0);
+    assert.strictEqual(paymentDoc()?.status, "paid");
+  });
+
   it("a rail-mismatched sync record fails closed — a cash record can never post a card payment", async () => {
     reset();
     // Paid card payment (legacy shape: no paymentMethod field) + a sync
@@ -451,6 +476,9 @@ describe("cash QuickBooks posting (issue #206)", () => {
     assert.strictEqual(state.stripe.sessionRetrieve, 1);
     assert.deepStrictEqual(state.createCalls[0].DepositToAccountRef, {
       value: "acct-stripe-balance",
+    });
+    assert.deepStrictEqual(state.createCalls[0].PaymentMethodRef, {
+      value: "pm-card",
     });
   });
 });

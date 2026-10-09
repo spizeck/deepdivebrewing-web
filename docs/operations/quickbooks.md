@@ -242,6 +242,7 @@ for it would double-count revenue.
 | Account | `DepositToAccountRef` by rail — card: mapped Stripe clearing/balance account (e.g. `Stripe Balance`); cash: mapped cash deposit account. Never Undeposited Funds, never the bank, never hardcoded |
 | Item | `ItemRef` = mapped income item by purpose: tour (`brewery_tour`, `additional_guests`, `private_tour`), tasting (`brewery_tour_tasting`), other (`other`) |
 | Customer | `CustomerRef` = mapped generic customer |
+| Payment method | `PaymentMethodRef` = mapped QBO PaymentMethod by rail — the card method (e.g. `Credit Card` or `Stripe`) for card receipts, the cash method (e.g. `Cash`) for cash receipts. Never blank, never inferred from the deposit account |
 | Tax | No `TaxCodeRef`; `GlobalTaxCalculation: "NotApplicable"` sent for non-US companies, omitted for US (the field is required there and rejected here). Tax policy is #184 |
 | Correlation | `PrivateNote` carries `ddb:<paymentId>` plus the rail — card receipts add Stripe PI/charge refs, cash receipts carry a `Cash payment` label; `DocNumber` = `DDB-…` derived from the payment id |
 
@@ -259,21 +260,25 @@ applied.
 | --- | --- | --- |
 | **Stripe clearing account** | Required | `DepositToAccountRef` for card payments — holds gross receipts until Stripe payouts reconcile (expected choice: `Stripe Balance`). Never the bank account or Undeposited Funds. |
 | **Cash deposit account** | Optional | `DepositToAccountRef` for cash payments (e.g. a petty-cash/`Cash on Hand`-style account). Optional at save time so a card-only rollout is never blocked — but a cash payment without one lands in `needs_attention` (`missing_cashDepositAccountId`) instead of posting to a guessed account. |
+| **Card payment method** | Required | `PaymentMethodRef` on card sales receipts — pick whichever method the company carries for card/Stripe takings (e.g. `Credit Card` or `Stripe`). Receipts never post with a blank payment method. |
+| **Cash payment method** | Optional | `PaymentMethodRef` on cash sales receipts (expected choice: the company's `Cash`). Optional at save time; a cash payment without one lands in `needs_attention` (`missing_cashPaymentMethodId`). |
 | **Tour income item** | Required | Line `ItemRef` for `brewery_tour`, `additional_guests`, `private_tour` |
 | **Tasting income item** | Required | Line `ItemRef` for `brewery_tour_tasting` |
 | **Other income item** | Required | Line `ItemRef` for `other` |
 | **Generic sales customer** | Required | `CustomerRef` on every sales receipt — one shared customer (e.g. `Stripe Checkout`); per-customer records are deliberately not created |
 | **Tax code** | Optional | Leave unset until the Curaçao tax treatment is confirmed with the accountant (#184) |
 
-All five required fields must be selected before a save succeeds — a
+All six required fields must be selected before a save succeeds — a
 partial mapping cannot be stored, and the panel calls out any missing
-required fields on a stored mapping that predates the requirement. The
-stored field names are unchanged from the original configuration model
-(e.g. the generic sales customer is stored as `fallbackCustomerId`) —
-only the labels were finalized, so an existing saved mapping needs no
-migration. The cash deposit account is the one optional operational
-field: when it is provided the save validates it against live account
-entities like every other selection.
+required fields on a stored mapping that predates the requirement (a
+mapping saved before the payment-method fields existed reports the card
+payment method as missing until it is picked). The stored field names
+are unchanged from the original configuration model (e.g. the generic
+sales customer is stored as `fallbackCustomerId`) — only the labels
+were finalized, so an existing saved mapping needs no migration. The
+cash deposit account and cash payment method are the optional
+operational fields: when either is provided the save validates it
+against live entities like every other selection.
 
 A payment whose `purpose` matches none of the rows above lands in
 `needs_attention` rather than posting to a generic item.
@@ -458,6 +463,8 @@ it is never sent to the browser.
 | Sync record stuck in `failed` | Retryable provider/Stripe outage still ongoing, or `nextAttemptAt` not yet due | Check `lastErrorCode`/`lastErrorMessage` in the sync panel; the next sweep retries automatically |
 | Sync record in `needs_attention` | Mapping/purpose/canonical mismatch, or `retry_exhausted` | Fix the cause (mapping, record, reconnect), then **Retry** in the sync panel |
 | Cash payment stuck at `needs_attention` with `missing_cashDepositAccountId` | No cash deposit account is mapped — posting fails closed rather than guessing | Set **Cash deposit account** in the accounting-mapping panel, then **Retry** the record |
+| Card posting blocked with `mapping_incomplete` (or `missing_cardPaymentMethodId`) | The stored mapping predates the payment-method fields — the card method is unset | Pick **Card payment method** in the accounting-mapping panel, save, then **Retry** the record |
+| Cash record at `needs_attention` with `missing_cashPaymentMethodId` | No cash payment method is mapped | Set **Cash payment method** in the accounting-mapping panel, then **Retry** the record |
 | Sync panel shows paused / records not draining | Connection `reauthorization_required` or `disconnected` | Reconnect QuickBooks; the backlog resumes on the next sweep (or "Run sync sweep") |
 | Cron runs but nothing posts | `CRON_SECRET` unset in the deployment (route fails closed) | Vercel env scope; check for `401` on the cron invocation and `qbo.sweep.*` log lines |
 | Same payment appears twice in QBO | Should never happen — report it | `qboSyncRecords` for the payment id; `PrivateNote` marker `ddb:<paymentId>` on the receipts |

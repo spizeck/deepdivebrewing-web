@@ -21,6 +21,7 @@ const state = {
     configured: true,
     mapping: {
       stripeClearingAccountId: "acct-stripe-balance",
+      cardPaymentMethodId: "pm-card",
       tourIncomeItemId: "item-tour",
       tastingIncomeItemId: "item-tasting",
       otherIncomeItemId: "item-other",
@@ -146,6 +147,7 @@ function reset(seed: Record<string, Record<string, unknown>> = {}) {
     configured: true,
     mapping: {
       stripeClearingAccountId: "acct-stripe-balance",
+      cardPaymentMethodId: "pm-card",
       tourIncomeItemId: "item-tour",
       tastingIncomeItemId: "item-tasting",
       otherIncomeItemId: "item-other",
@@ -189,6 +191,9 @@ describe("postPaidPaymentToQbo — source identity", () => {
       value: "acct-stripe-balance",
     });
     assert.deepStrictEqual(payload.CustomerRef, { value: "cust-generic" });
+    // The rail is explicit on the receipt — the mapped card payment
+    // method, never a blank PaymentMethodRef.
+    assert.deepStrictEqual(payload.PaymentMethodRef, { value: "pm-card" });
     assert.deepStrictEqual(
       (line.SalesItemLineDetail as Record<string, unknown>).ItemRef,
       { value: "item-other" }
@@ -348,6 +353,7 @@ describe("processQboSyncRecord — gates and failures", () => {
       configured: true,
       mapping: {
         stripeClearingAccountId: "acct-stripe-balance",
+        cardPaymentMethodId: "pm-card",
         otherIncomeItemId: "item-other",
         fallbackCustomerId: "cust-generic",
       },
@@ -370,6 +376,27 @@ describe("processQboSyncRecord — gates and failures", () => {
     const result = await process(SYNC_ID);
     assert.strictEqual(result.outcome, "needs_attention");
     assert.strictEqual(syncDoc()?.lastErrorCode, "missing_stripeClearingAccountId");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("fails closed when the card payment method is unmapped", async () => {
+    // No blank PaymentMethodRef may ever be posted — a complete-looking
+    // view that lacks the field is refused before any provider write.
+    seedPending();
+    state.mapping = {
+      configured: true,
+      missingFields: [],
+      mapping: {
+        stripeClearingAccountId: "acct-stripe-balance",
+        tourIncomeItemId: "item-tour",
+        tastingIncomeItemId: "item-tasting",
+        otherIncomeItemId: "item-other",
+        fallbackCustomerId: "cust-generic",
+      },
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_cardPaymentMethodId");
     assert.strictEqual(state.createCalls.length, 0);
   });
 
@@ -408,6 +435,7 @@ describe("processQboSyncRecord — gates and failures", () => {
       configured: true,
       mapping: {
         stripeClearingAccountId: "acct-stripe-balance",
+        cardPaymentMethodId: "pm-card",
         tourIncomeItemId: "item-tour",
         tastingIncomeItemId: "item-tasting",
         otherIncomeItemId: "item-other",

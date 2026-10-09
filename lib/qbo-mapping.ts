@@ -22,8 +22,8 @@ import {
 
 // Accounting-mapping configuration for the Sales-Receipt posting model
 // (issues #161/#182). The mapping records which QBO entities
-// (Account/Item/Customer/TaxCode) Stripe-settled payment revenue posts
-// against — selected from live entities of the *connected* company,
+// (Account/Item/Customer/PaymentMethod/TaxCode) settled payment revenue
+// posts against — selected from live entities of the *connected* company,
 // never hard-coded. All fields marked required in QBO_MAPPING_FIELDS
 // must be selected; until a complete mapping exists the admin surface
 // reports "Accounting mapping not configured" and the sync worker fails

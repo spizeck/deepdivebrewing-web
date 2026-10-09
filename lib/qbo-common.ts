@@ -129,6 +129,14 @@ export interface QboAccountingMapping {
    *  `Undeposited Funds`). Optional at the mapping level — required only
    *  before a cash payment can post; never the Stripe clearing account. */
   cashDepositAccountId?: string;
+  /** QBO PaymentMethod recorded on card/Stripe sales receipts (e.g.
+   *  `Credit Card` or `Stripe`, whichever the company carries). Required
+   *  like the other universal fields — every card receipt populates it. */
+  cardPaymentMethodId?: string;
+  /** QBO PaymentMethod recorded on cash sales receipts (expected choice:
+   *  the company's `Cash` method). Optional at the mapping level —
+   *  required only before a cash payment can post. */
+  cashPaymentMethodId?: string;
   /** Item used for brewery-tour income lines. */
   tourIncomeItemId?: string;
   /** Item used for tasting/flight income lines. */
@@ -172,6 +180,25 @@ export const QBO_MAPPING_FIELDS: readonly QboMappingFieldSpec[] = [
     key: "cashDepositAccountId",
     entityType: "account",
     label: "Cash deposit account",
+    required: false,
+  },
+  {
+    // The receipt's PaymentMethodRef must name a real PaymentMethod in
+    // the connected company — card naming varies by company (Credit
+    // Card / Stripe / other), so it is resolved explicitly here, never
+    // assumed (issue #206 follow-up).
+    key: "cardPaymentMethodId",
+    entityType: "payment-method",
+    label: "Card payment method",
+    required: true,
+  },
+  {
+    // Same rail-optional rule as the cash deposit account: card posting
+    // does not need it, but a cash payment without it fails closed into
+    // needs_attention (issue #206 follow-up).
+    key: "cashPaymentMethodId",
+    entityType: "payment-method",
+    label: "Cash payment method",
     required: false,
   },
   {

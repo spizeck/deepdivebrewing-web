@@ -49,6 +49,7 @@ const actor = {
 
 const FULL_MAPPING = {
   stripeClearingAccountId: "acct-1",
+  cardPaymentMethodId: "pm-card",
   tourIncomeItemId: "item-tour",
   tastingIncomeItemId: "item-tasting",
   otherIncomeItemId: "item-other",
@@ -83,6 +84,10 @@ function reset(
       },
     ],
     customer: [{ id: "cust-1", name: "Stripe Checkout", active: true }],
+    "payment-method": [
+      { id: "pm-card", name: "Credit Card", active: true },
+      { id: "pm-cash", name: "Cash", active: true },
+    ],
     "tax-code": [{ id: "tax-1", name: "Out of scope", active: true }],
   };
   state.tokenError = null;
@@ -170,6 +175,7 @@ describe("getQboMappingView — realm/environment binding", () => {
     const result = await view();
     assert.strictEqual(result.configured, true);
     assert.deepStrictEqual(result.missingFields, [
+      "cardPaymentMethodId",
       "tastingIncomeItemId",
       "otherIncomeItemId",
       "fallbackCustomerId",
@@ -206,6 +212,7 @@ describe("saveQboMapping — required-field enforcement", () => {
   it("rejects each required field being absent", async () => {
     for (const [key, label] of [
       ["stripeClearingAccountId", "Stripe clearing account"],
+      ["cardPaymentMethodId", "Card payment method"],
       ["tourIncomeItemId", "Tour income item"],
       ["tastingIncomeItemId", "Tasting income item"],
       ["otherIncomeItemId", "Other income item"],
@@ -255,6 +262,7 @@ describe("saveQboMapping — required-field enforcement", () => {
         { id: "item-other", name: "Other Income", type: "Service", active: true },
       ],
       customer: [{ id: "cust-1", name: "Stripe Checkout", active: true }],
+      "payment-method": [{ id: "pm-card", name: "Credit Card", active: true }],
       "tax-code": [],
     });
     const result = await save({
@@ -272,6 +280,49 @@ describe("saveQboMapping — required-field enforcement", () => {
       (error) => {
         assert.ok(error instanceof QboError);
         assert.match(error.message, /Cash deposit account/);
+        return true;
+      }
+    );
+    assert.strictEqual(mappingDoc(), undefined);
+  });
+
+  it("accepts an optional cash payment method when one is selected (#206)", async () => {
+    reset();
+    const result = await save({
+      ...FULL_MAPPING,
+      cashPaymentMethodId: "pm-cash",
+    });
+    assert.strictEqual(result.configured, true);
+    assert.strictEqual(mappingDoc()?.cashPaymentMethodId, "pm-cash");
+    assert.strictEqual(
+      (mappingDoc()?.entityNames as Record<string, string>)["pm-cash"],
+      "Cash"
+    );
+  });
+
+  it("rejects a cash payment method that does not resolve in the company", async () => {
+    reset();
+    await assert.rejects(
+      save({ ...FULL_MAPPING, cashPaymentMethodId: "pm-nope" }),
+      (error) => {
+        assert.ok(error instanceof QboError);
+        assert.match(error.message, /Cash payment method/);
+        return true;
+      }
+    );
+    assert.strictEqual(mappingDoc(), undefined);
+  });
+
+  it("rejects a payment-method id presented as the wrong entity type", async () => {
+    reset();
+    // A real payment-method id is not a member of the account list —
+    // the card method field validates against payment-method entities.
+    await assert.rejects(
+      save({ ...FULL_MAPPING, cardPaymentMethodId: "acct-1" }),
+      (error) => {
+        assert.ok(error instanceof QboError);
+        assert.match(error.message, /Card payment method/);
+        assert.match(error.message, /does not exist/);
         return true;
       }
     );

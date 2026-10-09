@@ -93,6 +93,7 @@ describe("qboIncomeItemKeyForPurpose", () => {
 describe("qboMissingMappingFields", () => {
   const complete = {
     stripeClearingAccountId: "a",
+    cardPaymentMethodId: "pm",
     tourIncomeItemId: "t",
     tastingIncomeItemId: "s",
     otherIncomeItemId: "o",
@@ -102,6 +103,7 @@ describe("qboMissingMappingFields", () => {
   it("reports every required field when nothing is mapped", () => {
     assert.deepStrictEqual(qboMissingMappingFields({}), [
       "stripeClearingAccountId",
+      "cardPaymentMethodId",
       "tourIncomeItemId",
       "tastingIncomeItemId",
       "otherIncomeItemId",
@@ -109,6 +111,7 @@ describe("qboMissingMappingFields", () => {
     ]);
     assert.deepStrictEqual(qboMissingMappingFields(undefined), [
       "stripeClearingAccountId",
+      "cardPaymentMethodId",
       "tourIncomeItemId",
       "tastingIncomeItemId",
       "otherIncomeItemId",

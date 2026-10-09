@@ -592,6 +592,9 @@ export interface QboSalesReceiptSpec {
   clearingAccountId: string;
   incomeItemId: string;
   customerId: string;
+  /** QBO PaymentMethod id for `PaymentMethodRef` — resolved from the
+   *  accounting mapping by rail (card vs cash), never assumed. */
+  paymentMethodId: string;
   /** Human-readable rail note for PrivateNote (e.g. "Cash payment") —
    *  card receipts carry the Stripe refs instead. */
   methodLabel?: string;
@@ -608,9 +611,10 @@ const QBO_LINE_DESCRIPTION_MAX = 500;
 
 // Builds the POST /salesreceipt body. The gross customer charge is posted
 // (never Stripe net — fees are #181) as a single SalesItemLineDetail line
-// against the mapped item, deposited to the mapped Stripe clearing/
-// balance account. No TaxCodeRef is ever sent: tax policy for the CW
-// company is an open accountant question (#184).
+// against the mapped item, deposited to the rail's mapped deposit account
+// (Stripe clearing for card, cash deposit for cash) and carrying the
+// rail's mapped PaymentMethodRef. No TaxCodeRef is ever sent: tax policy
+// for the CW company is an open accountant question (#184).
 export function buildQboSalesReceiptPayload(
   spec: QboSalesReceiptSpec
 ): Record<string, unknown> {
@@ -627,6 +631,7 @@ export function buildQboSalesReceiptPayload(
     CurrencyRef: { value: spec.currency },
     CustomerRef: { value: spec.customerId },
     DepositToAccountRef: { value: spec.clearingAccountId },
+    PaymentMethodRef: { value: spec.paymentMethodId },
     DocNumber: qboSalesReceiptDocNumber(spec.sourceId),
     PrivateNote: refs.join("; ").slice(0, QBO_PRIVATE_NOTE_MAX),
     ...(spec.globalTaxCalculation

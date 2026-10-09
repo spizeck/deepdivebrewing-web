@@ -433,6 +433,21 @@ async function runSyncWrite(
         : "No Stripe clearing account is mapped for QuickBooks posting."
     );
   }
+  // PaymentMethodRef makes the rail explicit on the receipt — never
+  // guessed from the deposit account or left blank.
+  const paymentMethodId = isCash
+    ? mapping.cashPaymentMethodId
+    : mapping.cardPaymentMethodId;
+  if (!paymentMethodId) {
+    return attention(
+      isCash
+        ? "missing_cashPaymentMethodId"
+        : "missing_cardPaymentMethodId",
+      isCash
+        ? "No cash payment method is mapped for QuickBooks posting."
+        : "No card payment method is mapped for QuickBooks posting."
+    );
+  }
   if (!mapping.fallbackCustomerId) {
     return attention(
       "missing_fallbackCustomerId",
@@ -569,6 +584,7 @@ async function runSyncWrite(
         clearingAccountId: depositAccountId,
         incomeItemId,
         customerId: mapping.fallbackCustomerId,
+        paymentMethodId,
         methodLabel: isCash ? "Cash payment" : undefined,
         paymentIntentId,
         chargeId,
