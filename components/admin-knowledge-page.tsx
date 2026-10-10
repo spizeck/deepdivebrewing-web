@@ -163,7 +163,7 @@ export function KnowledgeLanding({ api }: { api: KnowledgeApi }) {
             authorized admins only.
           </p>
         </div>
-        <Button asChild>
+        <Button asChild className="bg-ink/85 text-paper hover:bg-ink/75">
           <Link href="/admin/knowledge/new">
             <Plus aria-hidden="true" className="mr-1 h-4 w-4" />
             New article
