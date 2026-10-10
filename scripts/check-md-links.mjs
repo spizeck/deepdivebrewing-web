@@ -6,7 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(__filename), "..");
 const files = [];
 
-const ignoredDirs = new Set(["node_modules", ".git", ".next", ".vercel", "dist", "out"]);
+const ignoredDirs = new Set(["node_modules", ".git", ".next", ".vercel", "dist", "out", ".devin", ".agents"]);
 
 function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
