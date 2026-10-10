@@ -57,9 +57,17 @@ skill is the review standard, not a redesign mandate.**
 
 - **Every initiate/charge/refund call carries an idempotency key**
   derived from a durable internal id. Providers without documented
-  idempotency keys get the internal id as a correlation reference —
-  dedup then rests entirely on the application's idempotent transition
-  plus stored provider-reference reuse.
+  idempotency keys get the internal id as a correlation reference, but
+  a correlation reference does not make the provider call idempotent:
+  if a charge succeeds at the provider while its response is lost, no
+  provider reference exists to reuse and a blind retry can charge or
+  refund twice. After an ambiguous outcome, reconcile the attempt at
+  the provider by the correlation reference before retrying, or move it
+  to manual review. Do not issue another create call until the prior
+  outcome is known.
+- **Preserve pinned provider versions.** Never upgrade a provider SDK
+  or API version as a side effect of unrelated work — version changes
+  are deliberate, reviewed migrations, not defaults.
 - **Deliveries dedup at two levels**: a provider-event table keyed on
   `(provider, eventId)` anchors delivery; the settled-money record keys
   on `(provider, providerRef)` so different events for the same payment

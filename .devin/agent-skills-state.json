@@ -10,11 +10,11 @@
       "installedAt": "2026-10-10T19:02:34.505Z"
     },
     "payment-safety": {
-      "hash": "fa70ae592ade8796f5dc3eefac74b922cb249e5a568176c89637ac4ea3407c72",
+      "hash": "2fd160cf9ede50249453cc40eb28ddc7940108cb1306f9027ac7682f5dbd46fb",
       "files": {
-        "SKILL.md": "4a023bd30cab98192a31363a4315c5e0a12349f3d1b6a1d3351bfeea0a0100b2"
+        "SKILL.md": "7dc6749cbba711b763ae5ee62c5764b7dfa52ee721df0600ba4957be08103a79"
       },
-      "installedAt": "2026-10-10T19:02:34.507Z"
+      "installedAt": "2026-10-10T19:48:34.361Z"
     },
     "pr-workflow": {
       "hash": "64d343451130ecc8be48510d3b7770d0d10add37773da3436ac087a47edc8a0f",
@@ -61,7 +61,7 @@
   },
   "source": {
     "repo": "spizeck/app-foundations",
-    "revision": "df5a5e4c2f95d0b0d2c584c2c2391b89edbd476c",
+    "revision": "bab43008233d28fdbc71ed29d26dfce9614207e9",
     "manifestVersion": 1
   }
 }
