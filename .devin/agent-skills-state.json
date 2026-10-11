@@ -57,11 +57,19 @@
         "templates/morning-review.md": "17cd4ee1a8bb35cd27d800ee0bf9efc0f669ccdd55ef2ef89fb4d36850b446a4"
       },
       "installedAt": "2026-10-10T19:02:34.524Z"
+    },
+    "web-interface-guidelines": {
+      "hash": "91910de939efe76a8f372252ecbd39107bea2a9fddb3d8c539c12faf82a43a5a",
+      "files": {
+        "references/command.md": "d246b026f4f29b5823a9cc857f9edf3d2507002e055e32040cadeaf3b38e0234",
+        "SKILL.md": "4988a1c8c9bbb108940fbf2e53459d9bcda36e1415a2068f0a4e48aabc98fa9d"
+      },
+      "installedAt": "2026-10-11T00:14:39.215Z"
     }
   },
   "source": {
     "repo": "spizeck/app-foundations",
-    "revision": "bab43008233d28fdbc71ed29d26dfce9614207e9",
+    "revision": "7f1c70620ab0527c48f593f01c8957e87e0fc9e3",
     "manifestVersion": 1
   }
 }
