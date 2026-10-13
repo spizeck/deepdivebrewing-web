@@ -137,11 +137,16 @@ function canonicalizePayout(
     type: typeof raw.type === "string" ? raw.type : undefined,
     createdMs:
       typeof raw.created === "number" ? raw.created * 1000 : undefined,
+    livemode:
+      typeof raw.livemode === "boolean" ? raw.livemode : undefined,
   };
 }
 
 // Authoritative payout state — the webhook delivery only carries the id;
-// every financial field comes from this re-fetch.
+// every financial field comes from this re-fetch. A payout that does not
+// exist in this account/mode (Stripe `resource_missing`) returns null so
+// callers can distinguish "not here" from a transient outage — every
+// other failure normalizes to `unavailable`.
 export async function fetchStripePayout(
   payoutId: string
 ): Promise<StripePayoutFacts | null> {
@@ -149,7 +154,11 @@ export async function fetchStripePayout(
   try {
     raw = (await getStripeClient().payouts.retrieve(payoutId)) as unknown as
       Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    const missing =
+      (error as { code?: unknown })?.code === "resource_missing" ||
+      (error as { statusCode?: unknown })?.statusCode === 404;
+    if (missing) return null;
     throw stripeReadFailed("payout read");
   }
   return canonicalizePayout(raw);
@@ -210,31 +219,49 @@ export async function listStripePayoutTransactions(
   return { txns, truncated };
 }
 
-// Bounded recent-payout scan for the scheduled sweep — the recovery path
-// for webhook deliveries Stripe never made (or that transiently failed).
-// Lists the newest payouts; the caller filters to ones needing work.
+// Bounded recent-payout scan for the scheduled sweep and the admin
+// manual sync — the recovery path for webhook deliveries Stripe never
+// made (or that transiently failed). Lists the newest payouts; the
+// caller filters to ones needing work. Pages continue with
+// `starting_after` up to `maxPages`; a window holding more payouts than
+// the scan reached reports `truncated` rather than fetching forever.
 export async function listRecentStripePayouts(input: {
   createdGteSec: number;
   limit?: number;
-}): Promise<StripePayoutFacts[]> {
+  maxPages?: number;
+}): Promise<{ payouts: StripePayoutFacts[]; truncated: boolean }> {
   const client = getStripeClient();
+  const maxPages = Math.max(1, input.maxPages ?? 1);
   const payouts: StripePayoutFacts[] = [];
+  let startingAfter: string | undefined;
+  let pages = 0;
+  let truncated = false;
   try {
-    const page = await client.payouts.list({
-      created: { gte: input.createdGteSec },
-      limit: Math.min(input.limit ?? 25, 100),
-    });
-    for (const raw of page.data) {
-      const payout = canonicalizePayout(
-        raw as unknown as Record<string, unknown>
-      );
-      if (payout) payouts.push(payout);
+    for (;;) {
+      const page = await client.payouts.list({
+        created: { gte: input.createdGteSec },
+        limit: Math.min(input.limit ?? 25, 100),
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+      });
+      pages += 1;
+      for (const raw of page.data) {
+        const payout = canonicalizePayout(
+          raw as unknown as Record<string, unknown>
+        );
+        if (payout) payouts.push(payout);
+      }
+      if (!page.has_more || pages >= maxPages) {
+        truncated = page.has_more;
+        break;
+      }
+      startingAfter = page.data[page.data.length - 1]?.id;
+      if (!startingAfter) break;
     }
   } catch {
     throw stripeReadFailed("payout list");
   }
-  logInfo("stripe.payout.list", { count: payouts.length });
-  return payouts;
+  logInfo("stripe.payout.list", { count: payouts.length, pages, truncated });
+  return { payouts, truncated };
 }
 
 // The Stripe account's actual cash position — available and pending totals

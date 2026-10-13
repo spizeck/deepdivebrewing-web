@@ -16,8 +16,14 @@ class FakeTimestamp {
   toDate() {
     return new Date(this.ms);
   }
+  toMillis() {
+    return this.ms;
+  }
   static fromMillis(ms: number) {
     return new FakeTimestamp(ms);
+  }
+  static now() {
+    return new FakeTimestamp(Date.now());
   }
 }
 
@@ -114,14 +120,15 @@ function makeCollection(name: string) {
   };
 }
 
+interface FakeDocRef {
+  __coll?: string;
+  __id?: string;
+}
+
 const fakeDb = {
   collection: makeCollection,
   batch: () => ({
-    set: (
-      ref: { __coll?: string; __id?: string },
-      data: FakeDoc,
-      opts?: { merge?: boolean }
-    ) => {
+    set: (ref: FakeDocRef, data: FakeDoc, opts?: { merge?: boolean }) => {
       batchWrites.push({
         coll: ref.__coll ?? "",
         id: ref.__id ?? "",
@@ -136,6 +143,44 @@ const fakeDb = {
     },
     commit: async () => {},
   }),
+  runTransaction: async (
+    work: (tx: {
+      get: (ref: FakeDocRef) => Promise<{
+        exists: boolean;
+        data: () => FakeDoc | undefined;
+      }>;
+      set: (ref: FakeDocRef, data: FakeDoc, opts?: { merge?: boolean }) => void;
+      update: (ref: FakeDocRef, data: FakeDoc) => void;
+      create: (ref: FakeDocRef, data: FakeDoc) => void;
+      delete: (ref: FakeDocRef) => void;
+    }) => Promise<unknown>
+  ) =>
+    work({
+      get: async (ref: FakeDocRef) => {
+        const coll = collectionStore(ref.__coll ?? "");
+        return {
+          exists: coll.has(ref.__id ?? ""),
+          data: () => coll.get(ref.__id ?? ""),
+        };
+      },
+      set: (ref: FakeDocRef, data: FakeDoc, opts?: { merge?: boolean }) => {
+        const coll = collectionStore(ref.__coll ?? "");
+        coll.set(
+          ref.__id ?? "",
+          opts?.merge ? { ...coll.get(ref.__id ?? ""), ...data } : data
+        );
+      },
+      update: (ref: FakeDocRef, data: FakeDoc) => {
+        const coll = collectionStore(ref.__coll ?? "");
+        coll.set(ref.__id ?? "", { ...coll.get(ref.__id ?? ""), ...data });
+      },
+      create: (ref: FakeDocRef, data: FakeDoc) => {
+        collectionStore(ref.__coll ?? "").set(ref.__id ?? "", data);
+      },
+      delete: (ref: FakeDocRef) => {
+        collectionStore(ref.__coll ?? "").delete(ref.__id ?? "");
+      },
+    }),
 };
 
 mock.module("@/lib/firebase-admin-db", {
@@ -153,6 +198,7 @@ mock.module("@/lib/firebase-admin-db", {
         };
       },
       batch: fakeDb.batch,
+      runTransaction: fakeDb.runTransaction,
     }),
   },
 });
@@ -227,15 +273,37 @@ mock.module("@/lib/qbo-api", {
 let stripePayout: FakeDoc | null = null;
 let payoutTxns: FakeDoc[] = [];
 const chargeFacts = new Map<string, FakeDoc>();
+// Per-id payout facts for multi-payout sync tests — falls back to
+// `stripePayout` so the single-payout describes keep working.
+const payoutFactsById = new Map<string, FakeDoc | null>();
+const payoutFetchErrors = new Set<string>();
+let recentPayouts: FakeDoc[] = [];
+let recentTruncated = false;
+const recentListCalls: { createdGteSec: number; limit?: number; maxPages?: number }[] = [];
+let stripeFetchError: Error | null = null;
+let stripeListError: Error | null = null;
 
 mock.module("@/lib/stripe-balance", {
   namedExports: {
-    fetchStripePayout: async () => stripePayout,
+    fetchStripePayout: async (id: string) => {
+      if (stripeFetchError || payoutFetchErrors.has(id)) {
+        throw stripeFetchError ?? new Error(`stripe outage for ${id}`);
+      }
+      return payoutFactsById.has(id) ? payoutFactsById.get(id) : stripePayout;
+    },
     listStripePayoutTransactions: async () => ({
       txns: payoutTxns,
       truncated: false,
     }),
-    listRecentStripePayouts: async () => [],
+    listRecentStripePayouts: async (input: {
+      createdGteSec: number;
+      limit?: number;
+      maxPages?: number;
+    }) => {
+      recentListCalls.push(input);
+      if (stripeListError) throw stripeListError;
+      return { payouts: recentPayouts, truncated: recentTruncated };
+    },
     fetchStripeChargeFacts: async (id: string) => chargeFacts.get(id) ?? {},
     fetchStripeRefundFacts: async () => ({}),
   },
@@ -243,11 +311,14 @@ mock.module("@/lib/stripe-balance", {
 
 let accountingMode = "observe";
 let cutover: string | null = null;
+let stripeConfigured = true;
+let stripeTestMode = true;
 mock.module("@/lib/stripe-config", {
   namedExports: {
     getStripeAccountingMode: () => accountingMode,
     getStripeAutomationCutover: () => cutover,
-    isStripeConfigured: () => true,
+    isStripeConfigured: () => stripeConfigured,
+    isStripeTestMode: () => stripeTestMode,
   },
 });
 
@@ -310,6 +381,15 @@ beforeEach(() => {
   stripePayout = { ...PAID_PAYOUT };
   payoutTxns = [{ ...CHARGE }];
   chargeFacts.clear();
+  payoutFactsById.clear();
+  payoutFetchErrors.clear();
+  recentPayouts = [];
+  recentTruncated = false;
+  recentListCalls.length = 0;
+  stripeFetchError = null;
+  stripeListError = null;
+  stripeConfigured = true;
+  stripeTestMode = true;
   qboPayments = [{ ...OLLIE_PAYMENT }];
   reconActivity = [];
   ufAccount = { id: "uf-1", name: "Undeposited Funds" };
@@ -523,5 +603,222 @@ describe("processStripePayoutLedger", () => {
       0
     );
     for (const p of proposals) assert.equal(p.status, "blocked");
+  });
+});
+
+describe("syncStripePayouts", () => {
+  function paidPayoutFacts(id: string): FakeDoc {
+    return { ...PAID_PAYOUT, id };
+  }
+
+  it("processes missing payouts, records non-paid, and skips current ones", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    recentPayouts = [
+      paidPayoutFacts("po_new"),
+      { ...PAID_PAYOUT, id: "po_pending", status: "pending" },
+      paidPayoutFacts("po_cur"),
+    ];
+    payoutFactsById.set("po_new", paidPayoutFacts("po_new"));
+    payoutFactsById.set("po_cur", paidPayoutFacts("po_cur"));
+    collectionStore("stripePayouts").set("po_cur", {
+      payoutId: "po_cur",
+      environment: "sandbox",
+      status: "paid",
+      pendingLedger: false,
+      lastProcessedAt: FakeTimestamp.fromMillis(Date.now()),
+    });
+
+    const summary = await syncStripePayouts();
+    assert.equal(summary.environment, "sandbox");
+    assert.equal(summary.scope, "recent");
+    assert.equal(summary.discovered, 3);
+    assert.equal(summary.processed, 1);
+    assert.equal(summary.statusRecorded, 1);
+    assert.equal(summary.alreadyCurrent, 1);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.remaining, 0);
+
+    const built = collectionStore("stripePayouts").get("po_new")!;
+    assert.equal(built.status, "paid");
+    assert.ok(Array.isArray(built.lines));
+    const pending = collectionStore("stripePayouts").get("po_pending")!;
+    assert.equal(pending.status, "pending");
+    assert.equal(pending.environment, "sandbox");
+    // A second identical run is a no-op — the up-to-date check sees the
+    // persisted docs and never touches the provider again.
+    const again = await syncStripePayouts();
+    assert.equal(again.processed, 0);
+    assert.equal(again.statusRecorded, 0);
+    assert.equal(again.alreadyCurrent, 3);
+    // Proposals stay observe-mode only — no execution ever.
+    for (const p of collectionStore("qboAccountingProposals").values()) {
+      assert.notEqual(p.status, "applied");
+    }
+  });
+
+  it("stops at the process cap and reports the backlog as remaining", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    recentPayouts = Array.from({ length: 12 }, (_, i) =>
+      paidPayoutFacts(`po_${i}`)
+    );
+    for (const p of recentPayouts) {
+      payoutFactsById.set(p.id as string, p);
+    }
+    const summary = await syncStripePayouts();
+    assert.equal(summary.discovered, 12);
+    assert.equal(summary.processed, 10);
+    assert.equal(summary.remaining, 2);
+    // The next run drains the rest — continuation via re-invocation.
+    const second = await syncStripePayouts();
+    assert.equal(second.processed, 2);
+    assert.equal(second.remaining, 0);
+  });
+
+  it("paginates the bounded Stripe scan", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    await syncStripePayouts();
+    assert.equal(recentListCalls.length, 1);
+    assert.equal(recentListCalls[0].maxPages, 3);
+    assert.equal(recentListCalls[0].limit, 100);
+  });
+
+  it("syncs a single payout by id through the same canonical build", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    const summary = await syncStripePayouts({ payoutId: "po_abc" });
+    assert.equal(summary.scope, "single");
+    assert.equal(summary.discovered, 1);
+    assert.equal(summary.processed, 1);
+    const item = summary.items[0];
+    assert.equal(item.outcome, "processed");
+    assert.equal(item.proposals, 3);
+    assert.equal(item.eligibleLines, 1);
+    assert.equal(collectionStore("stripePayouts").has("po_abc"), true);
+    // The Stripe list is never consulted for a by-id sync.
+    assert.equal(recentListCalls.length, 0);
+  });
+
+  it("rejects a malformed payout id before any provider call", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    await assert.rejects(
+      () => syncStripePayouts({ payoutId: "pi_not_a_payout" }),
+      (error: unknown) => (error as { status?: number }).status === 400
+    );
+    await assert.rejects(
+      () => syncStripePayouts({ payoutId: "../etc" }),
+      (error: unknown) => (error as { status?: number }).status === 400
+    );
+    assert.equal(recentListCalls.length, 0);
+  });
+
+  it("reports not_found for a payout absent from this Stripe environment", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    stripePayout = null;
+    const summary = await syncStripePayouts({ payoutId: "po_missing" });
+    assert.equal(summary.failed, 1);
+    assert.equal(summary.items[0].outcome, "not_found");
+    assert.equal(collectionStore("stripePayouts").has("po_missing"), false);
+  });
+
+  it("reports not_found when the payout's livemode contradicts the key mode", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    // A live-mode object reachable under a test key cannot be a
+    // same-environment payout — the guard refuses to ingest it.
+    payoutFactsById.set("po_live", {
+      ...PAID_PAYOUT,
+      id: "po_live",
+      livemode: true,
+    });
+    const summary = await syncStripePayouts({ payoutId: "po_live" });
+    assert.equal(summary.items[0].outcome, "not_found");
+    assert.equal(summary.failed, 1);
+  });
+
+  it("marks a fully pre-cutover payout as ingested with zero proposals", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    cutover = "2026-10-14"; // charge movements are dated 2026-10-11
+    const summary = await syncStripePayouts({ payoutId: "po_abc" });
+    const item = summary.items[0];
+    assert.equal(item.outcome, "processed");
+    assert.equal(item.eligibleLines, 0);
+    assert.equal(item.preCutoverLines, 1);
+    assert.equal(item.proposals, 0);
+    assert.equal(summary.cutover, "2026-10-14");
+    // The ledger still persisted — for review — with no proposals.
+    assert.equal(collectionStore("stripePayouts").has("po_abc"), true);
+    assert.equal(collectionStore("qboAccountingProposals").size, 0);
+  });
+
+  it("records a non-paid payout by id without ledger work", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    stripePayout = { ...PAID_PAYOUT, status: "in_transit" };
+    const summary = await syncStripePayouts({ payoutId: "po_abc" });
+    assert.equal(summary.statusRecorded, 1);
+    assert.equal(summary.items[0].outcome, "status_recorded");
+  });
+
+  it("refuses a second run while the sync lease is held", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
+      environment: "sandbox",
+      leaseUntil: FakeTimestamp.fromMillis(Date.now() + 60_000),
+    });
+    await assert.rejects(
+      () => syncStripePayouts(),
+      (error: unknown) => (error as { status?: number }).status === 409
+    );
+    // A stale lease is reclaimable — a crashed run must not wedge sync.
+    collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
+      environment: "sandbox",
+      leaseUntil: FakeTimestamp.fromMillis(Date.now() - 1_000),
+    });
+    const summary = await syncStripePayouts();
+    assert.equal(summary.failed, 0);
+  });
+
+  it("serializes the cron sweep behind the same lease", async () => {
+    const { runStripePayoutSweep } = await import("@/lib/stripe-payouts");
+    collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
+      environment: "sandbox",
+      leaseUntil: FakeTimestamp.fromMillis(Date.now() + 60_000),
+    });
+    recentPayouts = [paidPayoutFacts("po_new")];
+    payoutFactsById.set("po_new", paidPayoutFacts("po_new"));
+    const skipped = await runStripePayoutSweep();
+    assert.deepEqual(skipped, { scanned: 0, processed: 0, skipped: 0 });
+    // With the lease free the sweep recovers the payout itself.
+    collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
+      environment: "sandbox",
+      leaseUntil: FakeTimestamp.fromMillis(0),
+    });
+    const summary = await runStripePayoutSweep();
+    assert.equal(summary.processed, 1);
+  });
+
+  it("isolates a per-payout failure — the rest still process", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    recentPayouts = [paidPayoutFacts("po_ok"), paidPayoutFacts("po_bad")];
+    payoutFactsById.set("po_ok", paidPayoutFacts("po_ok"));
+    payoutFetchErrors.add("po_bad");
+    const summary = await syncStripePayouts();
+    assert.equal(summary.processed, 1);
+    assert.equal(summary.failed, 1);
+    const bad = summary.items.find((i) => i.payoutId === "po_bad")!;
+    assert.equal(bad.outcome, "failed");
+    assert.equal(collectionStore("stripePayouts").has("po_ok"), true);
+  });
+
+  it("propagates a Stripe list failure as a failed sync, not a partial one", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    stripeListError = new Error("connection reset");
+    await assert.rejects(() => syncStripePayouts());
+  });
+
+  it("fails closed when Stripe is not configured", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    stripeConfigured = false;
+    await assert.rejects(
+      () => syncStripePayouts(),
+      (error: unknown) => (error as { status?: number }).status === 500
+    );
   });
 });

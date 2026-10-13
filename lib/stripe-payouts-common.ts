@@ -76,6 +76,9 @@ export interface StripePayoutFacts {
   method?: string;
   type?: string;
   createdMs?: number;
+  /** Stripe's own test/live flag on the object — environment-isolation
+   *  evidence for manual sync-by-id. */
+  livemode?: boolean;
 }
 
 // A single balance transaction belonging to the payout — same safe subset
@@ -820,4 +823,50 @@ export interface StripePayoutAutomationView {
   proposals: QboAccountingProposal[];
   /** False when the QBO leg could not be read (not connected etc.). */
   qboAvailable: boolean;
+}
+
+// --- Admin-triggered payout sync ---
+
+// Per-payout outcome of a manual sync run. `processed` means the canonical
+// ledger build ran — ingestion succeeded; it says nothing about proposal
+// eligibility. `eligibleLines`/`preCutoverLines` carry that distinction: a
+// fully pre-cutover payout is ingested with zero eligible lines, which the
+// UI explains instead of implying proposals exist.
+export interface StripePayoutSyncItem {
+  payoutId: string;
+  status: string;
+  outcome:
+    | "processed" // paid payout — canonical ledger (re)built this run
+    | "status_recorded" // non-paid payout persisted without ledger work
+    | "already_current" // stored ledger already matches canonical state
+    | "not_found" // by-id only: no such payout in this Stripe environment
+    | "failed"; // processing threw — safe to retry
+  /** Accounting proposals this run's build computed (0 = ingested with
+   *  no eligible postings — e.g. every movement predates the cutover). */
+  proposals?: number;
+  eligibleLines?: number;
+  preCutoverLines?: number;
+}
+
+export interface StripePayoutSyncSummary {
+  environment: QboEnvironment;
+  scope: "recent" | "single";
+  /** Payouts the Stripe scan returned (1 for a by-id run). */
+  discovered: number;
+  /** Paid payouts whose canonical ledger (re)built this run. */
+  processed: number;
+  /** Non-paid payouts persisted status-only this run. */
+  statusRecorded: number;
+  alreadyCurrent: number;
+  failed: number;
+  /** Scan hits still needing work when the run's process cap was hit —
+   *  a re-run continues from them; every step is idempotent. */
+  remaining: number;
+  /** The Stripe payout list itself was truncated — the lookback holds
+   *  more payouts than the bounded scan reached. */
+  scanTruncated: boolean;
+  /** Configured automation cutover (YYYY-MM-DD), echoed so the UI can
+   *  explain pre-cutover results. Undefined when no cutover is set. */
+  cutover?: string;
+  items: StripePayoutSyncItem[];
 }

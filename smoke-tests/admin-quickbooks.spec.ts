@@ -249,6 +249,7 @@ function mockQboApi(
     retryBody?: unknown;
     reconBody?: unknown;
     payoutsBody?: unknown;
+    payoutSyncBody?: unknown;
     /** Delay the last-run GET to make the panel's loading state
      *  observable. */
     reconDelayMs?: number;
@@ -334,6 +335,35 @@ function mockQboApi(
         );
       }
       return json(overrides.reconBody ?? { ok: true, run: null });
+    }
+    if (url.endsWith("/api/admin/quickbooks/payouts/sync")) {
+      return json(
+        overrides.payoutSyncBody ?? {
+          ok: true,
+          summary: {
+            environment: "sandbox",
+            scope: "recent",
+            discovered: 2,
+            processed: 1,
+            statusRecorded: 0,
+            alreadyCurrent: 1,
+            failed: 0,
+            remaining: 0,
+            scanTruncated: false,
+            items: [
+              {
+                payoutId: "po_fixture2",
+                status: "paid",
+                outcome: "processed",
+                proposals: 3,
+                eligibleLines: 2,
+                preCutoverLines: 0,
+              },
+            ],
+          },
+          view: PAYOUTS_VIEW,
+        }
+      );
     }
     if (url.endsWith("/api/admin/quickbooks/payouts")) {
       return json(overrides.payoutsBody ?? { ok: true, view: PAYOUTS_VIEW });
@@ -703,6 +733,94 @@ test("payout accounting panel shows observe mode and expandable detail", async (
   await expect(
     section.getByRole("button", { name: "Reprocess ledger" })
   ).toBeVisible();
+});
+
+test("payout sync runs on demand and reports the result summary", async ({
+  page,
+}) => {
+  await mockQboApi(page, CONNECTED);
+  await page.goto(FIXTURE);
+
+  const section = page.locator(
+    'section[aria-labelledby="payout-automation-heading"]'
+  );
+  await section
+    .getByRole("button", { name: "Sync recent payouts" })
+    .press("Enter");
+  await expect(
+    section.getByRole("status").filter({
+      hasText: /Payout sync complete — 2 found, 1 processed/,
+    })
+  ).toBeVisible();
+  await expect(section.getByText("po_fixture2")).toBeVisible();
+  await expect(section.getByText(/ledger built · 3 proposals/)).toBeVisible();
+});
+
+test("sync payout by ID validates the id and reports the outcome", async ({
+  page,
+}) => {
+  let postedId: unknown = null;
+  await mockQboApi(page, CONNECTED);
+  await page.route(/\/api\/admin\/quickbooks\/payouts\/sync/, async (route) => {
+    postedId = (route.request().postDataJSON() as Record<string, unknown>)
+      ?.payoutId;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        summary: {
+          environment: "sandbox",
+          scope: "single",
+          discovered: 1,
+          processed: 1,
+          statusRecorded: 0,
+          alreadyCurrent: 0,
+          failed: 0,
+          remaining: 0,
+          scanTruncated: false,
+          cutover: "2026-10-14",
+          items: [
+            {
+              payoutId: "po_hist9",
+              status: "paid",
+              outcome: "processed",
+              proposals: 0,
+              eligibleLines: 0,
+              preCutoverLines: 4,
+            },
+          ],
+        },
+        view: PAYOUTS_VIEW,
+      }),
+    });
+  });
+  await page.goto(FIXTURE);
+
+  const section = page.locator(
+    'section[aria-labelledby="payout-automation-heading"]'
+  );
+  const syncById = section.getByRole("button", {
+    name: "Sync payout by ID",
+  });
+
+  // A malformed id never leaves the browser.
+  await section.getByLabel("Payout ID").fill("not-a-payout");
+  await syncById.press("Enter");
+  await expect(
+    section.getByRole("alert").filter({
+      hasText: /Enter a Stripe payout id/,
+    })
+  ).toBeVisible();
+  expect(postedId).toBeNull();
+
+  // A valid id posts through and explains the pre-cutover result.
+  await section.getByLabel("Payout ID").fill("po_hist9");
+  await syncById.press("Enter");
+  await expect(
+    section.getByText(/all movements predate the cutover/).first()
+  ).toBeVisible();
+  expect(postedId).toBe("po_hist9");
 });
 
 test("axe: quickbooks workspace has no serious/critical violations", async ({

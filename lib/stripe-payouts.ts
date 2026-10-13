@@ -21,6 +21,7 @@ import {
   getStripeAccountingMode,
   getStripeAutomationCutover,
   isStripeConfigured,
+  isStripeTestMode,
 } from "@/lib/stripe-config";
 import {
   buildDdbPaymentIndex,
@@ -35,15 +36,21 @@ import {
   type QboUndepositedPayment,
   type StripePayoutAutomationView,
   type StripePayoutFacts,
+  type StripePayoutSyncItem,
+  type StripePayoutSyncSummary,
   type StripePayoutView,
 } from "@/lib/stripe-payouts-common";
 import {
   PAYMENTS_COLLECTION,
   STRIPE_EVENTS_COLLECTION,
+  timestampMillis,
 } from "@/lib/payments-common";
 import { logError, logInfo, logWarn } from "@/lib/log";
 import { QboError } from "@/lib/qbo-errors";
-import type { QboEnvironment } from "@/lib/qbo-common";
+import {
+  QBO_SWEEP_STATE_COLLECTION,
+  type QboEnvironment,
+} from "@/lib/qbo-common";
 
 // Stripe payout accounting orchestration. Everything here is Observe
 // mode: payouts are ingested, canonicalized, classified, and turned into
@@ -498,16 +505,27 @@ async function detectExistingCover(
 // respect them.
 const DECIDED_PROPOSAL_STATUSES = new Set(["approved", "rejected", "applied"]);
 
+// What one canonical build produced — returned so the manual sync can
+// report ingestion vs proposal eligibility honestly (a fully pre-cutover
+// payout ingests cleanly and proposes nothing).
+export interface StripePayoutLedgerResult {
+  status: string;
+  lineCount: number;
+  eligibleLineCount: number;
+  preCutoverLineCount: number;
+  proposalCount: number;
+}
+
 export async function processStripePayoutLedger(
   payoutId: string
-): Promise<void> {
+): Promise<StripePayoutLedgerResult | null> {
   const environment = getQboEnvironment();
   const mode = getStripeAccountingMode();
   const cutover = getStripeAutomationCutover();
   const payout = await fetchStripePayout(payoutId);
   if (!payout) {
     logWarn("stripe.payout.ledger_missing", { payoutId });
-    return;
+    return null;
   }
 
   const statusOnly = !["paid"].includes(payout.status);
@@ -652,6 +670,17 @@ export async function processStripePayoutLedger(
     exceptions: exceptions.length,
     balanced: ledger.totals.balanced,
   });
+  return {
+    status: payout.status,
+    lineCount: ledger.lines.length,
+    eligibleLineCount: ledger.lines.filter(
+      (line) => line.scope === "eligible"
+    ).length,
+    preCutoverLineCount: ledger.lines.filter(
+      (line) => line.scope === "pre_cutover"
+    ).length,
+    proposalCount: proposals.length,
+  };
 }
 
 // --- Admin view ---
@@ -797,12 +826,111 @@ export async function getStripePayoutAutomationView(input: {
   };
 }
 
-// --- Scheduled recovery sweep ---
+// --- Scheduled recovery sweep + admin-triggered manual sync ---
+
+// Single-run mutual exclusion for payout processing: the cron sweep and
+// the admin manual sync share one environment-scoped lease doc so they
+// can never interleave provider calls and ledger writes. The lease is a
+// Firestore transaction with a short expiry — a crashed run releases
+// automatically instead of stranding the lock. (The lease guards
+// *overlap*; idempotency guards *correctness* — deterministic proposal
+// ids and the up-to-date check make any replay converge regardless.)
+const PAYOUT_SYNC_LOCK_LEASE_MS = 2 * 60 * 1000;
+
+// Manual sync bounds: the scan paginates through the whole 35-day
+// lookback (≤3 pages × 100) so a backlog larger than the sweep's
+// single-page/5-per-day budget is still reachable, and up to 10 payouts
+// are processed per click — anything left over is reported as
+// `remaining` for the next run rather than processed unboundedly.
+const PAYOUT_SYNC_SCAN_MAX_PAGES = 3;
+const PAYOUT_SYNC_MAX_PROCESS = 10;
+const PAYOUT_SYNC_RESULTS_LIMIT = 25;
+
+const PAYOUT_ID_PATTERN = /^po_[A-Za-z0-9]+$/;
+
+function payoutSyncLockRef(environment: QboEnvironment) {
+  return getFirebaseAdminDb()
+    .collection(QBO_SWEEP_STATE_COLLECTION)
+    .doc(`stripePayoutSync-${environment}`);
+}
+
+async function acquirePayoutSyncLease(
+  environment: QboEnvironment,
+  nowMs: number
+): Promise<boolean> {
+  const ref = payoutSyncLockRef(environment);
+  return getFirebaseAdminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const leaseMs = timestampMillis(
+      (snap.data() as { leaseUntil?: unknown } | undefined)?.leaseUntil
+    );
+    if (snap.exists && leaseMs !== null && leaseMs > nowMs) return false;
+    tx.set(ref, {
+      environment,
+      leaseUntil: Timestamp.fromMillis(nowMs + PAYOUT_SYNC_LOCK_LEASE_MS),
+      lockedAtMs: nowMs,
+    });
+    return true;
+  });
+}
+
+async function releasePayoutSyncLease(
+  environment: QboEnvironment
+): Promise<void> {
+  await payoutSyncLockRef(environment).set(
+    { environment, leaseUntil: Timestamp.fromMillis(0) },
+    { merge: true }
+  );
+}
+
+// The up-to-date check every recovery path shares: the stored doc is
+// current when it already reflects the canonical status, has no pending
+// ledger build, and carries a completed processing timestamp.
+function storedPayoutUpToDate(
+  stored: Record<string, unknown> | undefined,
+  payout: StripePayoutFacts
+): boolean {
+  return Boolean(
+    stored &&
+      stored.status === payout.status &&
+      stored.pendingLedger !== true &&
+      typeof stored.lastProcessedAt === "object"
+  );
+}
+
+// Status-only persistence for payouts with nothing to reconcile
+// (pending/in_transit/failed/canceled): the canonical fields are recorded
+// without the balance-transaction fetch so coverage includes non-paid
+// receipts too. Shared by the sweep and the manual sync — the paths must
+// never diverge on what "recorded" means.
+async function persistStripePayoutStatus(
+  environment: QboEnvironment,
+  payout: StripePayoutFacts
+): Promise<void> {
+  await payoutRef(payout.id).set(
+    deepOmitUndefined({
+      payoutId: payout.id,
+      environment,
+      status: payout.status,
+      amountMinor: payout.amountMinor,
+      currency: payout.currency,
+      arrivalDate: payout.arrivalDate,
+      method: payout.method,
+      payoutType: payout.type,
+      createdMs: payout.createdMs,
+      pendingLedger: false,
+      lastProcessedAt: FieldValue.serverTimestamp(),
+      lastProcessedIso: new Date().toISOString(),
+    }),
+    { merge: true }
+  );
+}
 
 // The fallback for missed webhook deliveries: list recent payouts and
 // process any whose ledger is missing, pending, or behind the canonical
 // status. Bounded per run — a large backlog drains over successive days
-// rather than one runaway invocation.
+// rather than one runaway invocation. Takes the shared sync lease so a
+// manual admin sync and the sweep never overlap.
 export async function runStripePayoutSweep(): Promise<{
   scanned: number;
   processed: number;
@@ -812,68 +940,266 @@ export async function runStripePayoutSweep(): Promise<{
     return { scanned: 0, processed: 0, skipped: 0 };
   }
   const environment = getQboEnvironment();
+  const acquired = await acquirePayoutSyncLease(environment, Date.now());
+  if (!acquired) {
+    logInfo("stripe.payout.sweep_skipped", {
+      environment,
+      reason: "sync_in_progress",
+    });
+    return { scanned: 0, processed: 0, skipped: 0 };
+  }
+  try {
+    const cutoffSec =
+      Math.floor(Date.now() / 1000) - PAYOUT_SWEEP_LOOKBACK_DAYS * 86_400;
+    const { payouts: recent } = await listRecentStripePayouts({
+      createdGteSec: cutoffSec,
+      limit: 50,
+    });
+    let processed = 0;
+    let skipped = 0;
+    for (const payout of recent) {
+      if (processed >= PAYOUT_SWEEP_MAX_PROCESS) {
+        skipped += 1;
+        continue;
+      }
+      const snap = await payoutRef(payout.id).get();
+      const stored = snap.exists ? snap.data() : undefined;
+      if (storedPayoutUpToDate(stored, payout)) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        if (payout.status !== "paid") {
+          await persistStripePayoutStatus(environment, payout);
+        } else {
+          await processStripePayoutLedger(payout.id);
+        }
+        processed += 1;
+      } catch (error) {
+        // One failing payout must not block recovery for the rest —
+        // pendingLedger stays set, so the next sweep retries it.
+        logError("stripe.payout.sweep_item_failed", error, {
+          payoutId: payout.id,
+        });
+        skipped += 1;
+      }
+    }
+    logInfo("stripe.payout.sweep", {
+      scanned: recent.length,
+      processed,
+      skipped,
+    });
+    return { scanned: recent.length, processed, skipped };
+  } finally {
+    await releasePayoutSyncLease(environment).catch((error) =>
+      logError("stripe.payout.sync_lease_release_failed", error, {
+        environment,
+      })
+    );
+  }
+}
+
+function emptySyncSummary(
+  environment: QboEnvironment,
+  scope: StripePayoutSyncSummary["scope"]
+): StripePayoutSyncSummary {
+  return {
+    environment,
+    scope,
+    discovered: 0,
+    processed: 0,
+    statusRecorded: 0,
+    alreadyCurrent: 0,
+    failed: 0,
+    remaining: 0,
+    scanTruncated: false,
+    cutover: getStripeAutomationCutover() ?? undefined,
+    items: [],
+  };
+}
+
+function pushSyncItem(
+  summary: StripePayoutSyncSummary,
+  item: StripePayoutSyncItem
+): void {
+  if (summary.items.length < PAYOUT_SYNC_RESULTS_LIMIT) {
+    summary.items.push(item);
+  }
+}
+
+// Single-payout sync: fetch the canonical payout, verify it belongs to
+// this Stripe environment (the configured key already scopes account +
+// mode — a foreign id simply does not resolve — and `livemode` is the
+// explicit cross-check), then run the same processing the sweep applies.
+async function syncSingleStripePayout(
+  environment: QboEnvironment,
+  payoutId: string
+): Promise<StripePayoutSyncSummary> {
+  const summary = emptySyncSummary(environment, "single");
+  summary.discovered = 1;
+  const item: StripePayoutSyncItem = {
+    payoutId,
+    status: "unknown",
+    outcome: "failed",
+  };
+  try {
+    const payout = await fetchStripePayout(payoutId);
+    const modeMismatch =
+      payout &&
+      payout.livemode !== undefined &&
+      payout.livemode === isStripeTestMode();
+    if (!payout || modeMismatch) {
+      item.outcome = "not_found";
+      summary.failed += 1;
+    } else {
+      item.status = payout.status;
+      if (payout.status !== "paid") {
+        await persistStripePayoutStatus(environment, payout);
+        item.outcome = "status_recorded";
+        summary.statusRecorded += 1;
+      } else {
+        const result = await processStripePayoutLedger(payout.id);
+        if (!result) {
+          summary.failed += 1;
+        } else {
+          item.outcome = "processed";
+          item.proposals = result.proposalCount;
+          item.eligibleLines = result.eligibleLineCount;
+          item.preCutoverLines = result.preCutoverLineCount;
+          summary.processed += 1;
+        }
+      }
+    }
+  } catch (error) {
+    summary.failed += 1;
+    logError("stripe.payout.sync_item_failed", error, { payoutId });
+  }
+  pushSyncItem(summary, item);
+  return summary;
+}
+
+// Recent-payout sync: the manual counterpart of the daily sweep over the
+// same 35-day lookback. Paginates the bounded Stripe scan (the sweep's
+// single page can leave a deep backlog unreachable), then applies the
+// sweep's exact per-payout rules — up-to-date check, status-only record
+// for non-paid, canonical ledger build for paid. Per-payout failures are
+// isolated and counted; the Stripe list failure itself is not (an
+// unreachable provider is a failed sync, not a partial one).
+async function syncRecentStripePayouts(
+  environment: QboEnvironment
+): Promise<StripePayoutSyncSummary> {
+  const summary = emptySyncSummary(environment, "recent");
   const cutoffSec =
     Math.floor(Date.now() / 1000) - PAYOUT_SWEEP_LOOKBACK_DAYS * 86_400;
-  const recent = await listRecentStripePayouts({
+  const { payouts, truncated } = await listRecentStripePayouts({
     createdGteSec: cutoffSec,
-    limit: 50,
+    limit: 100,
+    maxPages: PAYOUT_SYNC_SCAN_MAX_PAGES,
   });
-  let processed = 0;
-  let skipped = 0;
-  for (const payout of recent) {
-    if (processed >= PAYOUT_SWEEP_MAX_PROCESS) {
-      skipped += 1;
-      continue;
-    }
+  summary.discovered = payouts.length;
+  summary.scanTruncated = truncated;
+
+  let worked = 0;
+  for (const payout of payouts) {
     const snap = await payoutRef(payout.id).get();
     const stored = snap.exists ? snap.data() : undefined;
-    const upToDate =
-      stored &&
-      stored.status === payout.status &&
-      stored.pendingLedger !== true &&
-      typeof stored.lastProcessedAt === "object";
-    if (upToDate) {
-      skipped += 1;
+    const item: StripePayoutSyncItem = {
+      payoutId: payout.id,
+      status: payout.status,
+      outcome: "failed",
+    };
+    if (storedPayoutUpToDate(stored, payout)) {
+      summary.alreadyCurrent += 1;
       continue;
     }
+    if (worked >= PAYOUT_SYNC_MAX_PROCESS) {
+      summary.remaining += 1;
+      continue;
+    }
+    worked += 1;
     try {
       if (payout.status !== "paid") {
-        // Status-only payout: persist it without the ledger fetch so the
-        // sweep's coverage includes failed/canceled receipts too.
-        await payoutRef(payout.id).set(
-          deepOmitUndefined({
-            payoutId: payout.id,
-            environment,
-            status: payout.status,
-            amountMinor: payout.amountMinor,
-            currency: payout.currency,
-            arrivalDate: payout.arrivalDate,
-            method: payout.method,
-            payoutType: payout.type,
-            createdMs: payout.createdMs,
-            pendingLedger: false,
-            lastProcessedAt: FieldValue.serverTimestamp(),
-            lastProcessedIso: new Date().toISOString(),
-          }),
-          { merge: true }
-        );
+        await persistStripePayoutStatus(environment, payout);
+        item.outcome = "status_recorded";
+        summary.statusRecorded += 1;
       } else {
-        await processStripePayoutLedger(payout.id);
+        const result = await processStripePayoutLedger(payout.id);
+        if (!result) {
+          summary.failed += 1;
+        } else {
+          item.outcome = "processed";
+          item.proposals = result.proposalCount;
+          item.eligibleLines = result.eligibleLineCount;
+          item.preCutoverLines = result.preCutoverLineCount;
+          summary.processed += 1;
+        }
       }
-      processed += 1;
     } catch (error) {
-      // One failing payout must not block recovery for the rest —
-      // pendingLedger stays set, so the next sweep retries it.
-      logError("stripe.payout.sweep_item_failed", error, {
+      summary.failed += 1;
+      logError("stripe.payout.sync_item_failed", error, {
         payoutId: payout.id,
       });
-      skipped += 1;
     }
+    pushSyncItem(summary, item);
   }
-  logInfo("stripe.payout.sweep", {
-    scanned: recent.length,
-    processed,
-    skipped,
-  });
-  return { scanned: recent.length, processed, skipped };
+  return summary;
+}
+
+// Admin-triggered payout synchronization (`Sync recent payouts`, or a
+// single payout id for targeted recovery). Runs under the shared sync
+// lease so overlapping invocations — double-clicked buttons, concurrent
+// admins, a simultaneous cron sweep — can never interleave; a second
+// caller gets a 409 instead of a duplicated run. Everything past the
+// lease is the existing recovery pipeline: same lookback, same canonical
+// fetches, same idempotent persistence, same cutover and decided-status
+// preservation — nothing here posts to QuickBooks.
+export async function syncStripePayouts(input: {
+  payoutId?: string;
+} = {}): Promise<StripePayoutSyncSummary> {
+  if (!isStripeConfigured()) {
+    throw new QboError(
+      "Stripe is not configured on this deployment.",
+      "configuration"
+    );
+  }
+  const payoutId = input.payoutId?.trim();
+  if (payoutId && !PAYOUT_ID_PATTERN.test(payoutId)) {
+    throw new QboError(
+      "A payoutId must be a Stripe payout id (po_…).",
+      "validation",
+      400
+    );
+  }
+  const environment = getQboEnvironment();
+  const acquired = await acquirePayoutSyncLease(environment, Date.now());
+  if (!acquired) {
+    throw new QboError(
+      "A payout sync is already running — try again shortly.",
+      "validation",
+      409
+    );
+  }
+  try {
+    const summary = payoutId
+      ? await syncSingleStripePayout(environment, payoutId)
+      : await syncRecentStripePayouts(environment);
+    logInfo("stripe.payout.sync", {
+      environment,
+      scope: summary.scope,
+      discovered: summary.discovered,
+      processed: summary.processed,
+      statusRecorded: summary.statusRecorded,
+      alreadyCurrent: summary.alreadyCurrent,
+      failed: summary.failed,
+      remaining: summary.remaining,
+      scanTruncated: summary.scanTruncated,
+    });
+    return summary;
+  } finally {
+    await releasePayoutSyncLease(environment).catch((error) =>
+      logError("stripe.payout.sync_lease_release_failed", error, {
+        environment,
+      })
+    );
+  }
 }
