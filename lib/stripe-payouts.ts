@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { deepOmitUndefined } from "@/lib/firestore-safe";
@@ -854,12 +855,20 @@ function payoutSyncLockRef(environment: QboEnvironment) {
     .doc(`stripePayoutSync-${environment}`);
 }
 
+// Every acquisition gets a unique owner token. Release and renewal are
+// both conditional on that token, so a run that outlives its TTL — and
+// watches another invocation legitimately acquire the expired lock —
+// can neither clear the successor's lease nor keep working under it.
+// The residual window is a single in-flight payout build after losing
+// ownership; deterministic document/proposal ids make that overlap
+// converge harmlessly.
 async function acquirePayoutSyncLease(
   environment: QboEnvironment,
   nowMs: number
-): Promise<boolean> {
+): Promise<string | null> {
   const ref = payoutSyncLockRef(environment);
-  return getFirebaseAdminDb().runTransaction(async (tx) => {
+  const owner = randomUUID();
+  const acquired = await getFirebaseAdminDb().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const leaseMs = timestampMillis(
       (snap.data() as { leaseUntil?: unknown } | undefined)?.leaseUntil
@@ -867,20 +876,66 @@ async function acquirePayoutSyncLease(
     if (snap.exists && leaseMs !== null && leaseMs > nowMs) return false;
     tx.set(ref, {
       environment,
+      owner,
       leaseUntil: Timestamp.fromMillis(nowMs + PAYOUT_SYNC_LOCK_LEASE_MS),
       lockedAtMs: nowMs,
     });
     return true;
   });
+  return acquired ? owner : null;
 }
 
+// Extends the TTL only while `owner` still holds the lease — this doubles
+// as the liveness check run before each payout: `false` means the lock
+// expired and was reacquired, and the run must stop processing.
+async function renewPayoutSyncLease(
+  environment: QboEnvironment,
+  owner: string,
+  nowMs: number
+): Promise<boolean> {
+  const ref = payoutSyncLockRef(environment);
+  return getFirebaseAdminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const data = snap.data() as {
+      owner?: unknown;
+      leaseUntil?: unknown;
+    };
+    const leaseMs = timestampMillis(data.leaseUntil);
+    if (data.owner !== owner || leaseMs === null || leaseMs <= nowMs) {
+      return false;
+    }
+    tx.set(
+      ref,
+      {
+        leaseUntil: Timestamp.fromMillis(nowMs + PAYOUT_SYNC_LOCK_LEASE_MS),
+        renewedAtMs: nowMs,
+      },
+      { merge: true }
+    );
+    return true;
+  });
+}
+
+// Conditional release: only the current owner may free the lock. A slow
+// first run finishing after reacquisition leaves the successor's lease
+// untouched.
 async function releasePayoutSyncLease(
-  environment: QboEnvironment
+  environment: QboEnvironment,
+  owner: string
 ): Promise<void> {
-  await payoutSyncLockRef(environment).set(
-    { environment, leaseUntil: Timestamp.fromMillis(0) },
-    { merge: true }
-  );
+  const ref = payoutSyncLockRef(environment);
+  await getFirebaseAdminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data() as { owner?: unknown };
+    if (data.owner !== owner) return;
+    tx.set(
+      ref,
+      { leaseUntil: Timestamp.fromMillis(0), releasedAtMs: Date.now() },
+      { merge: true }
+    );
+  });
 }
 
 // The up-to-date check every recovery path shares: the stored doc is
@@ -940,8 +995,8 @@ export async function runStripePayoutSweep(): Promise<{
     return { scanned: 0, processed: 0, skipped: 0 };
   }
   const environment = getQboEnvironment();
-  const acquired = await acquirePayoutSyncLease(environment, Date.now());
-  if (!acquired) {
+  const owner = await acquirePayoutSyncLease(environment, Date.now());
+  if (!owner) {
     logInfo("stripe.payout.sweep_skipped", {
       environment,
       reason: "sync_in_progress",
@@ -957,8 +1012,9 @@ export async function runStripePayoutSweep(): Promise<{
     });
     let processed = 0;
     let skipped = 0;
+    let leaseLost = false;
     for (const payout of recent) {
-      if (processed >= PAYOUT_SWEEP_MAX_PROCESS) {
+      if (leaseLost || processed >= PAYOUT_SWEEP_MAX_PROCESS) {
         skipped += 1;
         continue;
       }
@@ -966,6 +1022,18 @@ export async function runStripePayoutSweep(): Promise<{
       const stored = snap.exists ? snap.data() : undefined;
       if (storedPayoutUpToDate(stored, payout)) {
         skipped += 1;
+        continue;
+      }
+      // Ownership check before each unit of work: if the TTL elapsed and
+      // another invocation holds the lock, hand the backlog to it rather
+      // than writing under its lease.
+      if (!(await renewPayoutSyncLease(environment, owner, Date.now()))) {
+        leaseLost = true;
+        skipped += 1;
+        logWarn("stripe.payout.sweep_lease_lost", {
+          environment,
+          payoutId: payout.id,
+        });
         continue;
       }
       try {
@@ -988,10 +1056,11 @@ export async function runStripePayoutSweep(): Promise<{
       scanned: recent.length,
       processed,
       skipped,
+      leaseLost,
     });
     return { scanned: recent.length, processed, skipped };
   } finally {
-    await releasePayoutSyncLease(environment).catch((error) =>
+    await releasePayoutSyncLease(environment, owner).catch((error) =>
       logError("stripe.payout.sync_lease_release_failed", error, {
         environment,
       })
@@ -1033,7 +1102,8 @@ function pushSyncItem(
 // explicit cross-check), then run the same processing the sweep applies.
 async function syncSingleStripePayout(
   environment: QboEnvironment,
-  payoutId: string
+  payoutId: string,
+  owner: string
 ): Promise<StripePayoutSyncSummary> {
   const summary = emptySyncSummary(environment, "single");
   summary.discovered = 1;
@@ -1051,6 +1121,13 @@ async function syncSingleStripePayout(
     if (!payout || modeMismatch) {
       item.outcome = "not_found";
       summary.failed += 1;
+    } else if (
+      !(await renewPayoutSyncLease(environment, owner, Date.now()))
+    ) {
+      // Lease lost mid-run — another invocation owns the lock now.
+      item.status = payout.status;
+      summary.failed += 1;
+      logWarn("stripe.payout.sync_lease_lost", { environment, payoutId });
     } else {
       item.status = payout.status;
       if (payout.status !== "paid") {
@@ -1086,7 +1163,8 @@ async function syncSingleStripePayout(
 // isolated and counted; the Stripe list failure itself is not (an
 // unreachable provider is a failed sync, not a partial one).
 async function syncRecentStripePayouts(
-  environment: QboEnvironment
+  environment: QboEnvironment,
+  owner: string
 ): Promise<StripePayoutSyncSummary> {
   const summary = emptySyncSummary(environment, "recent");
   const cutoffSec =
@@ -1100,6 +1178,7 @@ async function syncRecentStripePayouts(
   summary.scanTruncated = truncated;
 
   let worked = 0;
+  let leaseLost = false;
   for (const payout of payouts) {
     const snap = await payoutRef(payout.id).get();
     const stored = snap.exists ? snap.data() : undefined;
@@ -1112,8 +1191,21 @@ async function syncRecentStripePayouts(
       summary.alreadyCurrent += 1;
       continue;
     }
-    if (worked >= PAYOUT_SYNC_MAX_PROCESS) {
+    if (leaseLost || worked >= PAYOUT_SYNC_MAX_PROCESS) {
       summary.remaining += 1;
+      continue;
+    }
+    // Renewal doubles as the ownership check: once the TTL has elapsed
+    // and a successor holds the lock, the rest of the backlog belongs to
+    // that run — report it as remaining instead of working under a lease
+    // this invocation no longer owns.
+    if (!(await renewPayoutSyncLease(environment, owner, Date.now()))) {
+      leaseLost = true;
+      summary.remaining += 1;
+      logWarn("stripe.payout.sync_lease_lost", {
+        environment,
+        payoutId: payout.id,
+      });
       continue;
     }
     worked += 1;
@@ -1171,8 +1263,8 @@ export async function syncStripePayouts(input: {
     );
   }
   const environment = getQboEnvironment();
-  const acquired = await acquirePayoutSyncLease(environment, Date.now());
-  if (!acquired) {
+  const owner = await acquirePayoutSyncLease(environment, Date.now());
+  if (!owner) {
     throw new QboError(
       "A payout sync is already running — try again shortly.",
       "validation",
@@ -1181,8 +1273,8 @@ export async function syncStripePayouts(input: {
   }
   try {
     const summary = payoutId
-      ? await syncSingleStripePayout(environment, payoutId)
-      : await syncRecentStripePayouts(environment);
+      ? await syncSingleStripePayout(environment, payoutId, owner)
+      : await syncRecentStripePayouts(environment, owner);
     logInfo("stripe.payout.sync", {
       environment,
       scope: summary.scope,
@@ -1196,7 +1288,7 @@ export async function syncStripePayouts(input: {
     });
     return summary;
   } finally {
-    await releasePayoutSyncLease(environment).catch((error) =>
+    await releasePayoutSyncLease(environment, owner).catch((error) =>
       logError("stripe.payout.sync_lease_release_failed", error, {
         environment,
       })

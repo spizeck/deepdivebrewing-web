@@ -282,6 +282,10 @@ let recentTruncated = false;
 const recentListCalls: { createdGteSec: number; limit?: number; maxPages?: number }[] = [];
 let stripeFetchError: Error | null = null;
 let stripeListError: Error | null = null;
+// Test seam for lease-loss scenarios: runs inside the canonical fetch,
+// i.e. mid-item during a sync — lets a test simulate the TTL elapsing
+// and a successor run acquiring the lock.
+let onPayoutFetch: ((id: string) => void) | null = null;
 
 mock.module("@/lib/stripe-balance", {
   namedExports: {
@@ -289,6 +293,7 @@ mock.module("@/lib/stripe-balance", {
       if (stripeFetchError || payoutFetchErrors.has(id)) {
         throw stripeFetchError ?? new Error(`stripe outage for ${id}`);
       }
+      onPayoutFetch?.(id);
       return payoutFactsById.has(id) ? payoutFactsById.get(id) : stripePayout;
     },
     listStripePayoutTransactions: async () => ({
@@ -388,6 +393,7 @@ beforeEach(() => {
   recentListCalls.length = 0;
   stripeFetchError = null;
   stripeListError = null;
+  onPayoutFetch = null;
   stripeConfigured = true;
   stripeTestMode = true;
   qboPayments = [{ ...OLLIE_PAYMENT }];
@@ -760,6 +766,7 @@ describe("syncStripePayouts", () => {
     const { syncStripePayouts } = await import("@/lib/stripe-payouts");
     collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
       environment: "sandbox",
+      owner: "concurrent-run",
       leaseUntil: FakeTimestamp.fromMillis(Date.now() + 60_000),
     });
     await assert.rejects(
@@ -769,16 +776,59 @@ describe("syncStripePayouts", () => {
     // A stale lease is reclaimable — a crashed run must not wedge sync.
     collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
       environment: "sandbox",
+      owner: "crashed-run",
       leaseUntil: FakeTimestamp.fromMillis(Date.now() - 1_000),
     });
     const summary = await syncStripePayouts();
     assert.equal(summary.failed, 0);
+    // The run replaced the crashed lease with its own owner token and
+    // released it on completion — the lock is free for the next run.
+    const lease = collectionStore("qboSweepState").get(
+      "stripePayoutSync-sandbox"
+    )!;
+    assert.notEqual(lease.owner, "crashed-run");
+    const second = await syncStripePayouts();
+    assert.equal(second.failed, 0);
+  });
+
+  it("stops processing when the lease is lost mid-run and never clears the successor's lock", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    recentPayouts = [paidPayoutFacts("po_1"), paidPayoutFacts("po_2")];
+    payoutFactsById.set("po_1", paidPayoutFacts("po_1"));
+    payoutFactsById.set("po_2", paidPayoutFacts("po_2"));
+    // While po_1's ledger builds, this run's TTL elapses and a second
+    // invocation legitimately reacquires the expired lock.
+    onPayoutFetch = (id) => {
+      if (id === "po_1") {
+        collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
+          environment: "sandbox",
+          owner: "successor-run",
+          leaseUntil: FakeTimestamp.fromMillis(Date.now() + 120_000),
+        });
+      }
+    };
+    const summary = await syncStripePayouts();
+    // po_1 finished under our ownership; po_2 was handed to the
+    // successor instead of being processed under its lease.
+    assert.equal(summary.processed, 1);
+    assert.equal(summary.remaining, 1);
+    assert.equal(collectionStore("stripePayouts").has("po_1"), true);
+    assert.equal(collectionStore("stripePayouts").has("po_2"), false);
+    // The stale release could not clear the successor's lease.
+    const lease = collectionStore("qboSweepState").get(
+      "stripePayoutSync-sandbox"
+    )!;
+    assert.equal(lease.owner, "successor-run");
+    assert.ok(
+      (lease.leaseUntil as { toMillis(): number }).toMillis() > Date.now()
+    );
   });
 
   it("serializes the cron sweep behind the same lease", async () => {
     const { runStripePayoutSweep } = await import("@/lib/stripe-payouts");
     collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
       environment: "sandbox",
+      owner: "manual-sync-run",
       leaseUntil: FakeTimestamp.fromMillis(Date.now() + 60_000),
     });
     recentPayouts = [paidPayoutFacts("po_new")];
@@ -788,10 +838,35 @@ describe("syncStripePayouts", () => {
     // With the lease free the sweep recovers the payout itself.
     collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
       environment: "sandbox",
+      owner: "manual-sync-run",
       leaseUntil: FakeTimestamp.fromMillis(0),
     });
     const summary = await runStripePayoutSweep();
     assert.equal(summary.processed, 1);
+  });
+
+  it("sweep honors the same ownership rules — stops on lease loss, keeps the successor's lock", async () => {
+    const { runStripePayoutSweep } = await import("@/lib/stripe-payouts");
+    recentPayouts = [paidPayoutFacts("po_1"), paidPayoutFacts("po_2")];
+    payoutFactsById.set("po_1", paidPayoutFacts("po_1"));
+    payoutFactsById.set("po_2", paidPayoutFacts("po_2"));
+    onPayoutFetch = (id) => {
+      if (id === "po_1") {
+        collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
+          environment: "sandbox",
+          owner: "manual-sync-run",
+          leaseUntil: FakeTimestamp.fromMillis(Date.now() + 120_000),
+        });
+      }
+    };
+    const result = await runStripePayoutSweep();
+    assert.equal(result.processed, 1);
+    assert.equal(result.skipped, 1);
+    assert.equal(collectionStore("stripePayouts").has("po_2"), false);
+    const lease = collectionStore("qboSweepState").get(
+      "stripePayoutSync-sandbox"
+    )!;
+    assert.equal(lease.owner, "manual-sync-run");
   });
 
   it("isolates a per-payout failure — the rest still process", async () => {
