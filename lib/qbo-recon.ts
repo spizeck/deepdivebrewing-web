@@ -1,6 +1,7 @@
 import "server-only";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
+import { deepOmitUndefined } from "@/lib/firestore-safe";
 import { getQboEnvironment, isQboConfigured } from "@/lib/qbo-config";
 import { logError } from "@/lib/log";
 import {
@@ -419,14 +420,19 @@ export async function runQboReconciliation(input: {
     qboAvailable: qbo.available,
   };
 
+  // Firestore rejects `undefined` anywhere in the payload — the view and
+  // this envelope carry legitimately-optional fields (ledger DocNumber /
+  // memo, unmapped-account balances, actor email) that arrive undefined.
+  // deepOmitUndefined turns them into absent keys; FieldValue sentinels
+  // pass through untouched.
   await stateRef(environment).set(
-    {
+    deepOmitUndefined({
       environment,
       view,
       ranAt: FieldValue.serverTimestamp(),
       ranByUid: input.actor.token.uid,
       ranByEmail: input.actor.token.email ?? input.actor.record.email,
-    },
+    }),
     { merge: false }
   );
   return view;
