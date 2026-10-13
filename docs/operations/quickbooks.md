@@ -548,6 +548,26 @@ classifies every movement, and persists deterministic QuickBooks
   behind the payout's canonical status — a missed webhook cannot leave
   a payout unprocessed. **Reprocess ledger** on a payout card runs the
   same build on demand (accounting permission required).
+- **Manual sync**: **Sync recent payouts** runs the same recovery
+  pipeline on demand (`POST /api/admin/quickbooks/payouts/sync`) — the
+  same 35-day lookback, paginated up to a bounded 3 pages × 100 payouts
+  and 10 processed per run; a deeper backlog reports `remaining` and the
+  button can simply be run again (every step is idempotent). **Sync
+  payout by ID** targets a single `po_…` payout for troubleshooting —
+  the id is validated, fetched through the server-side Stripe client,
+  and skipped when it does not exist in this account/mode. Overlapping
+  runs are fenced: the cron sweep and the manual action share one
+  environment-scoped owner-token lease — a second manual invocation gets
+  a 409, while a sweep that finds the lease held skips its run (the next
+  scheduled sweep retries). The lease expires after two minutes so a
+  crashed run cannot wedge sync, and the lease renews before each
+  payout — a run that loses ownership stops before starting another
+  payout. An in-flight payout may finish (its writes converge on the
+  same deterministic ids), and the old run cannot clear the successor's
+  lock. The
+  result distinguishes ingestion from proposal eligibility — a payout
+  whose movements all predate the cutover reports as processed with
+  zero proposals rather than silently absent.
 - **Foreign currencies**: a movement whose currency differs from the
   payout's is flagged `foreign_currency` and excluded from every total —
   never converted.

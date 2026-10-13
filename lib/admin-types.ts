@@ -54,7 +54,11 @@ export interface AdminAuditRecord {
     // Sync operations (issue #183): manual admin requeue of a failed /
     // needs-attention record, and an admin-triggered sync sweep.
     | "qbo_sync_requeued"
-    | "qbo_sweep_triggered";
+    | "qbo_sweep_triggered"
+    // Stripe payout accounting: an admin-triggered payout sync (recent
+    // scan or single-payout recovery). Metadata carries result counts
+    // only — never provider payloads.
+    | "stripe_payout_sync_triggered";
   targetUid?: string;
   targetEmail?: string;
   oldRole?: AdminRole | null;

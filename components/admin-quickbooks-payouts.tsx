@@ -9,17 +9,21 @@ import type { AdminPanelUser } from "@/components/admin-access";
 import type {
   QboAccountingProposal,
   StripePayoutAutomationView,
+  StripePayoutSyncItem,
+  StripePayoutSyncSummary,
   StripePayoutView,
 } from "@/lib/stripe-payouts-common";
 
 // Stripe payout accounting panel — the Observe-mode review surface.
 // Everything shown is computed proposal state; nothing here posts to
 // QuickBooks (no execution path exists in this build). Admins can
-// reprocess a payout's ledger when a webhook or sweep missed it.
+// reprocess a payout's ledger when a webhook or sweep missed it, or run
+// a bounded sync to recover payouts Stripe never delivered at all.
 
 interface PayoutsResponse {
   ok?: boolean;
   view?: StripePayoutAutomationView;
+  summary?: StripePayoutSyncSummary;
   error?: string;
 }
 
@@ -53,6 +57,51 @@ function money(line: { amountMinor: number; currency: string }): string {
   return line.currency === "USD"
     ? formatUsdMinor(line.amountMinor)
     : `${line.amountMinor} ${line.currency}`;
+}
+
+// One line of honest reporting per synced payout: "processed" means the
+// ledger built — the proposal/cutover counts say what it produced, so a
+// fully pre-cutover payout reads as ingested-but-not-proposed rather than
+// silently absent.
+function syncItemDescription(item: StripePayoutSyncItem): string {
+  switch (item.outcome) {
+    case "processed": {
+      const parts = [`ledger built · ${item.proposals ?? 0} proposals`];
+      if ((item.preCutoverLines ?? 0) > 0) {
+        parts.push(
+          item.eligibleLines === 0
+            ? "all movements predate the cutover — reported only"
+            : `${item.preCutoverLines} movement(s) predated the cutover`
+        );
+      }
+      return parts.join(" · ");
+    }
+    case "status_recorded":
+      return "status recorded — nothing to reconcile yet";
+    case "already_current":
+      return "already up to date";
+    case "not_found":
+      return "not found in this Stripe environment";
+    case "lease_lost":
+      return "another sync took over — retry when it finishes";
+    case "failed":
+      return "processing failed — safe to retry";
+  }
+}
+
+function syncSummaryLine(summary: StripePayoutSyncSummary): string {
+  if (summary.scope === "single") {
+    return `Payout sync complete — ${summary.items[0] ? syncItemDescription(summary.items[0]) : "done"}.`;
+  }
+  const parts = [
+    `${summary.discovered} found`,
+    `${summary.processed} processed`,
+    `${summary.statusRecorded} status-only`,
+    `${summary.alreadyCurrent} already current`,
+  ];
+  if (summary.failed) parts.push(`${summary.failed} failed`);
+  if (summary.remaining) parts.push(`${summary.remaining} remaining`);
+  return `Payout sync complete — ${parts.join(", ")}.`;
 }
 
 function ProposalRow({ proposal }: { proposal: QboAccountingProposal }) {
@@ -258,6 +307,10 @@ export function AdminQuickbooksPayouts({
   const [view, setView] = useState<StripePayoutAutomationView | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<"recent" | "single" | null>(null);
+  const [payoutIdInput, setPayoutIdInput] = useState("");
+  const [syncSummary, setSyncSummary] =
+    useState<StripePayoutSyncSummary | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
 
@@ -305,6 +358,7 @@ export function AdminQuickbooksPayouts({
     setBusy(payoutId);
     setErrorMessage("");
     setStatusMessage("");
+    setSyncSummary(null);
     try {
       const data = await apiFetch("/api/admin/quickbooks/payouts", {
         method: "POST",
@@ -319,6 +373,45 @@ export function AdminQuickbooksPayouts({
     } finally {
       setBusy(null);
     }
+  }
+
+  // Shared run for both sync entry points: the server decides the scope
+  // from the (optional) payoutId, applies the shared lease, and returns
+  // the summary plus a refreshed view.
+  async function runSync(scope: "recent" | "single", payoutId?: string) {
+    setSyncing(scope);
+    setErrorMessage("");
+    setStatusMessage("");
+    setSyncSummary(null);
+    try {
+      const data = await apiFetch("/api/admin/quickbooks/payouts/sync", {
+        method: "POST",
+        body: JSON.stringify(payoutId ? { payoutId } : {}),
+      });
+      setView(data.view ?? null);
+      setSyncSummary(data.summary ?? null);
+      if (scope === "single") setPayoutIdInput("");
+      setStatusMessage(
+        data.summary
+          ? syncSummaryLine(data.summary)
+          : "Payout sync complete."
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "The payout sync failed."
+      );
+    } finally {
+      setSyncing(null);
+    }
+  }
+
+  function handleSyncById() {
+    const payoutId = payoutIdInput.trim();
+    if (!/^po_[A-Za-z0-9]+$/.test(payoutId)) {
+      setErrorMessage("Enter a Stripe payout id (po_…).");
+      return;
+    }
+    void runSync("single", payoutId);
   }
 
   const awaiting = view?.payouts.filter((p) => !p.lastProcessedAt) ?? [];
@@ -343,14 +436,45 @@ export function AdminQuickbooksPayouts({
             in observe mode — nothing is posted to QuickBooks.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary">
             mode: {view?.mode ?? "observe"}
           </Badge>
           {!view?.writesEnabled && (
             <Badge variant="outline">writes disabled</Badge>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={syncing !== null || busy !== null}
+            onClick={() => void runSync("recent")}
+          >
+            {syncing === "recent" ? "Syncing…" : "Sync recent payouts"}
+          </Button>
         </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="text-xs text-muted-foreground">
+          Payout ID
+          <input
+            type="text"
+            value={payoutIdInput}
+            onChange={(e) => setPayoutIdInput(e.target.value)}
+            placeholder="po_…"
+            spellCheck={false}
+            autoComplete="off"
+            className="ml-1 w-56 rounded-md border border-ink/50 px-2 py-1 font-mono text-sm"
+          />
+        </label>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={syncing !== null || busy !== null || !payoutIdInput.trim()}
+          onClick={handleSyncById}
+        >
+          {syncing === "single" ? "Syncing…" : "Sync payout by ID"}
+        </Button>
       </div>
 
       {statusMessage && (
@@ -362,6 +486,47 @@ export function AdminQuickbooksPayouts({
         <p role="alert" className="mt-3 text-sm text-ember">
           {errorMessage}
         </p>
+      )}
+
+      {syncSummary && syncSummary.items.length > 0 && (
+        <div className="mt-3 rounded-md border border-stone px-3 py-2 text-sm">
+          <ul className="space-y-1">
+            {syncSummary.items.map((item) => (
+              <li
+                key={item.payoutId}
+                className="flex flex-wrap items-baseline justify-between gap-2"
+              >
+                <span className="min-w-0 font-mono text-xs text-muted-foreground">
+                  {item.payoutId}
+                </span>
+                <span
+                  className={
+                    item.outcome === "failed" ||
+                    item.outcome === "not_found" ||
+                    item.outcome === "lease_lost"
+                      ? "text-xs text-ember"
+                      : "text-xs text-muted-foreground"
+                  }
+                >
+                  {syncItemDescription(item)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {syncSummary.remaining > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {syncSummary.remaining} payout(s) still need work — run the
+              sync again to continue. Every step is idempotent.
+            </p>
+          )}
+          {syncSummary.scanTruncated && (
+            <p role="status" className="mt-2 text-xs text-ember">
+              Stripe holds more payouts in the lookback window than the
+              bounded scan reached — older payouts may still await
+              processing.
+            </p>
+          )}
+        </div>
       )}
 
       {initialLoading ? (
@@ -419,7 +584,8 @@ export function AdminQuickbooksPayouts({
           {view.payouts.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No payouts ingested yet. Payout events arrive via the Stripe
-              webhook; the daily sweep recovers any missed delivery.
+              webhook; the daily sweep recovers any missed delivery, and
+              Sync recent payouts runs the same recovery on demand.
             </p>
           ) : (
             <ul className="space-y-2">
