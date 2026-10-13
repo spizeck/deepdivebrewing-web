@@ -10,7 +10,9 @@ import { getQboEnvironment } from "@/lib/qbo-config";
 import { QboError } from "@/lib/qbo-errors";
 import { logWarn } from "@/lib/log";
 import {
+  isQboTaxCalculation,
   QBO_ACCOUNTING_MAPPING_DOC,
+  type QboTaxCalculation,
   QBO_CONFIG_COLLECTION,
   QBO_CONNECTIONS_COLLECTION,
   QBO_MAPPING_FIELDS,
@@ -95,6 +97,20 @@ export async function getQboMappingView(): Promise<QboAccountingMappingView> {
     const value = data[key];
     if (value) mapping[key] = value;
   }
+  // taxCalculation is a non-entity field — propagate any nonempty stored
+  // value verbatim (the save path only ever writes recognized ones, but a
+  // hand-edited document can hold anything) so the worker's resolver
+  // classifies the pair itself; dropping an unrecognized value here
+  // would let an orphaned treatment read as no-tax instead of
+  // missing_taxCodeId.
+  const storedTaxCalculation: unknown = data.taxCalculation;
+  if (
+    storedTaxCalculation !== undefined &&
+    storedTaxCalculation !== null &&
+    storedTaxCalculation !== ""
+  ) {
+    mapping.taxCalculation = storedTaxCalculation as QboTaxCalculation;
+  }
   return {
     configured: true,
     mapping,
@@ -157,6 +173,37 @@ export async function saveQboMapping(
       .filter((label): label is string => Boolean(label));
     throw new QboError(
       `Missing required QuickBooks mappings: ${labels.join(", ")}.`,
+      "validation",
+      400
+    );
+  }
+
+  // Tax pairing (#184): selecting a tax code is the activation for tax
+  // posting, and it is only meaningful together with the
+  // accountant-verified price treatment (`taxCalculation`) — the value
+  // QBO's non-US `GlobalTaxCalculation` requires. The treatment without
+  // a code is equally meaningless. Store the pair atomically or not at
+  // all so a half-configured tax state can never drive posting.
+  const taxCalculation = raw.taxCalculation;
+  if (
+    taxCalculation !== undefined &&
+    taxCalculation !== null &&
+    taxCalculation !== ""
+  ) {
+    if (!isQboTaxCalculation(taxCalculation)) {
+      throw new QboError("Invalid tax calculation.", "validation", 400);
+    }
+    if (!mapping.taxCodeId) {
+      throw new QboError(
+        "A tax calculation requires a tax code selection.",
+        "validation",
+        400
+      );
+    }
+    mapping.taxCalculation = taxCalculation;
+  } else if (mapping.taxCodeId) {
+    throw new QboError(
+      "A tax code requires a tax calculation selection.",
       "validation",
       400
     );

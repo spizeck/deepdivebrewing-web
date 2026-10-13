@@ -30,6 +30,7 @@ import {
   qboIncomeItemKeyForPurpose,
   qboSalesReceiptMarker,
   qboSyncIdFor,
+  qboTaxSpecForMapping,
   QBO_CASH_PAYMENT_SOURCE_TYPE,
   QBO_CONNECTIONS_COLLECTION,
   QBO_SALES_RECEIPT_ENTITY_TYPE,
@@ -528,16 +529,28 @@ async function runSyncWrite(
   try {
     const { accessToken, realmId } = await getQuickBooksAccessToken();
 
-    // `GlobalTaxCalculation` is required on sales transactions for non-US
-    // companies and rejected for US ones — derive it from the connected
+    // Tax policy (#184): a mapped tax code is the explicit activation —
+    // it posts only together with the accountant-verified price
+    // treatment. Resolved before any provider write; a half-configured
+    // or unrecognized treatment fails closed into needs_attention
+    // rather than posting guessed tax semantics. The non-US
+    // `GlobalTaxCalculation` requirement is derived from the connected
     // company's country, never from assumption.
     const connectionSnap = await db
       .collection(QBO_CONNECTIONS_COLLECTION)
       .doc(environment)
       .get();
     const companyCountry = connectionSnap.data()?.companyCountry;
-    const globalTaxCalculation =
-      companyCountry === "US" ? undefined : ("NotApplicable" as const);
+    const tax = qboTaxSpecForMapping(
+      mapping,
+      typeof companyCountry === "string" ? companyCountry : undefined
+    );
+    if (!tax.ok) {
+      return attention(
+        tax.reason,
+        "QuickBooks tax configuration is incomplete — a tax code is mapped without a verified price tax treatment."
+      );
+    }
 
     // Provider-side recovery: adopt a receipt that already carries this
     // payment's marker rather than posting a duplicate.
@@ -588,7 +601,8 @@ async function runSyncWrite(
         methodLabel: isCash ? "Cash payment" : undefined,
         paymentIntentId,
         chargeId,
-        globalTaxCalculation,
+        taxCodeId: tax.taxCodeId,
+        globalTaxCalculation: tax.globalTaxCalculation,
       }),
     });
     return {

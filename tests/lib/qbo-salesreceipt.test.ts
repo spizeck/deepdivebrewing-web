@@ -6,6 +6,7 @@ import {
   qboSalesReceiptMarker,
 } from "@/lib/qbo-common";
 import {
+  buildQboSalesItemLine,
   buildQboSalesReceiptPayload,
   canonicalizeQboSalesReceiptCreated,
   canonicalizeQboSalesReceiptRefs,
@@ -133,9 +134,43 @@ describe("buildQboSalesReceiptPayload", () => {
     assert.strictEqual(nonUs.GlobalTaxCalculation, "NotApplicable");
     const us = buildQboSalesReceiptPayload(BASE_SPEC);
     assert.ok(!("GlobalTaxCalculation" in us));
-    // Tax posting is disabled entirely: no TaxCodeRef anywhere, regardless.
+    // Tax posting is disabled entirely until activated: no TaxCodeRef
+    // anywhere, regardless.
     assert.strictEqual(JSON.stringify(nonUs).includes("TaxCodeRef"), false);
     assert.strictEqual(JSON.stringify(us).includes("TaxCodeRef"), false);
+  });
+
+  it("carries the mapped TaxCodeRef and calculation when tax is activated (#184)", () => {
+    const inclusive = buildQboSalesReceiptPayload({
+      ...BASE_SPEC,
+      taxCodeId: "tax-7",
+      globalTaxCalculation: "TaxInclusive",
+    });
+    const detail = (
+      inclusive.Line as Record<string, unknown>[]
+    )[0].SalesItemLineDetail as Record<string, unknown>;
+    assert.deepStrictEqual(detail.TaxCodeRef, { value: "tax-7" });
+    assert.strictEqual(inclusive.GlobalTaxCalculation, "TaxInclusive");
+    // The charged amount is unchanged — tax semantics never alter what
+    // the customer paid.
+    assert.strictEqual((inclusive.Line as Record<string, unknown>[])[0].Amount, 5);
+
+    const exclusive = buildQboSalesReceiptPayload({
+      ...BASE_SPEC,
+      taxCodeId: "tax-7",
+      globalTaxCalculation: "TaxExcluded",
+    });
+    assert.strictEqual(exclusive.GlobalTaxCalculation, "TaxExcluded");
+  });
+
+  it("never invents a TaxCodeRef — the field appears only from the spec", () => {
+    // A calculation value alone cannot conjure a code: the payload only
+    // carries TaxCodeRef when the mapping resolved one.
+    const payload = buildQboSalesReceiptPayload({
+      ...BASE_SPEC,
+      globalTaxCalculation: "TaxExcluded",
+    });
+    assert.strictEqual(JSON.stringify(payload).includes("TaxCodeRef"), false);
   });
 
   it("truncates the line description and omits it when absent", () => {
@@ -243,5 +278,34 @@ describe("sales receipt correlation lookup", () => {
     ]);
     assert.deepStrictEqual(canonicalizeQboSalesReceiptRefs({}), []);
     assert.deepStrictEqual(canonicalizeQboSalesReceiptRefs(null), []);
+  });
+});
+
+describe("buildQboSalesItemLine — shared sale/refund line shape (#184/#180)", () => {
+  it("builds a full-amount line identical to the receipt's line", () => {
+    const receipt = buildQboSalesReceiptPayload(BASE_SPEC);
+    const fromReceipt = (receipt.Line as Record<string, unknown>[])[0];
+    const direct = buildQboSalesItemLine({
+      amountMinor: BASE_SPEC.amountMinor,
+      incomeItemId: BASE_SPEC.incomeItemId,
+      description: BASE_SPEC.description,
+    });
+    // The refund seam (#180) must mirror the sale's line exactly — same
+    // DetailType, item, amount fields — so a reversal can never drift.
+    assert.deepStrictEqual(direct, fromReceipt);
+  });
+
+  it("supports a reduced amount for a partial-refund line", () => {
+    const line = buildQboSalesItemLine({
+      amountMinor: 200,
+      incomeItemId: "7",
+      taxCodeId: "tax-7",
+    });
+    assert.strictEqual(line.Amount, 2);
+    const detail = line.SalesItemLineDetail as Record<string, unknown>;
+    assert.strictEqual(detail.UnitPrice, 2);
+    // The same mapped code applies to the reversal — tax reverses the
+    // same way it posted.
+    assert.deepStrictEqual(detail.TaxCodeRef, { value: "tax-7" });
   });
 });

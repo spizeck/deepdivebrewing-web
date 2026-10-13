@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AdminPanelUser } from "@/components/admin-access";
 import {
+  isQboTaxCalculation,
   QBO_MAPPING_FIELDS,
   qboMissingMappingFields,
   type QboAccountingMapping,
@@ -36,6 +37,8 @@ const FIELD_DESCRIPTIONS: Record<keyof QboAccountingMapping, string> = {
     "Customer recorded on every sales receipt — e.g. “Stripe Checkout”. One shared customer; per-customer records are not created.",
   taxCodeId:
     "Leave unset while the tax treatment of tour and tasting sales is being confirmed with the accountant.",
+  taxCalculation:
+    "The accountant's answer to whether charged prices already contain the tax. Required before a tax code can post.",
 };
 
 const ENTITY_TYPES_NEEDED: QboDiscoveryEntityType[] = Array.from(
@@ -136,6 +139,11 @@ export function AdminQuickbooksMapping({
           (entity) => entity.id === id && entity.active
         );
         if (id && usable) initial[key] = id;
+      }
+      // The tax pair rides along only while the code still resolves —
+      // a dropped code must not resurrect a stored treatment.
+      if (initial.taxCodeId && isQboTaxCalculation(stored.taxCalculation)) {
+        initial.taxCalculation = stored.taxCalculation;
       }
       setDraft(initial);
       setEditing(true);
@@ -250,6 +258,18 @@ export function AdminQuickbooksMapping({
               </div>
             );
           })}
+          {mapping.mapping?.taxCalculation && (
+            <div>
+              <dt className="text-muted-foreground">Tax calculation</dt>
+              <dd className="font-medium text-ink">
+                {isQboTaxCalculation(mapping.mapping.taxCalculation)
+                  ? mapping.mapping.taxCalculation === "inclusive"
+                    ? "Prices include tax"
+                    : "Prices exclude tax"
+                  : `Unrecognized value: ${String(mapping.mapping.taxCalculation)}`}
+              </dd>
+            </div>
+          )}
         </dl>
       )}
 
@@ -272,12 +292,18 @@ export function AdminQuickbooksMapping({
                   required={required}
                   className={fieldClass}
                   value={draft[key] ?? ""}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const value = e.target.value || undefined;
                     setDraft((prev) => ({
                       ...prev,
-                      [key]: e.target.value || undefined,
-                    }))
-                  }
+                      [key]: value,
+                      // Clearing the tax code clears the treatment too —
+                      // the pair is stored atomically or not at all.
+                      ...(key === "taxCodeId" && !value
+                        ? { taxCalculation: undefined }
+                        : {}),
+                    }));
+                  }}
                 >
                   <option value="">
                     {required ? "Select…" : "Not set"}
@@ -297,11 +323,49 @@ export function AdminQuickbooksMapping({
                 </span>
               </label>
             ))}
+            {draft.taxCodeId && (
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">
+                  Tax calculation{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (required with a tax code)
+                  </span>
+                </span>
+                <select
+                  required
+                  className={fieldClass}
+                  value={draft.taxCalculation ?? ""}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      taxCalculation: isQboTaxCalculation(e.target.value)
+                        ? e.target.value
+                        : undefined,
+                    }))
+                  }
+                >
+                  <option value="">Select…</option>
+                  <option value="inclusive">
+                    Prices include tax — the charged amount already contains it
+                  </option>
+                  <option value="exclusive">
+                    Prices exclude tax — it is added on top of the charged amount
+                  </option>
+                </select>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {FIELD_DESCRIPTIONS.taxCalculation}
+                </span>
+              </label>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={handleSave}
-              disabled={busy || draftMissing.length > 0}
+              disabled={
+                busy ||
+                draftMissing.length > 0 ||
+                Boolean(draft.taxCodeId && !draft.taxCalculation)
+              }
             >
               {busy ? "Saving…" : "Save mapping"}
             </Button>
@@ -316,6 +380,11 @@ export function AdminQuickbooksMapping({
               <p className="text-sm text-muted-foreground">
                 Still required:{" "}
                 {draftMissing.map((key) => labelFor(key)).join(", ")}.
+              </p>
+            )}
+            {draft.taxCodeId && !draft.taxCalculation && (
+              <p className="text-sm text-muted-foreground">
+                Still required: Tax calculation.
               </p>
             )}
           </div>

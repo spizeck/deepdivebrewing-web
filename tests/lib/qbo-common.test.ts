@@ -4,11 +4,13 @@ import {
   abbreviateRealmId,
   isQboDiscoveryEntityType,
   isQboEnvironment,
+  isQboTaxCalculation,
   normalizeQboSyncCandidate,
   qboEnvironmentLabel,
   qboIncomeItemKeyForPurpose,
   qboMissingMappingFields,
   qboSyncIdFor,
+  qboTaxSpecForMapping,
 } from "@/lib/qbo-common";
 
 describe("abbreviateRealmId", () => {
@@ -189,5 +191,106 @@ describe("normalizeQboSyncCandidate", () => {
     assert.strictEqual(out.tourDate, undefined);
     assert.strictEqual(out.externalRefs, undefined);
     assert.strictEqual(out.description, undefined);
+  });
+});
+
+describe("isQboTaxCalculation", () => {
+  it("accepts the two treatments only", () => {
+    assert.strictEqual(isQboTaxCalculation("inclusive"), true);
+    assert.strictEqual(isQboTaxCalculation("exclusive"), true);
+    for (const bad of ["TaxInclusive", "INCLUSIVE", "none", "", 1, null, undefined]) {
+      assert.strictEqual(isQboTaxCalculation(bad), false, String(bad));
+    }
+  });
+});
+
+describe("qboTaxSpecForMapping", () => {
+  it("keeps the no-tax launch posture when no code is mapped", () => {
+    // Non-US (CW): QBO requires the explicit not-applicable marker.
+    assert.deepStrictEqual(qboTaxSpecForMapping({}, "CW"), {
+      ok: true,
+      globalTaxCalculation: "NotApplicable",
+    });
+    // US companies reject the field entirely — it stays absent.
+    assert.deepStrictEqual(qboTaxSpecForMapping({}, "US"), {
+      ok: true,
+      globalTaxCalculation: undefined,
+    });
+    // An unknown country is treated like non-US — the field is
+    // required there and harmless to include.
+    assert.deepStrictEqual(qboTaxSpecForMapping({}, undefined), {
+      ok: true,
+      globalTaxCalculation: "NotApplicable",
+    });
+  });
+
+  it("fails closed on a stored treatment that has no code", () => {
+    // taxCalculation without taxCodeId is the other half of a broken
+    // pair — only reachable via hand edit/legacy since the save path
+    // stores them atomically. Fail closed rather than silently posting
+    // untaxed receipts forever.
+    for (const treatment of ["inclusive", "exclusive", "TaxInclusive"]) {
+      assert.deepStrictEqual(
+        qboTaxSpecForMapping({ taxCalculation: treatment }, "CW"),
+        { ok: false, reason: "missing_taxCodeId" },
+        treatment
+      );
+    }
+  });
+
+  it("fails closed when a code is mapped without a treatment", () => {
+    const spec = qboTaxSpecForMapping({ taxCodeId: "tax-1" }, "CW");
+    assert.deepStrictEqual(spec, {
+      ok: false,
+      reason: "missing_taxCalculation",
+    });
+    // A null treatment counts as missing too.
+    assert.deepStrictEqual(
+      qboTaxSpecForMapping(
+        { taxCodeId: "tax-1", taxCalculation: null },
+        "CW"
+      ),
+      { ok: false, reason: "missing_taxCalculation" }
+    );
+  });
+
+  it("fails closed when the stored treatment is unrecognizable", () => {
+    for (const bad of ["TaxInclusive", "INC", 6, true]) {
+      assert.deepStrictEqual(
+        qboTaxSpecForMapping(
+          { taxCodeId: "tax-1", taxCalculation: bad },
+          "CW"
+        ),
+        { ok: false, reason: "invalid_taxCalculation" },
+        String(bad)
+      );
+    }
+  });
+
+  it("maps the verified treatments onto non-US GlobalTaxCalculation values", () => {
+    assert.deepStrictEqual(
+      qboTaxSpecForMapping(
+        { taxCodeId: "tax-1", taxCalculation: "inclusive" },
+        "CW"
+      ),
+      { ok: true, taxCodeId: "tax-1", globalTaxCalculation: "TaxInclusive" }
+    );
+    assert.deepStrictEqual(
+      qboTaxSpecForMapping(
+        { taxCodeId: "tax-1", taxCalculation: "exclusive" },
+        "CW"
+      ),
+      { ok: true, taxCodeId: "tax-1", globalTaxCalculation: "TaxExcluded" }
+    );
+  });
+
+  it("posts the code without GlobalTaxCalculation for a US company", () => {
+    assert.deepStrictEqual(
+      qboTaxSpecForMapping(
+        { taxCodeId: "tax-1", taxCalculation: "inclusive" },
+        "US"
+      ),
+      { ok: true, taxCodeId: "tax-1", globalTaxCalculation: undefined }
+    );
   });
 });

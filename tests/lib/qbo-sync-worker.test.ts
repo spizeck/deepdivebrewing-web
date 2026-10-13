@@ -200,6 +200,8 @@ describe("postPaidPaymentToQbo — source identity", () => {
     );
     // Non-US (CW) company → explicit non-tax calculation, never US semantics.
     assert.strictEqual(payload.GlobalTaxCalculation, "NotApplicable");
+    // Default posture: no tax code mapped → no TaxCodeRef anywhere.
+    assert.strictEqual(JSON.stringify(payload).includes("TaxCodeRef"), false);
     assert.strictEqual(payload.TxnDate, "2026-02-05");
     assert.ok((payload.PrivateNote as string).includes(`ddb:${PAYMENT_ID}`));
 
@@ -517,6 +519,91 @@ describe("processQboSyncRecord — gates and failures", () => {
     assert.strictEqual(result.outcome, "needs_attention");
     assert.strictEqual(syncDoc()?.status, "needs_attention");
     assert.strictEqual(syncDoc()?.lastErrorCode, "validation");
+  });
+
+  it("posts the verified TaxCodeRef when the tax pair is activated (#184)", async () => {
+    seedPending();
+    state.mapping.mapping!.taxCodeId = "tax-7";
+    state.mapping.mapping!.taxCalculation = "inclusive";
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "synced");
+    const payload = state.createCalls[0];
+    const detail = (payload.Line as Record<string, unknown>[])[0]
+      .SalesItemLineDetail as Record<string, unknown>;
+    assert.deepStrictEqual(detail.TaxCodeRef, { value: "tax-7" });
+    assert.strictEqual(payload.GlobalTaxCalculation, "TaxInclusive");
+    // Gross is untouched — tax semantics never alter the charged amount.
+    assert.strictEqual((payload.Line as Record<string, unknown>[])[0].Amount, 5);
+  });
+
+  it("maps the exclusive treatment onto TaxExcluded", async () => {
+    seedPending();
+    state.mapping.mapping!.taxCodeId = "tax-7";
+    state.mapping.mapping!.taxCalculation = "exclusive";
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "synced");
+    assert.strictEqual(state.createCalls[0].GlobalTaxCalculation, "TaxExcluded");
+  });
+
+  it("fails closed when a stored code has no verified treatment", async () => {
+    // Reachable only via a hand-edited/legacy document — the save path
+    // stores the pair atomically — but the worker must still refuse to
+    // post guessed tax.
+    seedPending();
+    state.mapping.mapping!.taxCodeId = "tax-7";
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_taxCalculation");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("fails closed when the stored treatment is unrecognizable", async () => {
+    seedPending();
+    state.mapping.mapping!.taxCodeId = "tax-7";
+    state.mapping.mapping!.taxCalculation = "TaxInclusive"; // provider enum, not our vocabulary
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "invalid_taxCalculation");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("fails closed when a stored treatment has no code", async () => {
+    // The mirror half of a broken pair — the worker refuses rather than
+    // silently posting untaxed receipts off a misconfiguration.
+    seedPending();
+    state.mapping.mapping!.taxCalculation = "inclusive";
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_taxCodeId");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
+  it("posts the code but omits GlobalTaxCalculation for a US company", async () => {
+    // The development sandbox is a US company — the field is rejected
+    // there, while the mapped code still applies to the line.
+    reset({
+      "qboConnections/sandbox": {
+        status: "connected",
+        realmId: "realm-prod",
+        companyCountry: "US",
+        refreshTokenEnc: "enc-rt",
+      },
+      [`payments/${PAYMENT_ID}`]: paidPayment(),
+      [`${RECORDS}/${SYNC_ID}`]: {
+        sourceType: "stripe_payment",
+        sourceId: PAYMENT_ID,
+        status: "pending",
+      },
+    });
+    state.mapping.mapping!.taxCodeId = "tax-7";
+    state.mapping.mapping!.taxCalculation = "inclusive";
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "synced");
+    const payload = state.createCalls[0];
+    const detail = (payload.Line as Record<string, unknown>[])[0]
+      .SalesItemLineDetail as Record<string, unknown>;
+    assert.deepStrictEqual(detail.TaxCodeRef, { value: "tax-7" });
+    assert.ok(!("GlobalTaxCalculation" in payload));
   });
 
   it("refuses to start the QBO create when the claim lease is nearly exhausted", async () => {
