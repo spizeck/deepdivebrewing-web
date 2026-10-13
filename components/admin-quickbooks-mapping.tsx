@@ -262,9 +262,11 @@ export function AdminQuickbooksMapping({
             <div>
               <dt className="text-muted-foreground">Tax calculation</dt>
               <dd className="font-medium text-ink">
-                {mapping.mapping.taxCalculation === "inclusive"
-                  ? "Prices include tax"
-                  : "Prices exclude tax"}
+                {isQboTaxCalculation(mapping.mapping.taxCalculation)
+                  ? mapping.mapping.taxCalculation === "inclusive"
+                    ? "Prices include tax"
+                    : "Prices exclude tax"
+                  : `Unrecognized value: ${String(mapping.mapping.taxCalculation)}`}
               </dd>
             </div>
           )}

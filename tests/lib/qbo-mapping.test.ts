@@ -161,6 +161,24 @@ describe("getQboMappingView — realm/environment binding", () => {
     assert.strictEqual(await configured(), true);
   });
 
+  it("propagates an unrecognized stored treatment so the resolver can classify it", async () => {
+    // A hand-edited document can hold a taxCalculation outside our
+    // vocabulary. The view must pass it through — dropping it would let
+    // an orphaned treatment read as the no-tax posture instead of
+    // missing_taxCodeId at the worker's fail-closed gate.
+    reset({
+      [MAPPING_DOC]: {
+        ...FULL_MAPPING,
+        environment: "sandbox",
+        realmId: "realm-1",
+        taxCalculation: "TaxIncluded",
+      },
+    });
+    const result = await view();
+    assert.strictEqual(result.configured, true);
+    assert.strictEqual(result.mapping?.taxCalculation, "TaxIncluded");
+  });
+
   it("flags a stored mapping missing required fields as incomplete", async () => {
     // A document that predates required-field enforcement: it is still
     // "configured" (bound, usable ids) but must never read as complete.

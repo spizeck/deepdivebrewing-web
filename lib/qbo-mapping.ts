@@ -12,6 +12,7 @@ import { logWarn } from "@/lib/log";
 import {
   isQboTaxCalculation,
   QBO_ACCOUNTING_MAPPING_DOC,
+  type QboTaxCalculation,
   QBO_CONFIG_COLLECTION,
   QBO_CONNECTIONS_COLLECTION,
   QBO_MAPPING_FIELDS,
@@ -96,11 +97,19 @@ export async function getQboMappingView(): Promise<QboAccountingMappingView> {
     const value = data[key];
     if (value) mapping[key] = value;
   }
-  // taxCalculation is a non-entity field — propagate it only when it
-  // resolves; an unrecognizable stored value reads as absent so the
-  // worker's fail-closed gate sees the half-configured pair.
-  if (isQboTaxCalculation(data.taxCalculation)) {
-    mapping.taxCalculation = data.taxCalculation;
+  // taxCalculation is a non-entity field — propagate any nonempty stored
+  // value verbatim (the save path only ever writes recognized ones, but a
+  // hand-edited document can hold anything) so the worker's resolver
+  // classifies the pair itself; dropping an unrecognized value here
+  // would let an orphaned treatment read as no-tax instead of
+  // missing_taxCodeId.
+  const storedTaxCalculation: unknown = data.taxCalculation;
+  if (
+    storedTaxCalculation !== undefined &&
+    storedTaxCalculation !== null &&
+    storedTaxCalculation !== ""
+  ) {
+    mapping.taxCalculation = storedTaxCalculation as QboTaxCalculation;
   }
   return {
     configured: true,
