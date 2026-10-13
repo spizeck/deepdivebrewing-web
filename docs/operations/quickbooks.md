@@ -244,7 +244,7 @@ for it would double-count revenue.
 | Item | `ItemRef` = mapped income item by purpose: tour (`brewery_tour`, `additional_guests`, `private_tour`), tasting (`brewery_tour_tasting`), other (`other`) |
 | Customer | `CustomerRef` = mapped generic customer |
 | Payment method | `PaymentMethodRef` = mapped QBO PaymentMethod by rail — the card method (e.g. `Credit Card` or `Stripe`) for card receipts, the cash method (e.g. `Cash`) for cash receipts. Never blank, never inferred from the deposit account |
-| Tax | No `TaxCodeRef`; `GlobalTaxCalculation: "NotApplicable"` sent for non-US companies, omitted for US (the field is required there and rejected here). Tax policy is #184 |
+| Tax | No `TaxCodeRef` while tax is unconfigured; `GlobalTaxCalculation: "NotApplicable"` sent for non-US companies, omitted for US (the field is required there and rejected here). When the tax pair is configured (#184): the mapped code posts as the line's `TaxCodeRef` and `GlobalTaxCalculation` becomes `TaxInclusive`/`TaxExcluded` per the configured price treatment |
 | Correlation | `PrivateNote` carries `ddb:<paymentId>` plus the rail — card receipts add Stripe PI/charge refs, cash receipts carry a `Cash payment` label; `DocNumber` = `DDB-…` derived from the payment id |
 
 ### Accounting mapping
@@ -267,7 +267,8 @@ applied.
 | **Tasting income item** | Required | Line `ItemRef` for `brewery_tour_tasting` |
 | **Other income item** | Required | Line `ItemRef` for `other` |
 | **Generic sales customer** | Required | `CustomerRef` on every sales receipt — one shared customer (e.g. `Stripe Checkout`); per-customer records are deliberately not created |
-| **Tax code** | Optional | Leave unset until the Curaçao tax treatment is confirmed with the accountant (#184) |
+| **Tax code** | Optional | The activation switch for tax posting — set only from the accountant's verified TaxCodeRef (#184). Selecting one also requires **Tax calculation** |
+| **Tax calculation** | Required with a tax code | "Prices include tax" or "Prices exclude tax" — the accountant's answer about the charged prices. Drives QBO's `GlobalTaxCalculation` on non-US receipts. Stored on the mapping document but not an entity selection, so it appears only once a tax code is chosen |
 
 All six required fields must be selected before a save succeeds — a
 partial mapping cannot be stored, and the panel calls out any missing
@@ -290,6 +291,34 @@ rejects stale or inactive ids, a shown name is a live entity at save
 time; if a mapped entity is deleted or deactivated in QBO later, the
 next posting lands in `needs_attention` instead of posting to the wrong
 place.
+
+### Activating tax posting (#184)
+
+Tax posting is prepared but deliberately **off**. Activating it is a
+mapping change, not a deploy — and must wait for the accountant's
+verified answers (recorded in the
+[design doc](../architecture/quickbooks-accounting-sync.md#10-tax-assumptions-mechanism-and-decision-gate)):
+
+- Jurisdiction and treatment for tour and for tasting revenue —
+  Curaçao registration does **not** settle which tax applies to sales
+  physically occurring on Saba.
+- The exact `TaxCodeRef` the company should post (chosen by the
+  accountant, never by name similarity).
+- Whether charged prices include or exclude tax — sets **Tax
+  calculation**. Note the consequence: `Prices exclude tax` makes the
+  receipt total exceed the settled Stripe charge (tax added on top);
+  `Prices include tax` backs the tax out of the charged amount. Only
+  the accountant can say which reconciles against what customers paid.
+- Refund/partial-refund treatment, effective date, and whether
+  historical transactions need manual adjustment — the app retro-modifies
+  nothing; activation applies to future postings only.
+
+To activate: edit the accounting mapping, pick the verified **Tax
+code**, and set **Tax calculation**. The save stores the pair
+atomically — either half on its own is rejected. A stored document that
+somehow violates the pairing (hand edit, legacy) fails the posting
+closed into `needs_attention` (`missing_taxCalculation` /
+`invalid_taxCalculation`) rather than posting guessed tax.
 
 ### Lifecycle and retry
 
@@ -429,7 +458,10 @@ admin action, not a sweep configuration change.
 - Stripe payout posting, Mercury deposit creation, clearing/balance
   reconciliation, and fee accounting — #181 (mixed Ollie+DDB payouts
   make this a distinct design problem)
-- Tax posting — #184 (Curaçao tax policy undecided)
+- Tax posting — **prepared but not activated** (#184): the mapping can
+  carry an accountant-verified `TaxCodeRef` + price treatment today,
+  but stays unset until the answers in
+  [Activating tax posting](#activating-tax-posting-184) are recorded
 - Journal entries or any other entity writes
 
 ## Troubleshooting

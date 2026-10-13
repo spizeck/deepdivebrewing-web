@@ -10,6 +10,7 @@ import { getQboEnvironment } from "@/lib/qbo-config";
 import { QboError } from "@/lib/qbo-errors";
 import { logWarn } from "@/lib/log";
 import {
+  isQboTaxCalculation,
   QBO_ACCOUNTING_MAPPING_DOC,
   QBO_CONFIG_COLLECTION,
   QBO_CONNECTIONS_COLLECTION,
@@ -95,6 +96,12 @@ export async function getQboMappingView(): Promise<QboAccountingMappingView> {
     const value = data[key];
     if (value) mapping[key] = value;
   }
+  // taxCalculation is a non-entity field — propagate it only when it
+  // resolves; an unrecognizable stored value reads as absent so the
+  // worker's fail-closed gate sees the half-configured pair.
+  if (isQboTaxCalculation(data.taxCalculation)) {
+    mapping.taxCalculation = data.taxCalculation;
+  }
   return {
     configured: true,
     mapping,
@@ -157,6 +164,37 @@ export async function saveQboMapping(
       .filter((label): label is string => Boolean(label));
     throw new QboError(
       `Missing required QuickBooks mappings: ${labels.join(", ")}.`,
+      "validation",
+      400
+    );
+  }
+
+  // Tax pairing (#184): selecting a tax code is the activation for tax
+  // posting, and it is only meaningful together with the
+  // accountant-verified price treatment (`taxCalculation`) — the value
+  // QBO's non-US `GlobalTaxCalculation` requires. The treatment without
+  // a code is equally meaningless. Store the pair atomically or not at
+  // all so a half-configured tax state can never drive posting.
+  const taxCalculation = raw.taxCalculation;
+  if (
+    taxCalculation !== undefined &&
+    taxCalculation !== null &&
+    taxCalculation !== ""
+  ) {
+    if (!isQboTaxCalculation(taxCalculation)) {
+      throw new QboError("Invalid tax calculation.", "validation", 400);
+    }
+    if (!mapping.taxCodeId) {
+      throw new QboError(
+        "A tax calculation requires a tax code selection.",
+        "validation",
+        400
+      );
+    }
+    mapping.taxCalculation = taxCalculation;
+  } else if (mapping.taxCodeId) {
+    throw new QboError(
+      "A tax code requires a tax calculation selection.",
       "validation",
       400
     );

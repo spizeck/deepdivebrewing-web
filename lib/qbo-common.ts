@@ -150,6 +150,32 @@ export interface QboAccountingMapping {
   fallbackCustomerId?: string;
   /** Optional tax code when the company's tax setup requires one. */
   taxCodeId?: string;
+  /** Price/tax treatment the accountant verified — required before a
+   *  mapped `taxCodeId` may post on a non-US receipt (it drives QBO's
+   *  `GlobalTaxCalculation`). `"inclusive"` = the charged price already
+   *  contains the tax; `"exclusive"` = tax is added on top of the
+   *  posted amount. Meaningless without a tax code: the save path
+   *  rejects either half of the pair on its own, and the worker fails
+   *  closed if a stored document ever violates the pairing. */
+  taxCalculation?: QboTaxCalculation;
+}
+
+// How the company's charged prices relate to the tax a mapped TaxCode
+// computes (issue #184). This is a business answer, not a derivable
+// fact — only the accountant can supply it. The values are the app's
+// own vocabulary; the protocol layer translates them to QBO's
+// `GlobalTaxCalculation` enum at the provider boundary.
+export const QBO_TAX_CALCULATIONS = ["inclusive", "exclusive"] as const;
+
+export type QboTaxCalculation = (typeof QBO_TAX_CALCULATIONS)[number];
+
+export function isQboTaxCalculation(
+  value: unknown
+): value is QboTaxCalculation {
+  return (
+    typeof value === "string" &&
+    (QBO_TAX_CALCULATIONS as readonly string[]).includes(value)
+  );
 }
 
 // The finalized field set for the Sales-Receipt posting model (issue
@@ -157,8 +183,16 @@ export interface QboAccountingMapping {
 // (lib/qbo-mapping.ts) and the admin UI so the required list can never
 // drift between the two. `label` is the operator-facing name shown in
 // the admin surface and used in validation errors.
+// The mapping keys that select a live QBO entity — the only keys
+// QBO_MAPPING_FIELDS may carry. `taxCalculation` is a stored policy
+// value, not an entity reference, so it lives outside this union.
+export type QboEntityMappingKey = Exclude<
+  keyof QboAccountingMapping,
+  "taxCalculation"
+>;
+
 export interface QboMappingFieldSpec {
-  key: keyof QboAccountingMapping;
+  key: QboEntityMappingKey;
   /** Discovery entity type the selection is validated against. */
   entityType: QboDiscoveryEntityType;
   label: string;
@@ -498,4 +532,66 @@ export function qboSalesReceiptMarker(sourceId: string): string {
 export function qboSalesReceiptDocNumber(sourceId: string): string {
   const clean = sourceId.replace(/[^A-Za-z0-9]/g, "");
   return `DDB-${clean.slice(-17)}`.slice(0, 21);
+}
+
+// --- Tax policy resolution (issue #184) ---
+
+// The tax fields one sales-side transaction carries (SalesReceipt today;
+// the RefundReceipt in #180 mirrors the same resolution). Derived purely
+// from the accounting mapping and the connected company's country —
+// never from a guessed rate or a TaxCode name.
+export type QboTaxSpec =
+  | {
+      ok: true;
+      /** Present only when a verified TaxCode was explicitly mapped —
+       *  the activation switch for tax posting. */
+      taxCodeId?: string;
+      /** `GlobalTaxCalculation` value for the payload: `NotApplicable`
+       *  for a non-US company with no tax code, `TaxInclusive` /
+       *  `TaxExcluded` per the verified price treatment when a code is
+       *  mapped, absent for US companies (which reject the field). */
+      globalTaxCalculation?: "NotApplicable" | "TaxInclusive" | "TaxExcluded";
+    }
+  | {
+      ok: false;
+      /** The stored mapping pairs a tax code with a missing or
+       *  unrecognized treatment — fail closed, never post guessed tax. */
+      reason: "missing_taxCalculation" | "invalid_taxCalculation";
+    };
+
+// Resolves the tax posture for one transaction. A mapped `taxCodeId` is
+// the explicit activation: it posts only together with the accountant's
+// price/tax treatment. No code → today's launch posture (no tax posted;
+// `NotApplicable` where QBO requires the field). `taxCalculation` without
+// a code is inert — there is nothing for it to apply to.
+export function qboTaxSpecForMapping(
+  mapping: { taxCodeId?: string; taxCalculation?: unknown },
+  companyCountry: string | undefined
+): QboTaxSpec {
+  const isUs = companyCountry === "US";
+  const taxCodeId =
+    typeof mapping.taxCodeId === "string" && mapping.taxCodeId
+      ? mapping.taxCodeId
+      : undefined;
+  if (!taxCodeId) {
+    return {
+      ok: true,
+      globalTaxCalculation: isUs ? undefined : "NotApplicable",
+    };
+  }
+  if (mapping.taxCalculation === undefined || mapping.taxCalculation === null) {
+    return { ok: false, reason: "missing_taxCalculation" };
+  }
+  if (!isQboTaxCalculation(mapping.taxCalculation)) {
+    return { ok: false, reason: "invalid_taxCalculation" };
+  }
+  return {
+    ok: true,
+    taxCodeId,
+    globalTaxCalculation: isUs
+      ? undefined
+      : mapping.taxCalculation === "inclusive"
+        ? "TaxInclusive"
+        : "TaxExcluded",
+  };
 }
