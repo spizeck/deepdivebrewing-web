@@ -187,8 +187,12 @@ async function enrichUnattributed(
 
 interface QboLeg {
   clearingBalanceMinor?: number;
+  clearingCurrency?: string;
+  clearingAccountId?: string;
   clearingName?: string;
   feeBalanceMinor?: number;
+  feeCurrency?: string;
+  feeAccountId?: string;
   clearingActivityMinor?: number;
   ledgerItems: QboReconLedgerItem[];
   truncated: boolean;
@@ -276,8 +280,12 @@ async function fetchQboLeg(
 
     return {
       clearingBalanceMinor: clearing?.balanceMinor,
+      clearingCurrency: clearing?.currency,
+      clearingAccountId: clearingId,
       clearingName: clearing?.name,
       feeBalanceMinor: fee?.balanceMinor,
+      feeCurrency: fee?.currency,
+      feeAccountId: feeId,
       clearingActivityMinor: clearingId ? clearingActivityMinor : undefined,
       ledgerItems: ledgerItems.slice(0, LEDGER_ITEM_LIMIT),
       truncated: truncated || ledgerItems.length > LEDGER_ITEM_LIMIT,
@@ -361,9 +369,33 @@ export async function runQboReconciliation(input: {
 
   const qbo = await fetchQboLeg(environment, range);
 
+  // The clearing difference only means something when the mapped
+  // clearing account's currency matches the run currency — subtracting
+  // a foreign-currency ledger balance from the USD Stripe balance (or
+  // formatting it as USD) would silently corrupt the comparison. A
+  // mismatched account is flagged and its balance suppressed rather
+  // than converted.
+  const clearingCurrencyMatches =
+    qbo.clearingCurrency?.toUpperCase() === currency;
+  if (qbo.clearingCurrency !== undefined && !clearingCurrencyMatches) {
+    flags.push({
+      kind: "currency_mismatch",
+      ref: qbo.clearingAccountId ?? "qbo-clearing-account",
+      detail: `The mapped QuickBooks clearing account reports currency ${qbo.clearingCurrency} but the run currency is ${currency} — its balance and the clearing difference were suppressed.`,
+    });
+  }
+  const feeCurrencyMatches = qbo.feeCurrency?.toUpperCase() === currency;
+  if (qbo.feeCurrency !== undefined && !feeCurrencyMatches) {
+    flags.push({
+      kind: "currency_mismatch",
+      ref: qbo.feeAccountId ?? "qbo-fee-account",
+      detail: `The mapped QuickBooks fee expense account reports currency ${qbo.feeCurrency} but the run currency is ${currency} — its balance was suppressed.`,
+    });
+  }
+
   const netMovementMinor = totals.availableNetMinor + totals.pendingNetMinor;
   const clearingDifferenceMinor =
-    qbo.clearingBalanceMinor !== undefined
+    clearingCurrencyMatches && qbo.clearingBalanceMinor !== undefined
       ? qbo.clearingBalanceMinor - balance.availableMinor
       : undefined;
 
@@ -376,11 +408,18 @@ export async function runQboReconciliation(input: {
     currency,
     stripeAvailableMinor: balance.availableMinor,
     stripePendingMinor: balance.pendingMinor,
-    qboClearingBalanceMinor: qbo.clearingBalanceMinor,
+    qboClearingBalanceMinor: clearingCurrencyMatches
+      ? qbo.clearingBalanceMinor
+      : undefined,
     clearingDifferenceMinor,
-    qboFeeBalanceMinor: qbo.feeBalanceMinor,
+    qboFeeBalanceMinor: feeCurrencyMatches ? qbo.feeBalanceMinor : undefined,
     qboLedgerItems: qbo.ledgerItems,
-    qboClearingActivityMinor: qbo.clearingActivityMinor,
+    // Ledger-item legs and the clearing-activity sum are in the
+    // clearing account's currency — suppressed alongside its balance
+    // when that currency is not the run currency.
+    qboClearingActivityMinor: clearingCurrencyMatches
+      ? qbo.clearingActivityMinor
+      : undefined,
     qboActivityTruncated: qbo.truncated,
     previousClearingBalanceMinor:
       previous?.qboClearingBalanceMinor,
