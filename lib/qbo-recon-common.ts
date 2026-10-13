@@ -593,6 +593,73 @@ export interface QboReconLedgerItem {
   accountIds: string[];
 }
 
+// Watched-account currency guard for the QBO ledger leg of a run. Every
+// amount the report shows is presented in `runCurrency`; when a mapped
+// clearing or fee account reports a different currency, its balance,
+// derived difference, in-range activity, and the ledger items that sum
+// its legs are suppressed — flagged for inspection, never converted.
+// An unmapped account does not block the other account's items.
+export function gateQboLedgerAmounts(input: {
+  runCurrency: string;
+  stripeAvailableMinor?: number;
+  clearingAccountId?: string;
+  clearingCurrency?: string;
+  clearingBalanceMinor?: number;
+  clearingActivityMinor?: number;
+  feeAccountId?: string;
+  feeCurrency?: string;
+  feeBalanceMinor?: number;
+  ledgerItems: QboReconLedgerItem[];
+}): {
+  qboClearingBalanceMinor?: number;
+  clearingDifferenceMinor?: number;
+  qboClearingActivityMinor?: number;
+  qboFeeBalanceMinor?: number;
+  qboLedgerItems: QboReconLedgerItem[];
+  flags: QboReconFlag[];
+} {
+  const clearingOk =
+    input.clearingAccountId === undefined ||
+    input.clearingCurrency?.toUpperCase() === input.runCurrency;
+  const feeOk =
+    input.feeAccountId === undefined ||
+    input.feeCurrency?.toUpperCase() === input.runCurrency;
+
+  const flags: QboReconFlag[] = [];
+  if (input.clearingCurrency !== undefined && !clearingOk) {
+    flags.push({
+      kind: "currency_mismatch",
+      ref: input.clearingAccountId ?? "qbo-clearing-account",
+      detail: `The mapped QuickBooks clearing account reports currency ${input.clearingCurrency} but the run currency is ${input.runCurrency} — its balance, difference, in-range activity, and ledger items were suppressed.`,
+    });
+  }
+  if (input.feeCurrency !== undefined && !feeOk) {
+    flags.push({
+      kind: "currency_mismatch",
+      ref: input.feeAccountId ?? "qbo-fee-account",
+      detail: `The mapped QuickBooks fee expense account reports currency ${input.feeCurrency} but the run currency is ${input.runCurrency} — its balance and ledger items were suppressed.`,
+    });
+  }
+
+  const qboClearingBalanceMinor = clearingOk
+    ? input.clearingBalanceMinor
+    : undefined;
+  return {
+    qboClearingBalanceMinor,
+    clearingDifferenceMinor:
+      qboClearingBalanceMinor !== undefined &&
+      input.stripeAvailableMinor !== undefined
+        ? qboClearingBalanceMinor - input.stripeAvailableMinor
+        : undefined,
+    qboClearingActivityMinor: clearingOk
+      ? input.clearingActivityMinor
+      : undefined,
+    qboFeeBalanceMinor: feeOk ? input.feeBalanceMinor : undefined,
+    qboLedgerItems: clearingOk && feeOk ? input.ledgerItems : [],
+    flags,
+  };
+}
+
 export interface QboReconRunView {
   environment: QboEnvironment;
   realmIdShort?: string;

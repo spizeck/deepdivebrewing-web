@@ -5,6 +5,7 @@ import {
   buildReconFindings,
   classifyStripeBalanceTxn,
   dedupeBalanceTxns,
+  gateQboLedgerAmounts,
   qboReconBucketForType,
   resolveChargeAttribution,
   resolveQboReconRange,
@@ -565,5 +566,85 @@ describe("buildDdbPaymentScan — merged paid/refunded windows", () => {
     const fact = facts.find((f) => f.paymentId === "pay_cash");
     assert.strictEqual(fact?.expectsCharge, false);
     assert.strictEqual(fact?.expectsRefund, false);
+  });
+});
+
+describe("gateQboLedgerAmounts — watched-account currency guard", () => {
+  const ledgerItems = [
+    {
+      entityType: "JournalEntry",
+      id: "je-1",
+      txnDate: "2026-05-10",
+      amountMinor: 500,
+      accountIds: ["acct-clearing"],
+    },
+    {
+      entityType: "Purchase",
+      id: "po-1",
+      txnDate: "2026-05-11",
+      amountMinor: -250,
+      accountIds: ["acct-fee"],
+    },
+  ];
+  const base = {
+    runCurrency: "USD",
+    stripeAvailableMinor: 10_000,
+    clearingAccountId: "acct-clearing",
+    clearingCurrency: "USD",
+    clearingBalanceMinor: 12_000,
+    clearingActivityMinor: 300,
+    feeAccountId: "acct-fee",
+    feeCurrency: "USD",
+    feeBalanceMinor: 700,
+    ledgerItems,
+  };
+
+  it("passes balances, difference, activity, and ledger items through when currencies match", () => {
+    const out = gateQboLedgerAmounts(base);
+    assert.strictEqual(out.qboClearingBalanceMinor, 12_000);
+    assert.strictEqual(out.clearingDifferenceMinor, 2_000);
+    assert.strictEqual(out.qboClearingActivityMinor, 300);
+    assert.strictEqual(out.qboFeeBalanceMinor, 700);
+    assert.strictEqual(out.qboLedgerItems, ledgerItems);
+    assert.deepStrictEqual(out.flags, []);
+  });
+
+  it("suppresses clearing amounts and ledger items on a clearing currency mismatch", () => {
+    const out = gateQboLedgerAmounts({ ...base, clearingCurrency: "EUR" });
+    assert.strictEqual(out.qboClearingBalanceMinor, undefined);
+    assert.strictEqual(out.clearingDifferenceMinor, undefined);
+    assert.strictEqual(out.qboClearingActivityMinor, undefined);
+    assert.deepStrictEqual(out.qboLedgerItems, []);
+    // The fee account still matched — its balance is unaffected.
+    assert.strictEqual(out.qboFeeBalanceMinor, 700);
+    const flag = out.flags.find((f) => f.kind === "currency_mismatch");
+    assert.ok(flag);
+    assert.strictEqual(flag.ref, "acct-clearing");
+  });
+
+  it("suppresses the fee balance and ledger items on a fee currency mismatch", () => {
+    const out = gateQboLedgerAmounts({ ...base, feeCurrency: "EUR" });
+    assert.strictEqual(out.qboFeeBalanceMinor, undefined);
+    assert.deepStrictEqual(out.qboLedgerItems, []);
+    // Clearing-side amounts still matched and pass through.
+    assert.strictEqual(out.qboClearingBalanceMinor, 12_000);
+    assert.strictEqual(out.clearingDifferenceMinor, 2_000);
+    assert.strictEqual(out.qboClearingActivityMinor, 300);
+    const flag = out.flags.find((f) => f.kind === "currency_mismatch");
+    assert.ok(flag);
+    assert.strictEqual(flag.ref, "acct-fee");
+  });
+
+  it("keeps fee-only ledger items when no clearing account is mapped", () => {
+    const out = gateQboLedgerAmounts({
+      ...base,
+      clearingAccountId: undefined,
+      clearingCurrency: undefined,
+      clearingBalanceMinor: undefined,
+      clearingActivityMinor: undefined,
+    });
+    assert.deepStrictEqual(out.qboLedgerItems, ledgerItems);
+    assert.strictEqual(out.qboFeeBalanceMinor, 700);
+    assert.deepStrictEqual(out.flags, []);
   });
 });
