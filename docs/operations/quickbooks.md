@@ -507,6 +507,51 @@ period vs per-charge entries); then implement any write as a one-off
 reviewed operation — never an automatic backfill, never edits to filed
 periods without accountant approval.
 
+## Stripe payout accounting (observe mode)
+
+`/admin/integrations/quickbooks` → **Stripe payout accounting** is the
+observe-mode automation surface. It ingests Stripe payout webhook events
+(`payout.created/updated/paid/failed/canceled`, and
+`payout.reconciliation_completed` where the account emits it), rebuilds
+each payout's authoritative ledger from Stripe's balance transactions,
+classifies every movement, and persists deterministic QuickBooks
+*proposals* — nothing posts. There is no QBO write path in this build;
+`writesEnabled` is always false.
+
+- **Lanes**: each movement is `ddb` (positive application identity — a
+  stored charge/PaymentIntent/refund id or `metadata.paymentId`),
+  `ollie` (a *unique* Undeposited-Funds QBO payment matching exact
+  amount + currency within ±14 days — evidence only, never identity),
+  `external` (no match — Stripe activity outside DDB/Ollie), or
+  `account_level` (fees, adjustments — never matched).
+- **Proposals** (three kinds): *move payment to Stripe Clearing*
+  (reclassify the matched Ollie payment out of Undeposited Funds),
+  *record Stripe fees* (actual payout fees to the mapped expense
+  account), and *payout transfer* (clearing → the mapped payout
+  account). Missing mappings produce `blocked` proposals; a manually
+  entered fee journal or transfer covering the exact amount suppresses
+  the proposal. Proposals the accountant has approved/rejected keep
+  their decision across rebuilds.
+- **Payout destination account**: the `stripePayoutAccountId` mapping
+  decides whether the eventual transfer debits the bank account
+  directly or a "Payouts in Transit" account — the accountant's choice;
+  map whichever they pick. Unmapped → the transfer proposal stays
+  blocked.
+- **Cutover**: `STRIPE_AUTOMATION_CUTOVER=YYYY-MM-DD` marks movements
+  created earlier as `pre_cutover` — reported, never proposed. Leave
+  unset to treat everything as eligible.
+- **Mode**: `STRIPE_ACCOUNTING_MODE` defaults to `observe`;
+  `approval`/`automatic` are reserved labels for a future execution PR
+  and change nothing today.
+- **Recovery**: the daily `qbo-sweep` cron also rescans the last 35 days
+  of Stripe payouts and rebuilds any ledger that is missing, pending, or
+  behind the payout's canonical status — a missed webhook cannot leave
+  a payout unprocessed. **Reprocess ledger** on a payout card runs the
+  same build on demand (accounting permission required).
+- **Foreign currencies**: a movement whose currency differs from the
+  payout's is flagged `foreign_currency` and excluded from every total —
+  never converted.
+
 ## What is deliberately not built
 
 - Refund posting (`RefundReceipt` mirroring the original lines) — #180;
@@ -518,10 +563,11 @@ periods without accountant approval.
   deposit account until someone reverses it by hand in QBO. When staff
   record a cash refund, reverse the matching Sales Receipt (`PrivateNote`
   marker `ddb:<paymentId>`) in QuickBooks the same day.
-- Stripe payout posting, Mercury deposit creation, and fee **posting** —
-  the #181 reconciliation report is read-only by design; automated fee
-  entries remain unbuilt pending the inspection above and accountant
-  approval.
+- Stripe payout **posting** and fee **posting** — the payout automation
+  observes and proposes only (see [Stripe payout
+  accounting](#stripe-payout-accounting-observe-mode)); execution of
+  proposals (Payment reclassification, fee Purchase, payout Transfer) is
+  a follow-up requiring explicit accountant approval and its own PR.
 - Tax posting — **prepared but not activated** (#184): the mapping can
   carry an accountant-verified `TaxCodeRef` + price treatment today,
   but stays unset until the answers in

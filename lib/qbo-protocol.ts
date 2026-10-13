@@ -1031,3 +1031,136 @@ export function canonicalizeQboReconActivity(
   }
   return out;
 }
+
+// --- Payment / Undeposited Funds reads (payout accounting automation) ---
+
+// Canonical facts for one QBO Payment — the Ollie side of payout matching.
+// Everything is descriptive evidence (amount, date, deposit target,
+// customer, Ollie's own reference); no Stripe identifier exists on these
+// records.
+export interface QboPaymentFacts {
+  id: string;
+  txnDate?: string;
+  totalMinor: number;
+  currency?: string;
+  depositToAccountId?: string;
+  customerId?: string;
+  customerName?: string;
+  /** Ollie's reference (PaymentRefNum, e.g. "Ollie Payment #1626166")
+   *  or PrivateNote free-text — operator-facing evidence only. */
+  refNumber?: string;
+  memo?: string;
+  linkedTxnIds: string[];
+}
+
+// Date-windowed SELECT over Payments. QBO's grammar cannot filter on
+// DepositToAccountRef, so the caller filters to the Undeposited Funds
+// account after canonicalization.
+export function qboPaymentsQuery(
+  fromDate: string,
+  toDate: string,
+  startPosition?: number,
+  maxResults?: number
+): string {
+  const from = RECON_DATE.test(fromDate) ? fromDate : "1970-01-01";
+  const to = RECON_DATE.test(toDate) ? toDate : "1970-01-01";
+  const base = `select Id, TxnDate, TotalAmt, CurrencyRef, CustomerRef, PaymentRefNum, PrivateNote, DepositToAccountRef, Line from Payment where TxnDate >= '${from}' and TxnDate <= '${to}' orderby TxnDate`;
+  return `${base} startposition ${startPosition ?? 1} maxresults ${maxResults ?? QBO_QUERY_PAGE_SIZE}`;
+}
+
+export function canonicalizeQboPayments(
+  payload: unknown
+): QboPaymentFacts[] {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>).Payment
+      : undefined;
+  if (!Array.isArray(rows)) return [];
+  const out: QboPaymentFacts[] = [];
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const r = row as Record<string, unknown>;
+    const id =
+      typeof r.Id === "string" || typeof r.Id === "number"
+        ? String(r.Id)
+        : "";
+    const totalMinor = minorUnits(r.TotalAmt);
+    if (!id || totalMinor === null) continue;
+    const customerRef =
+      typeof r.CustomerRef === "object" && r.CustomerRef !== null
+        ? (r.CustomerRef as Record<string, unknown>)
+        : undefined;
+    const currencyRef =
+      typeof r.CurrencyRef === "object" && r.CurrencyRef !== null
+        ? (r.CurrencyRef as Record<string, unknown>).value
+        : undefined;
+    const linkedTxnIds: string[] = [];
+    if (Array.isArray(r.Line)) {
+      for (const line of r.Line) {
+        const linked =
+          typeof line === "object" && line !== null
+            ? (line as Record<string, unknown>).LinkedTxn
+            : undefined;
+        if (!Array.isArray(linked)) continue;
+        for (const link of linked) {
+          const txnId =
+            typeof link === "object" && link !== null
+              ? (link as Record<string, unknown>).TxnId
+              : undefined;
+          if (typeof txnId === "string" || typeof txnId === "number") {
+            linkedTxnIds.push(String(txnId));
+          }
+        }
+      }
+    }
+    out.push({
+      id,
+      txnDate: typeof r.TxnDate === "string" ? r.TxnDate : undefined,
+      totalMinor,
+      currency:
+        typeof currencyRef === "string" ? currencyRef.toUpperCase() : undefined,
+      depositToAccountId: accountRefValue(r.DepositToAccountRef) ?? undefined,
+      customerId: accountRefValue(customerRef) ?? undefined,
+      customerName:
+        typeof customerRef?.name === "string" ? customerRef.name : undefined,
+      refNumber:
+        typeof r.PaymentRefNum === "string" ? r.PaymentRefNum : undefined,
+      memo: typeof r.PrivateNote === "string" ? r.PrivateNote : undefined,
+      linkedTxnIds,
+    });
+  }
+  return out;
+}
+
+// Locates the company's Undeposited Funds account — Ollie's global
+// deposit target and the account payments move *out of* when they are
+// reclassified to Stripe Clearing. Fail-closed: zero or several hits
+// both return null so matching never guesses which account is UF.
+export function qboUndepositedFundsQuery(): string {
+  return "select Id, Name, AccountSubType from Account where AccountSubType = 'UndepositedFunds' maxresults 10";
+}
+
+export function canonicalizeQboUndepositedFundsAccount(
+  payload: unknown
+): { id: string; name: string } | null {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>).Account
+      : undefined;
+  if (!Array.isArray(rows) || rows.length !== 1) return null;
+  const row = rows[0];
+  if (typeof row !== "object" || row === null) return null;
+  const r = row as Record<string, unknown>;
+  const id =
+    typeof r.Id === "string" || typeof r.Id === "number" ? String(r.Id) : "";
+  if (!id) return null;
+  return { id, name: typeof r.Name === "string" ? r.Name : `Account ${id}` };
+}

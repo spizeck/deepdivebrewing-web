@@ -330,6 +330,29 @@ describe("readStripeEventRefs", () => {
     const empty = readStripeEventRefs({ id: "evt_y", type: "x", data: {} });
     assert.strictEqual(empty.sessionId, null);
   });
+
+  it("extracts the payout id from payout events — id only, no financials", () => {
+    const refs = readStripeEventRefs({
+      id: "evt_po",
+      type: "payout.paid",
+      data: {
+        object: {
+          id: "po_123",
+          object: "payout",
+          amount: 9680, // inert — never read
+          currency: "usd",
+        },
+      },
+    });
+    assert.strictEqual(refs.payoutId, "po_123");
+    assert.strictEqual(refs.sessionId, null);
+    assert.strictEqual(refs.eventType, "payout.paid");
+  });
+
+  it("payoutId is null for non-payout objects", () => {
+    const refs = readStripeEventRefs(paidEvent);
+    assert.strictEqual(refs.payoutId, null);
+  });
 });
 
 describe("canonicalSessionDecision", () => {

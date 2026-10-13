@@ -41,6 +41,8 @@ const FIELD_DESCRIPTIONS: Record<keyof QboAccountingMapping, string> = {
     "The accountant's answer to whether charged prices already contain the tax. Required before a tax code can post.",
   stripeFeeExpenseAccountId:
     "Dedicated expense account for Stripe processing fees — e.g. “Merchant account fees”. Lets the reconciliation report see whether fees are already booked.",
+  stripePayoutAccountId:
+    "Account the payout transfer debits when Stripe settles — the bank account Stripe pays into, or a “Payouts in Transit” account if the accountant prefers to match the bank feed. Leave unset to keep payout transfers blocked.",
 };
 
 const ENTITY_TYPES_NEEDED: QboDiscoveryEntityType[] = Array.from(

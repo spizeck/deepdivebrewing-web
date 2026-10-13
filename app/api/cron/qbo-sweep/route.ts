@@ -2,9 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { unauthorizedResponse } from "@/lib/api-auth";
 import { apiErrorResponse } from "@/lib/api-error";
-import { getRequestId, logInfo } from "@/lib/log";
+import { getRequestId, logError, logInfo } from "@/lib/log";
 import { QboConfigError } from "@/lib/qbo-errors";
 import { runQboSyncSweep } from "@/lib/qbo-sweep";
+import { runStripePayoutSweep } from "@/lib/stripe-payouts";
 
 // Vercel Cron entry point for the QBO sync sweeper (issue #183) —
 // scheduled in vercel.json. The trust boundary is the CRON_SECRET bearer
@@ -23,7 +24,19 @@ export async function GET(req: NextRequest) {
 
   try {
     const summary = await runQboSyncSweep();
-    return NextResponse.json({ ok: true, ...summary });
+    // Payout-ledger recovery runs in the same daily pass: any payout
+    // whose webhook never arrived (or whose deferred build was dropped)
+    // is reprocessed here. Best-effort — a Stripe hiccup must not sink
+    // the QBO sweep's already-reported summary.
+    let payouts:
+      | { scanned: number; processed: number; skipped: number }
+      | null = null;
+    try {
+      payouts = await runStripePayoutSweep();
+    } catch (payoutError) {
+      logError("stripe.payout.sweep_failed", payoutError, { requestId });
+    }
+    return NextResponse.json({ ok: true, ...summary, payouts });
   } catch (error) {
     if (error instanceof QboConfigError) {
       // QBO is not configured on this deployment — the sweep is a no-op,

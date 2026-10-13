@@ -134,6 +134,20 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Stripe payout accounting automation: per-payout ledger snapshots
+    // (balance transactions, lane classification, exceptions) and the
+    // deterministic accounting proposals computed from them. Both carry
+    // financial identifiers and flow exclusively through the Admin SDK —
+    // the Stripe webhook lane and the /api/admin/quickbooks/payouts read
+    // surface. No client may read or write.
+    match /stripePayouts/{docId} {
+      allow read, write: if false;
+    }
+
+    match /qboAccountingProposals/{docId} {
+      allow read, write: if false;
+    }
+
     match /meta/{docId} {
       allow read, write: if hasActiveAdmin();
     }

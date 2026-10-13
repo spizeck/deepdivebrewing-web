@@ -955,6 +955,10 @@ export interface StripeEventRefs {
   eventId: string;
   eventType: string;
   sessionId: string | null;
+  /** Payout object id when the signed event is a `payout.*` event —
+   *  identifier only; every financial field comes from the canonical
+   *  payout re-fetch (see lib/stripe-payouts.ts). */
+  payoutId: string | null;
 }
 
 // A signed webhook event proves Stripe sent it — it is NOT proof of the
@@ -979,6 +983,10 @@ export function readStripeEventRefs(event: {
     eventType: typeof event.type === "string" ? event.type : "",
     sessionId:
       object.object === "checkout.session"
+        ? stripeIdOf(object.id) ?? null
+        : null,
+    payoutId:
+      object.object === "payout"
         ? stripeIdOf(object.id) ?? null
         : null,
   };

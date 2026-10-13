@@ -512,6 +512,9 @@ describe("QuickBooks collections deny all client access (issue #161)", () => {
     "qboWebhookReceipts",
     "qboConfig",
     "qboSyncRecords",
+    "qboReconState",
+    "stripePayouts",
+    "qboAccountingProposals",
   ];
 
   it("denies unauthenticated and non-admin reads and writes", async () => {

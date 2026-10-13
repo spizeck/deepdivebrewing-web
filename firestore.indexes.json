@@ -16,6 +16,14 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "syncId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "qboAccountingProposals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "environment", "order": "ASCENDING" },
+        { "fieldPath": "computedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

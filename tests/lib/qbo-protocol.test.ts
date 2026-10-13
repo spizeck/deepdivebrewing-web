@@ -8,7 +8,11 @@ import {
   buildQboTokenExchangeRequest,
   buildQboTokenRefreshRequest,
   canonicalizeCompanyInfo,
+  canonicalizeQboPayments,
   canonicalizeQboQueryEntities,
+  canonicalizeQboUndepositedFundsAccount,
+  qboPaymentsQuery,
+  qboUndepositedFundsQuery,
   classifyQboOAuthState,
   decideQboTokenAction,
   generateQboOAuthState,
@@ -583,5 +587,98 @@ describe("qboQueryRowCount", () => {
       }),
       1
     );
+  });
+});
+
+describe("qboPaymentsQuery / canonicalizeQboPayments", () => {
+  it("builds a date-windowed Payment select with pagination", () => {
+    const query = qboPaymentsQuery("2026-10-01", "2026-10-31", 1, 1000);
+    assert.ok(query.includes("from Payment"));
+    assert.ok(query.includes("TxnDate >= '2026-10-01'"));
+    assert.ok(query.includes("TxnDate <= '2026-10-31'"));
+    assert.ok(query.includes("DepositToAccountRef"));
+    assert.ok(query.includes("PaymentRefNum"));
+  });
+
+  it("canonicalizes Ollie-shaped payments: reference, memo, links, UF target", () => {
+    const rows = canonicalizeQboPayments({
+      QueryResponse: {
+        Payment: [
+          {
+            Id: "42",
+            TxnDate: "2026-10-08",
+            TotalAmt: 294.01,
+            CurrencyRef: { value: "USD" },
+            CustomerRef: { value: "7", name: "Sea Saba" },
+            PaymentRefNum: "Ollie Payment #1626166",
+            PrivateNote: "applied to invoice #00327",
+            DepositToAccountRef: { value: "uf-9" },
+            Line: [{ LinkedTxn: [{ TxnId: "inv-327" }] }],
+          },
+          {
+            Id: "43",
+            TotalAmt: 50,
+            // No TxnDate, no DepositToAccountRef, no CurrencyRef —
+            // UF default target + unverified currency/date.
+            Line: [],
+          },
+        ],
+      },
+    });
+    assert.strictEqual(rows.length, 2);
+    const first = rows[0];
+    assert.strictEqual(first.id, "42");
+    assert.strictEqual(first.totalMinor, 29401);
+    assert.strictEqual(first.currency, "USD");
+    assert.strictEqual(first.depositToAccountId, "uf-9");
+    assert.strictEqual(first.customerName, "Sea Saba");
+    assert.strictEqual(first.refNumber, "Ollie Payment #1626166");
+    assert.strictEqual(first.memo, "applied to invoice #00327");
+    assert.deepStrictEqual(first.linkedTxnIds, ["inv-327"]);
+    const second = rows[1];
+    assert.strictEqual(second.totalMinor, 5000);
+    assert.strictEqual(second.depositToAccountId, undefined);
+    assert.strictEqual(second.currency, undefined);
+    assert.strictEqual(second.txnDate, undefined);
+  });
+
+  it("drops rows with no id or amount and tolerates empty responses", () => {
+    assert.deepStrictEqual(
+      canonicalizeQboPayments({ QueryResponse: { Payment: [{ Id: "1" }] } }),
+      []
+    );
+    assert.deepStrictEqual(canonicalizeQboPayments(null), []);
+    assert.deepStrictEqual(canonicalizeQboPayments({ QueryResponse: {} }), []);
+  });
+});
+
+describe("qboUndepositedFundsQuery / canonicalizeQboUndepositedFundsAccount", () => {
+  it("queries by the UndepositedFunds subtype", () => {
+    assert.ok(
+      qboUndepositedFundsQuery().includes("AccountSubType = 'UndepositedFunds'")
+    );
+  });
+
+  it("resolves the single UF account and fails closed otherwise", () => {
+    assert.deepStrictEqual(
+      canonicalizeQboUndepositedFundsAccount({
+        QueryResponse: {
+          Account: [{ Id: "uf-1", Name: "Undeposited Funds" }],
+        },
+      }),
+      { id: "uf-1", name: "Undeposited Funds" }
+    );
+    // Zero or several UF-typed accounts — never guess which one.
+    assert.strictEqual(
+      canonicalizeQboUndepositedFundsAccount({ QueryResponse: { Account: [] } }),
+      null
+    );
+    assert.strictEqual(
+      canonicalizeQboUndepositedFundsAccount({
+        QueryResponse: { Account: [{ Id: "a" }, { Id: "b" }] },
+      }),
+      null
+    );
+    assert.strictEqual(canonicalizeQboUndepositedFundsAccount(null), null);
   });
 });

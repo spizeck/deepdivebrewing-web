@@ -163,6 +163,12 @@ export interface QboAccountingMapping {
    *  accountant confirms a mapped expense account and the enqueue
    *  producer is wired on (issue #181 design §9). */
   stripeFeeExpenseAccountId?: string;
+  /** Destination for the payout-transfer proposal's debit leg — the
+   *  bank account Stripe settles into, or a "Payouts in Transit"
+   *  clearing account when the accountant prefers to match the bank
+   *  feed explicitly. Optional — payout transfers stay blocked until
+   *  it is selected (payout accounting automation). */
+  stripePayoutAccountId?: string;
 }
 
 // How the company's charged prices relate to the tax a mapped TaxCode
@@ -274,6 +280,17 @@ export const QBO_MAPPING_FIELDS: readonly QboMappingFieldSpec[] = [
     key: "stripeFeeExpenseAccountId",
     entityType: "account",
     label: "Stripe fee expense account",
+    required: false,
+  },
+  {
+    // Payout-transfer destination: the bank account Stripe settles into,
+    // or a "Payouts in Transit" account when the accountant prefers to
+    // clear against the bank feed — the mapping decides which (payout
+    // accounting automation). Optional — payout transfers are proposed
+    // as blocked until it is selected.
+    key: "stripePayoutAccountId",
+    entityType: "account",
+    label: "Stripe payout account",
     required: false,
   },
 ];
