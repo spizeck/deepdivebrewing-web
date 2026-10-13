@@ -178,16 +178,31 @@ async function main() {
   // Composite indexes can be listed across all collection groups with
   // the `-` wildcard; field configs cannot be listed unfiltered, so
   // each declared override is fetched by its exact field path.
-  const indexPages = await adminFetch<{ indexes?: DeployedIndex[] }>(
-    `${base}/collectionGroups/-/indexes`,
-    jwt
-  );
+  const allIndexes: DeployedIndex[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(`${base}/collectionGroups/-/indexes`);
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const page = await adminFetch<{
+      indexes?: DeployedIndex[];
+      nextPageToken?: string;
+    }>(url.toString(), jwt);
+    allIndexes.push(...(page.indexes ?? []));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  const indexPages = { indexes: allIndexes };
   const fieldPages = await Promise.all(
     repoOverrides.map((o) =>
       adminFetch<DeployedField | { error: { code: number } }>(
         `${base}/collectionGroups/${o.collectionGroup}/fields/${o.fieldPath}`,
         jwt
-      ).catch(() => null)
+      ).catch((err: unknown) => {
+        // Only 404 means "not deployed"; auth/network failures are
+        // operational errors, not drift — rethrow for exit code 2.
+        if (err instanceof Error && err.message.startsWith("404 "))
+          return null;
+        throw err;
+      })
     )
   );
   const deployedIndexes = (indexPages.indexes ?? []).map(
