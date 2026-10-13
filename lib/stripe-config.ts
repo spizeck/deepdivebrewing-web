@@ -4,6 +4,10 @@
 // routes, the webhook route) import these; the secret key must never reach
 // a client component or a NEXT_PUBLIC_* variable.
 import { resolveSiteUrl, siteUrl } from "@/lib/site";
+import {
+  STRIPE_ACCOUNTING_MODES,
+  type StripeAccountingMode,
+} from "@/lib/stripe-payouts-common";
 
 const LIVE_KEY_PREFIXES = ["sk_live_", "rk_live_"];
 
@@ -39,6 +43,13 @@ export function getStripeWebhookSecret(): string {
     );
   }
   return secret;
+}
+
+// Non-throwing presence check for cron/sweep no-ops — mirrors the
+// isQboConfigured pattern: an unconfigured deployment skips quietly
+// instead of erroring every run.
+export function isStripeConfigured(): boolean {
+  return Boolean(process.env.STRIPE_SECRET_KEY?.trim());
 }
 
 // Test/live mode is derived from the configured secret key so the admin UI
@@ -90,4 +101,39 @@ export function resolveCheckoutReturnBaseUrl(): string {
     return "http://localhost:3000";
   }
   return siteUrl;
+}
+
+// --- Payout accounting automation policy ---
+
+// `STRIPE_ACCOUNTING_MODE` selects how far payout automation may go:
+//   observe   (default) — ingest payouts, build the ledger and
+//             proposals, post nothing.
+//   approval  — proposals may be approved by authorized admins (the
+//             execution path is a follow-up; today this changes the
+//             label only).
+//   automatic — reserved for the auto-posting follow-up; today this
+//             changes the label only. No QBO write path exists in this
+//             build — there is nothing to arm, so a misconfigured value
+//             fails closed to observe rather than to a writer.
+export function getStripeAccountingMode(): StripeAccountingMode {
+  const raw = process.env.STRIPE_ACCOUNTING_MODE?.trim().toLowerCase();
+  return (STRIPE_ACCOUNTING_MODES as readonly string[]).includes(raw ?? "")
+    ? (raw as StripeAccountingMode)
+    : "observe";
+}
+
+// `STRIPE_AUTOMATION_CUTOVER` (YYYY-MM-DD) — Stripe movements created
+// before this date are historical: classified and reported, never
+// proposed. Unset means no cutover (everything is eligible). An invalid
+// value throws at read time — a misconfiguration must fail loudly, not
+// silently widen automation scope over historical data.
+export function getStripeAutomationCutover(): string | null {
+  const raw = process.env.STRIPE_AUTOMATION_CUTOVER?.trim();
+  if (!raw) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(`${raw}T00:00:00.000Z`))) {
+    throw new Error(
+      "STRIPE_AUTOMATION_CUTOVER must be a YYYY-MM-DD date when set."
+    );
+  }
+  return raw;
 }

@@ -14,6 +14,7 @@ import {
 import { formatAdminDateTime } from "@/lib/admin-format";
 import type { AdminPanelUser } from "@/components/admin-access";
 import { AdminQuickbooksMapping } from "@/components/admin-quickbooks-mapping";
+import { AdminQuickbooksPayouts } from "@/components/admin-quickbooks-payouts";
 import { AdminQuickbooksRecon } from "@/components/admin-quickbooks-recon";
 import type {
   QboAccountingMappingView,
@@ -579,6 +580,8 @@ export function AdminQuickbooksWorkspace({
       )}
 
       <AdminQuickbooksRecon user={user} connected={connected} />
+
+      <AdminQuickbooksPayouts user={user} connected={connected} />
 
       <AdminQuickbooksMapping
         user={user}

@@ -4,17 +4,21 @@ import {
   buildQboQueryUrl,
   canonicalizeCompanyInfo,
   canonicalizeQboAccountBalance,
+  canonicalizeQboPayments,
   canonicalizeQboQueryEntities,
   canonicalizeQboReconActivity,
   canonicalizeQboSalesReceiptCreated,
   canonicalizeQboSalesReceiptRefs,
+  canonicalizeQboUndepositedFundsAccount,
   qboAccountBalanceQuery,
   qboApiUrl,
   qboEntityQueryStatement,
   qboErrorForHttpStatus,
+  qboPaymentsQuery,
   qboQueryResponseRowCount,
   qboQueryRowCount,
   qboReconActivityQuery,
+  qboUndepositedFundsQuery,
   qboSalesReceiptCorrelationQuery,
   qboSalesReceiptRowCount,
   QBO_QUERY_MAX_PAGES,
@@ -22,6 +26,7 @@ import {
   QBO_REQUEST_TIMEOUT_MS,
   toQboError,
   type QboAccountBalance,
+  type QboPaymentFacts,
   type QboReconActivityEntity,
   type QboReconActivityEntry,
 } from "@/lib/qbo-protocol";
@@ -348,4 +353,78 @@ export async function queryQboReconActivity(input: {
     correlationId,
   });
   return { rows, truncated };
+}
+
+// Windowed Payment read for the payout-matching engine (payout accounting
+// automation). Read-only — returns every QBO Payment in the window; the
+// caller filters to the Undeposited Funds account.
+export async function queryQboPayments(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  fromDate: string;
+  toDate: string;
+  maxPages?: number;
+}): Promise<{ rows: QboPaymentFacts[]; truncated: boolean }> {
+  const maxPages = input.maxPages ?? QBO_QUERY_MAX_PAGES;
+  const rows: QboPaymentFacts[] = [];
+  let truncated = false;
+  let correlationId: string | undefined;
+  for (let page = 0; page < maxPages; page++) {
+    const { payload, correlationId: tid } = await qboApiFetch({
+      environment: input.environment,
+      realmId: input.realmId,
+      accessToken: input.accessToken,
+      url: buildQboQueryUrl(
+        input.environment,
+        input.realmId,
+        qboPaymentsQuery(
+          input.fromDate,
+          input.toDate,
+          page * QBO_QUERY_PAGE_SIZE + 1,
+          QBO_QUERY_PAGE_SIZE
+        )
+      ),
+    });
+    correlationId ??= tid;
+    rows.push(...canonicalizeQboPayments(payload));
+    const response =
+      typeof payload === "object" && payload !== null
+        ? (payload as Record<string, unknown>).QueryResponse
+        : undefined;
+    const rowCount =
+      typeof response === "object" && response !== null
+        ? ((response as Record<string, unknown>).Payment as unknown[] | undefined)?.length ?? 0
+        : 0;
+    if (rowCount < QBO_QUERY_PAGE_SIZE) break;
+    if (page === maxPages - 1) truncated = true;
+  }
+  logInfo("qbo.api.payments", {
+    environment: input.environment,
+    rows: rows.length,
+    truncated,
+    correlationId,
+  });
+  return { rows, truncated };
+}
+
+// Discovers the company's Undeposited Funds account (Ollie's global
+// deposit target). Returns null when the company has none or several —
+// matching then runs with no UF filter rather than guessing.
+export async function findQboUndepositedFundsAccount(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+}): Promise<{ id: string; name: string } | null> {
+  const { payload } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    url: buildQboQueryUrl(
+      input.environment,
+      input.realmId,
+      qboUndepositedFundsQuery()
+    ),
+  });
+  return canonicalizeQboUndepositedFundsAccount(payload);
 }

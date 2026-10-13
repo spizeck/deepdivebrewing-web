@@ -53,6 +53,8 @@ import {
   type StripeEventStore,
   type StripeOutcome,
 } from "@/lib/payments-common";
+import { STRIPE_PAYOUT_EVENT_TYPES } from "@/lib/stripe-payouts-common";
+import { recordStripePayoutEvent } from "@/lib/stripe-payouts";
 import type Stripe from "stripe";
 
 // Identity the event timeline records — same shape as the trade-lead
@@ -1182,6 +1184,11 @@ export interface WebhookResult {
     | "retry";
   paymentId: string | null;
   toStatus?: string;
+  /** Set on `payout.*` deliveries — the route uses it to schedule the
+   *  deferred ledger build (`after()`), keeping provider fan-out out of
+   *  the webhook request. */
+  payoutId?: string;
+  needsLedgerBuild?: boolean;
 }
 
 // Verifies + processes one webhook delivery.
@@ -1208,6 +1215,29 @@ export async function handleStripeWebhook(
   );
 
   const refs = readStripeEventRefs(event);
+
+  // Payout events take their own lane: dedupe + canonical payout fetch +
+  // one atomic status/marker write happen inside recordStripePayoutEvent;
+  // the balance-transaction ledger build is deferred to `after()` in the
+  // route (and the daily sweep covers anything dropped). The payload
+  // contributed only the payout id — never a financial field.
+  if (STRIPE_PAYOUT_EVENT_TYPES.has(refs.eventType)) {
+    if (!refs.payoutId) {
+      return { status: "ignored", paymentId: null };
+    }
+    const outcome = await recordStripePayoutEvent({
+      eventId: refs.eventId,
+      eventType: refs.eventType,
+      payoutId: refs.payoutId,
+    });
+    return {
+      status: outcome.status === "ignored" ? "ignored" : outcome.status,
+      paymentId: null,
+      payoutId: outcome.payoutId ?? undefined,
+      needsLedgerBuild: outcome.needsLedgerBuild,
+    };
+  }
+
   let resolved: StripeEventOutcome;
 
   if (!HANDLED_STRIPE_EVENT_TYPES.has(refs.eventType)) {

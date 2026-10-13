@@ -136,6 +136,103 @@ const SYNC_VIEW_PAUSED = {
   sync: { ...SYNC_VIEW.sync, paused: true },
 };
 
+// Payout-automation fixture (observe mode): one paid payout with a
+// suggested Ollie match, a blocked proposal, and a settled exception —
+// exercises the summary counts and the expandable detail row.
+const PAYOUTS_VIEW = {
+  configured: true,
+  environment: "sandbox",
+  mode: "observe",
+  writesEnabled: false,
+  payouts: [
+    {
+      payoutId: "po_fixture1",
+      status: "paid",
+      amountMinor: 9680,
+      currency: "USD",
+      arrivalDate: "2026-10-15",
+      automationMode: "observe",
+      totals: {
+        lineCount: 1,
+        chargeCount: 1,
+        grossChargesMinor: 10000,
+        feesMinor: 320,
+        refundCount: 0,
+        refundsMinor: 0,
+        adjustmentMinor: 0,
+        otherCount: 0,
+        computedNetMinor: 9680,
+        payoutAmountMinor: 9680,
+        balanced: true,
+        currencyConsistent: true,
+      },
+      laneCounts: { ddb: 0, ollie: 1, external: 0, accountLevel: 0 },
+      matchedPayments: 1,
+      unmatchedMovements: 0,
+      exceptionsCount: 0,
+      proposalCount: 2,
+      proposedCount: 1,
+      blockedCount: 1,
+      lastProcessedAt: "2026-10-15T12:00:00.000Z",
+      linesTruncated: false,
+      lines: [
+        {
+          txnId: "txn_fixture1",
+          type: "charge",
+          grossMinor: 10000,
+          feeMinor: 320,
+          netMinor: 9680,
+          currency: "USD",
+          sourceId: "ch_fixture",
+          lane: "ollie",
+          confidence: "suggested",
+          scope: "eligible",
+          qboPaymentId: "42",
+          qboPaymentRef: "Ollie Payment #1626166",
+          customerName: "Sea Saba",
+          evidence: ["exact_amount", "currency_match", "date_in_window"],
+        },
+      ],
+      exceptions: [],
+    },
+  ],
+  proposals: [
+    {
+      proposalId: "sandbox:po_fixture1:move_payment_to_clearing:42",
+      environment: "sandbox",
+      payoutId: "po_fixture1",
+      kind: "move_payment_to_clearing",
+      status: "proposed",
+      amountMinor: 10000,
+      currency: "USD",
+      accountingDate: "2026-10-15",
+      debit: { accountId: "acct-1", label: "Stripe Clearing" },
+      credit: { label: "Undeposited Funds" },
+      stripeRefs: { payoutId: "po_fixture1", balanceTxnId: "txn_fixture1" },
+      qboRefs: { paymentId: "42", paymentRef: "Ollie Payment #1626166" },
+      evidence: ["exact_amount", "currency_match", "date_in_window"],
+      mode: "observe",
+    },
+    {
+      proposalId: "sandbox:po_fixture1:payout_transfer:aggregate",
+      environment: "sandbox",
+      payoutId: "po_fixture1",
+      kind: "payout_transfer",
+      status: "blocked",
+      amountMinor: 9680,
+      currency: "USD",
+      accountingDate: "2026-10-15",
+      debit: { label: "Stripe payout account" },
+      credit: { accountId: "acct-1", label: "Stripe Clearing" },
+      stripeRefs: { payoutId: "po_fixture1" },
+      qboRefs: {},
+      evidence: ["payout_paid", "payout_account_unmapped"],
+      mode: "observe",
+    },
+  ],
+  qboAvailable: true,
+};
+
 function mockQboApi(
   page: import("playwright/test").Page,
   statusBody: unknown,
@@ -151,6 +248,7 @@ function mockQboApi(
     sweepBody?: unknown;
     retryBody?: unknown;
     reconBody?: unknown;
+    payoutsBody?: unknown;
     /** Delay the last-run GET to make the panel's loading state
      *  observable. */
     reconDelayMs?: number;
@@ -236,6 +334,9 @@ function mockQboApi(
         );
       }
       return json(overrides.reconBody ?? { ok: true, run: null });
+    }
+    if (url.endsWith("/api/admin/quickbooks/payouts")) {
+      return json(overrides.payoutsBody ?? { ok: true, view: PAYOUTS_VIEW });
     }
     if (url.endsWith("/api/admin/quickbooks/sync")) {
       if (method === "GET") return json(overrides.syncBody ?? SYNC_VIEW);
@@ -574,6 +675,34 @@ test("reconciliation panel holds its loading state until the last-run read resol
     page.getByText(/No reconciliation run yet/)
   ).toHaveCount(0);
   await expect(page.getByText(/No reconciliation run yet/)).toBeVisible();
+});
+
+test("payout accounting panel shows observe mode and expandable detail", async ({
+  page,
+}) => {
+  await mockQboApi(page, CONNECTED);
+  await page.goto(FIXTURE);
+
+  const section = page.locator(
+    'section[aria-labelledby="payout-automation-heading"]'
+  );
+  await expect(section.getByText("mode: observe")).toBeVisible();
+  await expect(section.getByText("writes disabled")).toBeVisible();
+  await expect(section.getByText("po_fixture1")).toBeVisible();
+  await expect(section.getByText("1 matched · 0 unmatched")).toBeVisible();
+
+  // Expand the payout — lines, proposals, and the reprocess action.
+  await section.getByRole("button", { name: /po_fixture1/ }).click();
+  await expect(section.getByText("txn_fixture1")).toBeVisible();
+  await expect(
+    section.getByText("Ollie Payment #1626166").first()
+  ).toBeVisible();
+  await expect(
+    section.getByText("Move payment to Stripe Clearing")
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: "Reprocess ledger" })
+  ).toBeVisible();
 });
 
 test("axe: quickbooks workspace has no serious/critical violations", async ({

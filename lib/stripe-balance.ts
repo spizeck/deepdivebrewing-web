@@ -3,6 +3,10 @@ import { getStripeClient } from "@/lib/stripe";
 import { QboError } from "@/lib/qbo-errors";
 import { logInfo } from "@/lib/log";
 import type { StripeBalanceTxnFacts } from "@/lib/qbo-recon-common";
+import type {
+  StripePayoutFacts,
+  StripePayoutTxn,
+} from "@/lib/stripe-payouts-common";
 
 // Stripe balance/balance-transaction read boundary (issue #181). The only
 // module that touches the balance-reporting surfaces of the Stripe SDK:
@@ -105,6 +109,132 @@ export async function listStripeBalanceTransactions(input: {
   }
   logInfo("stripe.recon.balance_txns", { pages, count: txns.length, truncated });
   return { txns, pages, truncated };
+}
+
+// --- Payout reads (Stripe payout accounting automation) ---
+
+function canonicalizePayout(
+  raw: Record<string, unknown>
+): StripePayoutFacts | null {
+  const id = typeof raw.id === "string" ? raw.id : "";
+  const status = typeof raw.status === "string" ? raw.status : "";
+  const currency =
+    typeof raw.currency === "string" ? raw.currency.toUpperCase() : "";
+  if (!id || !status || !currency || typeof raw.amount !== "number") {
+    return null;
+  }
+  const arrival =
+    typeof raw.arrival_date === "number"
+      ? new Date(raw.arrival_date * 1000).toISOString().slice(0, 10)
+      : undefined;
+  return {
+    id,
+    status,
+    amountMinor: raw.amount,
+    currency,
+    arrivalDate: arrival,
+    method: typeof raw.method === "string" ? raw.method : undefined,
+    type: typeof raw.type === "string" ? raw.type : undefined,
+    createdMs:
+      typeof raw.created === "number" ? raw.created * 1000 : undefined,
+  };
+}
+
+// Authoritative payout state — the webhook delivery only carries the id;
+// every financial field comes from this re-fetch.
+export async function fetchStripePayout(
+  payoutId: string
+): Promise<StripePayoutFacts | null> {
+  let raw: Record<string, unknown>;
+  try {
+    raw = (await getStripeClient().payouts.retrieve(payoutId)) as unknown as
+      Record<string, unknown>;
+  } catch {
+    throw stripeReadFailed("payout read");
+  }
+  return canonicalizePayout(raw);
+}
+
+function toPayoutTxn(facts: StripeBalanceTxnFacts): StripePayoutTxn {
+  return {
+    txnId: facts.id,
+    type: facts.type,
+    grossMinor: facts.amountMinor,
+    feeMinor: facts.feeMinor,
+    netMinor: facts.netMinor,
+    currency: facts.currency,
+    sourceId: facts.source,
+    createdMs: facts.createdMs,
+  };
+}
+
+// Every balance transaction consolidated into one payout — the
+// authoritative constituent list. `payout.reconciliation_completed` is
+// the signal that this set is final where the account emits it; the
+// `payout` filter is the documented Stripe API for it. Bounded pages —
+// a runaway payout scan reports `truncated` rather than fetching forever.
+export async function listStripePayoutTransactions(
+  payoutId: string,
+  maxPages = 10
+): Promise<{ txns: StripePayoutTxn[]; truncated: boolean }> {
+  const client = getStripeClient();
+  const txns: StripePayoutTxn[] = [];
+  let startingAfter: string | undefined;
+  let pages = 0;
+  let truncated = false;
+  try {
+    for (;;) {
+      const page = await client.balanceTransactions.list({
+        payout: payoutId,
+        limit: STRIPE_BALANCE_TXN_PAGE_SIZE,
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+      });
+      pages += 1;
+      for (const raw of page.data) {
+        const txn = canonicalizeBalanceTransaction(
+          raw as unknown as Record<string, unknown>
+        );
+        if (txn) txns.push(toPayoutTxn(txn));
+      }
+      if (!page.has_more || pages >= maxPages) {
+        truncated = page.has_more;
+        break;
+      }
+      startingAfter = page.data[page.data.length - 1]?.id;
+      if (!startingAfter) break;
+    }
+  } catch {
+    throw stripeReadFailed("payout transaction read");
+  }
+  logInfo("stripe.payout.balance_txns", { payoutId, pages, count: txns.length });
+  return { txns, truncated };
+}
+
+// Bounded recent-payout scan for the scheduled sweep — the recovery path
+// for webhook deliveries Stripe never made (or that transiently failed).
+// Lists the newest payouts; the caller filters to ones needing work.
+export async function listRecentStripePayouts(input: {
+  createdGteSec: number;
+  limit?: number;
+}): Promise<StripePayoutFacts[]> {
+  const client = getStripeClient();
+  const payouts: StripePayoutFacts[] = [];
+  try {
+    const page = await client.payouts.list({
+      created: { gte: input.createdGteSec },
+      limit: Math.min(input.limit ?? 25, 100),
+    });
+    for (const raw of page.data) {
+      const payout = canonicalizePayout(
+        raw as unknown as Record<string, unknown>
+      );
+      if (payout) payouts.push(payout);
+    }
+  } catch {
+    throw stripeReadFailed("payout list");
+  }
+  logInfo("stripe.payout.list", { count: payouts.length });
+  return payouts;
 }
 
 // The Stripe account's actual cash position — available and pending totals

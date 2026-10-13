@@ -86,6 +86,8 @@ describe("firestore.rules", () => {
       "qboSyncRecords",
       "qboSweepState",
       "qboReconState",
+      "stripePayouts",
+      "qboAccountingProposals",
     ]) {
       const start = rules.indexOf(`match /${collection}/{docId}`);
       assert.ok(start > -1, `Expected the ${collection} deny-all match`);

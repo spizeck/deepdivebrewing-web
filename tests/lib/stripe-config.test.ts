@@ -1,8 +1,11 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert";
 import {
+  getStripeAccountingMode,
+  getStripeAutomationCutover,
   getStripeSecretKey,
   getStripeWebhookSecret,
+  isStripeConfigured,
   isStripeTestMode,
   resolveCheckoutReturnBaseUrl,
 } from "@/lib/stripe-config";
@@ -11,6 +14,8 @@ import { siteUrl } from "@/lib/site";
 const KEYS = [
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
+  "STRIPE_ACCOUNTING_MODE",
+  "STRIPE_AUTOMATION_CUTOVER",
   "VERCEL_ENV",
   "VERCEL_URL",
   "VERCEL_BRANCH_URL",
@@ -156,5 +161,41 @@ describe("resolveCheckoutReturnBaseUrl", () => {
       resolveCheckoutReturnBaseUrl(),
       "http://localhost:3000"
     );
+  });
+});
+
+describe("payout accounting policy", () => {
+  const saved = snapshot();
+  afterEach(() => restore(saved));
+
+  it("defaults to observe mode and fails closed on invalid values", () => {
+    setEnv("STRIPE_ACCOUNTING_MODE", undefined);
+    assert.strictEqual(getStripeAccountingMode(), "observe");
+    setEnv("STRIPE_ACCOUNTING_MODE", "AUTO_POST_EVERYTHING");
+    assert.strictEqual(getStripeAccountingMode(), "observe");
+    setEnv("STRIPE_ACCOUNTING_MODE", "approval");
+    assert.strictEqual(getStripeAccountingMode(), "approval");
+    setEnv("STRIPE_ACCOUNTING_MODE", "AUTOMATIC");
+    assert.strictEqual(getStripeAccountingMode(), "automatic");
+  });
+
+  it("returns the cutover only for a real YYYY-MM-DD date", () => {
+    setEnv("STRIPE_AUTOMATION_CUTOVER", undefined);
+    assert.strictEqual(getStripeAutomationCutover(), null);
+    setEnv("STRIPE_AUTOMATION_CUTOVER", "2026-10-01");
+    assert.strictEqual(getStripeAutomationCutover(), "2026-10-01");
+    // Invalid values throw — a bad deploy must not silently disable the
+    // cutover and start proposing historical entries.
+    setEnv("STRIPE_AUTOMATION_CUTOVER", "october");
+    assert.throws(() => getStripeAutomationCutover(), /YYYY-MM-DD/);
+    setEnv("STRIPE_AUTOMATION_CUTOVER", "2026-13-40");
+    assert.throws(() => getStripeAutomationCutover(), /YYYY-MM-DD/);
+  });
+
+  it("isStripeConfigured is a non-throwing presence check", () => {
+    setEnv("STRIPE_SECRET_KEY", undefined);
+    assert.strictEqual(isStripeConfigured(), false);
+    setEnv("STRIPE_SECRET_KEY", "sk_" + "test_fixture");
+    assert.strictEqual(isStripeConfigured(), true);
   });
 });

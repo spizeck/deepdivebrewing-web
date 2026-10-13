@@ -382,6 +382,26 @@ Stripe fees            ──existing path──► Fee expense account
   producer or worker path). Activation and any historical fee backfill
   are separate, explicitly approved gates; a periodic journal entry by
   the accountant remains the zero-code alternative.
+- **Payout accounting automation (observe mode, implemented):** the
+  Stripe webhook also accepts the `payout.*` lifecycle — signature
+  verified at the existing boundary, deduplicated via `stripeEvents`,
+  canonicalized by re-fetching the payout (payloads carry ids only). The
+  balance-transaction fetch + matching + proposal build is deferred out
+  of the request (`after()`), with the daily sweep as the recovery path.
+  `lib/stripe-payouts-common.ts` holds the pure ledger/matching/proposal
+  logic; `lib/stripe-payouts.ts` the orchestration; state lives in
+  `stripePayouts/{payoutId}` (ledger snapshot) and
+  `qboAccountingProposals/{env}:{payout}:{kind}:{key}` (deterministic
+  ids — rewrites converge, decided statuses are preserved). Ollie
+  matching is evidence-grade only: a unique Undeposited-Funds QBO
+  Payment on exact amount + currency within ±14 days yields a *suggested*
+  match and a review proposal; it can never auto-post. The proposal
+  kinds map to the intended native QBO workflows — Payment
+  `DepositToAccountRef` reclassification (never a journal entry, so the
+  payment↔invoice link survives), a fee Purchase against the mapped
+  expense/clearing accounts, and a clearing→`stripePayoutAccountId`
+  Transfer (bank or "Payouts in Transit" — the accountant's mapping
+  choice decides which). No execution path exists in this build.
 
 ## 10. Tax assumptions, mechanism, and decision gate
 
