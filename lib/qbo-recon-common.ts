@@ -626,18 +626,18 @@ export function gateQboLedgerAmounts(input: {
     input.feeCurrency?.toUpperCase() === input.runCurrency;
 
   const flags: QboReconFlag[] = [];
-  if (input.clearingCurrency !== undefined && !clearingOk) {
+  if (!clearingOk) {
     flags.push({
       kind: "currency_mismatch",
       ref: input.clearingAccountId ?? "qbo-clearing-account",
-      detail: `The mapped QuickBooks clearing account reports currency ${input.clearingCurrency} but the run currency is ${input.runCurrency} — its balance, difference, in-range activity, and ledger items were suppressed.`,
+      detail: `The mapped QuickBooks clearing account reports currency ${input.clearingCurrency ?? "(unknown)"} but the run currency is ${input.runCurrency} — its balance, difference, in-range activity, and ledger items were suppressed.`,
     });
   }
-  if (input.feeCurrency !== undefined && !feeOk) {
+  if (!feeOk) {
     flags.push({
       kind: "currency_mismatch",
       ref: input.feeAccountId ?? "qbo-fee-account",
-      detail: `The mapped QuickBooks fee expense account reports currency ${input.feeCurrency} but the run currency is ${input.runCurrency} — its balance and ledger items were suppressed.`,
+      detail: `The mapped QuickBooks fee expense account reports currency ${input.feeCurrency ?? "(unknown)"} but the run currency is ${input.runCurrency} — its balance and ledger items were suppressed.`,
     });
   }
 

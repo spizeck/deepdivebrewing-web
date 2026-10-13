@@ -635,6 +635,20 @@ describe("gateQboLedgerAmounts — watched-account currency guard", () => {
     assert.strictEqual(flag.ref, "acct-fee");
   });
 
+  it("flags a mapped account whose currency is unknown and still suppresses", () => {
+    const out = gateQboLedgerAmounts({
+      ...base,
+      clearingCurrency: undefined,
+    });
+    assert.strictEqual(out.qboClearingBalanceMinor, undefined);
+    assert.strictEqual(out.clearingDifferenceMinor, undefined);
+    assert.deepStrictEqual(out.qboLedgerItems, []);
+    const flag = out.flags.find((f) => f.kind === "currency_mismatch");
+    assert.ok(flag);
+    assert.strictEqual(flag.ref, "acct-clearing");
+    assert.ok(flag.detail.includes("(unknown)"));
+  });
+
   it("keeps fee-only ledger items when no clearing account is mapped", () => {
     const out = gateQboLedgerAmounts({
       ...base,
