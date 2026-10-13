@@ -359,15 +359,27 @@ Stripe fees            ──existing path──► Fee expense account
 - The clearing account balance should trend to ~0 plus in-transit
   payouts. A growing balance means either missing cash-side records or
   duplicated gross receipts — an ops signal, not an app error.
-- The app provides no reconciliation computation initially; the mapping
-  UI's clearing-account choice is the only coupling. A future
-  read-only "unmatched" report (synced records vs clearing activity) is
-  a stretch item, not a launch requirement.
-- **Fees:** the app never posts them. If inspection shows the existing
-  path does not book fees either, the remediation is a periodic journal
-  entry by the accountant (or a mapped `stripeFeeExpenseAccountId` +
-  balance-transaction fee fetch — deferred until inspection proves the
-  need; the app currently does not even read fee amounts).
+- **Read-only reconciliation report (#181, implemented):** the admin
+  QuickBooks page runs a bounded report — Stripe Balance Transactions in
+  a window (actual `fee`/`net`, never estimated), the Stripe account
+  balance, `payments`-record identity for lane attribution
+  (DDB / external / unattributed / account-level), the clearing
+  account's `CurrentBalance`, and existing QBO entries (JournalEntry /
+  Purchase / Transfer / Deposit) touching the clearing or mapped fee
+  accounts. It persists only its own snapshot (`qboReconState`) for
+  roll-forward comparison. It posts nothing — the shared Stripe account
+  makes payouts mixed-source, so automated clearing writes stay
+  deliberately out of scope.
+- **Fees:** the app never posts them. Whether another process already
+  books Stripe fees is an *inspection* question the report answers (fee
+  account balance + existing-entries list) — do not assume absence. If
+  inspection shows nobody books fees, the single authoritative process
+  should be a dedicated mapped `stripeFeeExpenseAccountId` fed from
+  actual Balance Transaction fees with durable Stripe-transaction-id
+  dedupe (`stripe_fee` source-type vocabulary exists, dormant — no
+  producer or worker path). Activation and any historical fee backfill
+  are separate, explicitly approved gates; a periodic journal entry by
+  the accountant remains the zero-code alternative.
 
 ## 10. Tax assumptions and limitations
 
@@ -408,6 +420,7 @@ closed per-field regardless).
 | `otherIncomeItemId` | **Required** | `other` purpose needs a home |
 | `fallbackCustomerId` | **Required** — label "Generic sales customer" (stored key retained; see note) | Always used in this model (single generic customer), so "fallback" understates it |
 | `taxCodeId` | **Optional — keep unset** | Until the CW tax answer is confirmed (§10) |
+| `stripeFeeExpenseAccountId` | **Optional** (#181) | Powers the reconciliation report's "are fees already booked?" inspection; dormant for posting until the §9 fee decision is approved |
 
 **Stored key note (#182):** the persisted field name `fallbackCustomerId`
 was kept rather than migrated to a renamed key — the doc is a single
@@ -417,8 +430,10 @@ at save time, on top of the existing live-entity/realm validation.
 
 **Candidate new mappings — none required at launch:**
 
-- `stripeFeeExpenseAccountId` — only if inspection shows nobody books
-  fees AND the decision is to automate rather than periodic JE.
+- `stripeFeeExpenseAccountId` — **implemented as optional (#181)** so the
+  reconciliation report can inspect whether fees are already booked;
+  posting stays dormant until inspection shows nobody books fees AND the
+  decision is to automate rather than periodic JE.
 - `stripePayoutBankAccountId` — not needed; the app posts no deposits.
 - `stripePaymentMethodId` — optional display nicety.
 - Tax liability account — managed by QBO tax settings, not our posting.

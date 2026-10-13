@@ -36,6 +36,8 @@ const FIELD_DESCRIPTIONS: Record<keyof QboAccountingMapping, string> = {
     "Customer recorded on every sales receipt — e.g. “Stripe Checkout”. One shared customer; per-customer records are not created.",
   taxCodeId:
     "Leave unset while the tax treatment of tour and tasting sales is being confirmed with the accountant.",
+  stripeFeeExpenseAccountId:
+    "Dedicated expense account for Stripe processing fees — e.g. “Merchant account fees”. Lets the reconciliation report see whether fees are already booked.",
 };
 
 const ENTITY_TYPES_NEEDED: QboDiscoveryEntityType[] = Array.from(

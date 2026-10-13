@@ -753,3 +753,235 @@ export function canonicalizeQboSalesReceiptRefs(
   }
   return out;
 }
+
+// --- Reconciliation ledger reads (issue #181) ---
+
+// Ledger-side facts for the clearing-account reconciliation: the account's
+// own QBO `CurrentBalance` (home-currency — production is USD, verified
+// with the mapping) and the transactions that touched the watched
+// accounts inside the report window. Read-only protocol support — the
+// orchestration in lib/qbo-recon.ts never posts, adjusts, or deletes.
+
+export interface QboAccountBalance {
+  id: string;
+  name: string;
+  accountType?: string;
+  /** `CurrentBalance` in the account's currency, integer minor units. */
+  balanceMinor: number;
+  currency?: string;
+}
+
+export function qboAccountBalanceQuery(accountId: string): string {
+  const safeId = accountId.replace(/'/g, "");
+  return `select Id, Name, AccountType, CurrentBalance, CurrencyRef from Account where Id = '${safeId}'`;
+}
+
+export function canonicalizeQboAccountBalance(
+  payload: unknown
+): QboAccountBalance | null {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>).Account
+      : undefined;
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  if (typeof row !== "object" || row === null) return null;
+  const r = row as Record<string, unknown>;
+  const id =
+    typeof r.Id === "string" || typeof r.Id === "number" ? String(r.Id) : "";
+  if (!id || typeof r.CurrentBalance !== "number") return null;
+  const currencyRef =
+    typeof r.CurrencyRef === "object" && r.CurrencyRef !== null
+      ? (r.CurrencyRef as Record<string, unknown>).value
+      : undefined;
+  return {
+    id,
+    name: typeof r.Name === "string" ? r.Name : `Account ${id}`,
+    accountType: typeof r.AccountType === "string" ? r.AccountType : undefined,
+    balanceMinor: Math.round(r.CurrentBalance * 100),
+    currency: typeof currencyRef === "string" ? currencyRef : undefined,
+  };
+}
+
+// Entity types the report scans for clearing-account / fee-account
+// activity: bank-feed-style journal adjustments, expense entries
+// (Purchase covers QBO's Expense/Check surface), clearing transfers, and
+// deposits. Each maps to one query entity name.
+export type QboReconActivityEntity =
+  | "JournalEntry"
+  | "Purchase"
+  | "Transfer"
+  | "Deposit";
+
+export const QBO_RECON_ACTIVITY_ENTITIES: readonly QboReconActivityEntity[] =
+  ["JournalEntry", "Purchase", "Transfer", "Deposit"];
+
+const RECON_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Date-windowed SELECT for one activity entity — the fields needed to
+// attribute each row to a watched account and amount it. QBO's query
+// grammar cannot filter on line-level AccountRef, so the window narrows
+// provider traffic and the canonicalizer + caller do the account match.
+export function qboReconActivityQuery(
+  entity: QboReconActivityEntity,
+  fromDate: string,
+  toDate: string,
+  startPosition?: number,
+  maxResults?: number
+): string {
+  const from = RECON_DATE.test(fromDate) ? fromDate : "1970-01-01";
+  const to = RECON_DATE.test(toDate) ? toDate : "1970-01-01";
+  const base = `select * from ${entity} where TxnDate >= '${from}' and TxnDate <= '${to}' orderby TxnDate`;
+  return `${base} startposition ${startPosition ?? 1} maxresults ${maxResults ?? QBO_QUERY_PAGE_SIZE}`;
+}
+
+// Generic row count for a QueryResponse page keyed by entity name.
+export function qboQueryResponseRowCount(
+  entity: string,
+  payload: unknown
+): number {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  if (typeof response !== "object" || response === null) return 0;
+  const rows = (response as Record<string, unknown>)[entity];
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+// One signed account leg of a scanned transaction: `accountId` is the QBO
+// AccountRef value, `amountMinor` the signed home-currency effect on that
+// account (JournalEntry Debit +/Credit −; Purchase expense legs and
+// Deposit legs positive; Transfer carries −from/+to legs).
+export interface QboReconActivityLeg {
+  accountId: string;
+  amountMinor: number;
+}
+
+export interface QboReconActivityEntry {
+  entityType: QboReconActivityEntity;
+  id: string;
+  txnDate?: string;
+  docNumber?: string;
+  /** QBO DocNumber/PrivateNote free-text — operator context only. */
+  memo?: string;
+  legs: QboReconActivityLeg[];
+}
+
+function minorUnits(amount: unknown): number | null {
+  return typeof amount === "number" ? Math.round(amount * 100) : null;
+}
+
+function accountRefValue(ref: unknown): string | null {
+  if (typeof ref !== "object" || ref === null) return null;
+  const value = (ref as Record<string, unknown>).value;
+  return typeof value === "string" ? value : typeof value === "number" ? String(value) : null;
+}
+
+function baseEntryFields(
+  entityType: QboReconActivityEntity,
+  row: Record<string, unknown>
+): Omit<QboReconActivityEntry, "legs"> | null {
+  const id =
+    typeof row.Id === "string" || typeof row.Id === "number"
+      ? String(row.Id)
+      : "";
+  if (!id) return null;
+  return {
+    entityType,
+    id,
+    txnDate: typeof row.TxnDate === "string" ? row.TxnDate : undefined,
+    docNumber: typeof row.DocNumber === "string" ? row.DocNumber : undefined,
+    memo: typeof row.PrivateNote === "string" ? row.PrivateNote : undefined,
+  };
+}
+
+// Reduces a QueryResponse page of one activity entity to account legs —
+// the only facts the report needs. Anything unexpected drops out rather
+// than being passed through or guessed at.
+export function canonicalizeQboReconActivity(
+  entity: QboReconActivityEntity,
+  payload: unknown
+): QboReconActivityEntry[] {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>)[entity]
+      : undefined;
+  if (!Array.isArray(rows)) return [];
+
+  const out: QboReconActivityEntry[] = [];
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const r = row as Record<string, unknown>;
+    const base = baseEntryFields(entity, r);
+    if (!base) continue;
+    const legs: QboReconActivityLeg[] = [];
+
+    if (entity === "JournalEntry" || entity === "Deposit" || entity === "Purchase") {
+      // Line-level legs where the detail type carries an AccountRef.
+      const detailKey =
+        entity === "JournalEntry"
+          ? "JournalEntryLineDetail"
+          : entity === "Deposit"
+            ? "DepositLineDetail"
+            : "AccountBasedExpenseLineDetail";
+      const lines = Array.isArray(r.Line) ? r.Line : [];
+      for (const line of lines) {
+        if (typeof line !== "object" || line === null) continue;
+        const l = line as Record<string, unknown>;
+        const detail =
+          typeof l[detailKey] === "object" && l[detailKey] !== null
+            ? (l[detailKey] as Record<string, unknown>)
+            : undefined;
+        const accountId = detail ? accountRefValue(detail.AccountRef) : null;
+        const amount = minorUnits(l.Amount);
+        if (!accountId || amount === null) continue;
+        // JournalEntry legs are signed by PostingType; expense and
+        // deposit legs are positive amounts on their accounts.
+        const signed =
+          entity === "JournalEntry" && detail?.PostingType === "Credit"
+            ? -amount
+            : amount;
+        legs.push({ accountId, amountMinor: signed });
+      }
+      // Fallbacks when rows arrive without expanded lines (QBO sparse
+      // responses): entity-level account fields still attribute the row.
+      if (!legs.length) {
+        if (entity === "Purchase") {
+          const accountId = accountRefValue(r.AccountRef);
+          const amount = minorUnits(r.TotalAmt);
+          if (accountId && amount !== null) {
+            legs.push({ accountId, amountMinor: amount });
+          }
+        } else if (entity === "Deposit") {
+          const accountId = accountRefValue(r.DepositToAccountRef);
+          const amount = minorUnits(r.TotalAmt);
+          if (accountId && amount !== null) {
+            legs.push({ accountId, amountMinor: amount });
+          }
+        }
+      }
+    } else {
+      // Transfer: −FromAccountRef / +ToAccountRef on the txn Amount.
+      const amount = minorUnits(r.Amount);
+      const fromId = accountRefValue(r.FromAccountRef);
+      const toId = accountRefValue(r.ToAccountRef);
+      if (amount !== null && fromId) {
+        legs.push({ accountId: fromId, amountMinor: -amount });
+      }
+      if (amount !== null && toId) {
+        legs.push({ accountId: toId, amountMinor: amount });
+      }
+    }
+
+    if (legs.length) out.push({ ...base, legs });
+  }
+  return out;
+}
