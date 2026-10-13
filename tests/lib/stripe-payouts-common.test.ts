@@ -461,6 +461,58 @@ describe("buildPayoutProposals", () => {
     assert.equal(proposals.length, 0);
   });
 
+  it("scopes the fee proposal to eligible lines on a cutover-straddling payout", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          // Eligible: post-cutover charge.
+          charge({ txnId: "t_new", sourceId: "ch_new", grossMinor: 10000, feeMinor: 320, netMinor: 9680 }),
+          // Pre-cutover charge with its own fee — must not leak into the
+          // proposed fee expense.
+          charge({ txnId: "t_old", sourceId: "ch_old", grossMinor: 5000, feeMinor: 200, netMinor: 4800, createdMs: NOW - 30 * DAY_MS }),
+        ],
+        cutover: "2026-10-10",
+      })
+    );
+    const proposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout({ amountMinor: 14480 }),
+      ledger,
+      mode: "observe",
+      mapping,
+    });
+    const fee = proposals.find((p) => p.kind === "stripe_fee_expense")!;
+    assert.equal(fee.amountMinor, 320); // eligible charge's fee only
+    assert.ok(fee.evidence.includes("partial_scope_eligible_lines_only"));
+  });
+
+  it("withholds the transfer proposal on a mixed-scope payout", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          charge({ txnId: "t_new", sourceId: "ch_new" }),
+          charge({ txnId: "t_old", sourceId: "ch_old", createdMs: NOW - 30 * DAY_MS }),
+        ],
+        cutover: "2026-10-10",
+      })
+    );
+    const proposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger,
+      mode: "observe",
+      mapping,
+    });
+    // The bank deposit covers the full payout including the pre-cutover
+    // share — proposing it would double-count manual history, so the
+    // transfer waits for a human and the line carries the exception.
+    assert.equal(
+      proposals.find((p) => p.kind === "payout_transfer"),
+      undefined
+    );
+    assert.ok(ledger.exceptions.some((e) => e.code === "cutover_skipped"));
+  });
+
   it("does not propose a transfer for an unpaid payout", () => {
     const proposals = buildPayoutProposals({
       environment: "sandbox",

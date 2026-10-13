@@ -48,11 +48,21 @@ function collectionStore(name: string): Map<string, FakeDoc> {
 }
 
 function matchesWhere(data: FakeDoc, field: string, value: unknown): boolean {
+  // Dotted paths resolve nested fields ("qboRefs.paymentId").
+  const resolved = field
+    .split(".")
+    .reduce<unknown>(
+      (acc, key) =>
+        acc !== null && typeof acc === "object"
+          ? (acc as FakeDoc)[key]
+          : undefined,
+      data
+    );
   if (Array.isArray(value)) {
     // `in` queries
-    return value.includes(data[field]);
+    return value.includes(resolved);
   }
-  return data[field] === value;
+  return resolved === value;
 }
 
 interface FakeQuery {
@@ -194,13 +204,14 @@ mock.module("@/lib/qbo-mapping", {
 
 let qboPayments: FakeDoc[] = [];
 let reconActivity: FakeDoc[] = [];
+let ufAccount: { id: string; name: string } | null = {
+  id: "uf-1",
+  name: "Undeposited Funds",
+};
 
 mock.module("@/lib/qbo-api", {
   namedExports: {
-    findQboUndepositedFundsAccount: async () => ({
-      id: "uf-1",
-      name: "Undeposited Funds",
-    }),
+    findQboUndepositedFundsAccount: async () => ufAccount,
     queryQboPayments: async () => ({
       rows: qboPayments,
       truncated: false,
@@ -301,6 +312,7 @@ beforeEach(() => {
   chargeFacts.clear();
   qboPayments = [{ ...OLLIE_PAYMENT }];
   reconActivity = [];
+  ufAccount = { id: "uf-1", name: "Undeposited Funds" };
   accountingMode = "observe";
   cutover = null;
   mappingView = {
@@ -486,14 +498,30 @@ describe("processStripePayoutLedger", () => {
     assert.equal(collectionStore("qboAccountingProposals").size, 0);
   });
 
-  it("runs without the QBO leg — Stripe side still classifies", async () => {
+  it("classifies with no matching UF payment candidates", async () => {
     const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
-    // Simulate QBO unreachable: UF discovery returns null.
     qboPayments = [];
     mappingView = { mapping: {} };
     await processStripePayoutLedger("po_abc");
     const doc = collectionStore("stripePayouts").get("po_abc")!;
     assert.equal((doc.lines as FakeDoc[])[0].lane, "external");
     assert.equal(doc.qboAvailable, true); // leg ran, just no candidates
+  });
+
+  it("fails closed when Undeposited Funds cannot be identified", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    ufAccount = null;
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    // No UF account → no candidates, no move proposals — never guessed
+    // matches. Aggregate proposals may still exist but must be blocked.
+    assert.equal(doc.qboAvailable, false);
+    assert.equal((doc.lines as FakeDoc[])[0].lane, "external");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.equal(
+      proposals.filter((p) => p.kind === "move_payment_to_clearing").length,
+      0
+    );
+    for (const p of proposals) assert.equal(p.status, "blocked");
   });
 });

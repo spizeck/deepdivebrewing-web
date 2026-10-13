@@ -284,8 +284,14 @@ export function AdminQuickbooksPayouts({
     try {
       const data = await apiFetch("/api/admin/quickbooks/payouts");
       setView(data.view ?? null);
-    } catch {
+      setErrorMessage("");
+    } catch (error) {
       setView(null);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Payout accounting state is unavailable."
+      );
     } finally {
       setInitialLoading(false);
     }

@@ -491,7 +491,7 @@ export function buildPayoutLedger(
           txn.createdMs < cutoverMs
         ? "pre_cutover"
         : "eligible";
-    if (scope === "pre_cutover" && (lane === "ollie" || lane === "ddb")) {
+    if (scope === "pre_cutover") {
       exceptions.push({
         code: "cutover_skipped",
         ref: txn.txnId,
@@ -684,12 +684,25 @@ export function buildPayoutProposals(
     });
   }
 
-  const eligibleScope = ledger.lines.some(
+  // Aggregate proposals cover eligible-scope lines only — a payout that
+  // straddles the cutover must not post historical fees or the historical
+  // share of the transfer. Foreign-currency lines are never eligible.
+  const eligibleLines = ledger.lines.filter(
     (line) => line.scope === "eligible"
   );
+  const eligibleFeesMinor = eligibleLines.reduce(
+    (sum, line) => sum + line.feeMinor,
+    0
+  );
+  const partialScope =
+    eligibleLines.length > 0 &&
+    ledger.lines.some((line) => line.scope === "pre_cutover");
+  const scopeEvidence = partialScope
+    ? ["partial_scope_eligible_lines_only"]
+    : [];
+
   if (
-    eligibleScope &&
-    ledger.totals.feesMinor > 0 &&
+    eligibleFeesMinor > 0 &&
     !input.existingCover?.hasFeeEntry
   ) {
     proposals.push({
@@ -703,7 +716,7 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "stripe_fee_expense",
       status: clearingId && feeId ? "proposed" : "blocked",
-      amountMinor: ledger.totals.feesMinor,
+      amountMinor: eligibleFeesMinor,
       currency: payout.currency,
       accountingDate,
       debit: {
@@ -718,6 +731,7 @@ export function buildPayoutProposals(
       qboRefs: {},
       evidence: [
         "actual_stripe_fees",
+        ...scopeEvidence,
         ...(feeId ? [] : ["fee_account_unmapped"]),
         ...(clearingId ? [] : ["clearing_account_unmapped"]),
       ],
@@ -726,8 +740,9 @@ export function buildPayoutProposals(
   }
 
   if (
-    eligibleScope &&
+    eligibleLines.length > 0 &&
     payout.status === "paid" &&
+    !partialScope &&
     !input.existingCover?.hasTransferEntry
   ) {
     proposals.push({

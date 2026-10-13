@@ -24,6 +24,14 @@
         { "fieldPath": "environment", "order": "ASCENDING" },
         { "fieldPath": "computedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "stripePayouts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "environment", "order": "ASCENDING" },
+        { "fieldPath": "lastProcessedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

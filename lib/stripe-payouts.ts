@@ -82,6 +82,18 @@ export const PAYOUT_SWEEP_MAX_PROCESS = 5;
 const OLLIE_SCAN_LEAD_DAYS = 45;
 const OLLIE_SCAN_LAG_DAYS = 7;
 
+// Cross-payout claim lookup: `in` queries cap at 30 values (Firestore).
+const CLAIMS_IN_CHUNK = 30;
+// Proposal statuses that reserve a QBO payment for another payout —
+// a blocked proposal still references its payment, so it claims too.
+// Only `rejected` releases the payment back to the candidate pool.
+const CLAIMING_STATUSES = new Set([
+  "proposed",
+  "blocked",
+  "approved",
+  "applied",
+]);
+
 const DAY_MS = 86_400_000;
 
 function payoutRef(payoutId: string) {
@@ -367,18 +379,29 @@ async function fetchOllieLeg(
       }));
 
     // Payments another payout's live proposals already claim — a payment
-    // must never appear on two payouts' proposal sets.
+    // must never appear on two payouts' proposal sets. Query claims by the
+    // candidate payment ids themselves (chunked `in` lookups): an
+    // unfiltered cap-500 scan can silently drop claims once the live set
+    // grows past the page size, and cross-environment proposals never
+    // share QBO payments anyway.
     const claimedByOthers = new Set<string>();
-    const claims = await proposalsCollection()
-      .where("status", "in", ["proposed", "approved", "applied"])
-      .limit(500)
-      .get();
-    for (const doc of claims.docs) {
-      const data = doc.data();
-      if (data.payoutId === payout.id) continue;
-      const paymentRef = data.qboRefs?.paymentId;
-      if (typeof paymentRef === "string" && paymentRef) {
-        claimedByOthers.add(paymentRef);
+    const candidateIds = candidates.map((payment) => payment.id);
+    for (let i = 0; i < candidateIds.length; i += CLAIMS_IN_CHUNK) {
+      const chunk = candidateIds.slice(i, i + CLAIMS_IN_CHUNK);
+      const claims = await proposalsCollection()
+        .where("qboRefs.paymentId", "in", chunk)
+        .get();
+      for (const doc of claims.docs) {
+        const data = doc.data();
+        if (
+          data.payoutId === payout.id ||
+          data.environment !== environment ||
+          data.kind !== "move_payment_to_clearing" ||
+          !CLAIMING_STATUSES.has(data.status)
+        ) {
+          continue;
+        }
+        claimedByOthers.add(data.qboRefs.paymentId);
       }
     }
     return { candidates, claimedByOthers, available: true };
@@ -431,6 +454,14 @@ async function detectExistingCover(
         queryQboReconActivity({ ...token, environment, entity, fromDate: from, toDate: to })
       )
     );
+    // What a fee proposal would actually carry — on a cutover-straddling
+    // payout that is the eligible-line fee sum, not the ledger total.
+    const eligibleFeesMinor = ledger.lines
+      .filter((line) => line.scope === "eligible")
+      .reduce((sum, line) => sum + line.feeMinor, 0);
+    const coveredFeeAmounts = new Set(
+      [ledger.totals.feesMinor, eligibleFeesMinor].filter((n) => n > 0)
+    );
     let hasFeeEntry = false;
     let hasTransferEntry = false;
     for (const scan of scans) {
@@ -440,11 +471,7 @@ async function detectExistingCover(
         const feeLeg = hits.find(
           (leg) => leg.accountId === mapping.stripeFeeExpenseAccountId
         );
-        if (
-          feeLeg &&
-          Math.abs(feeLeg.amountMinor) === ledger.totals.feesMinor &&
-          ledger.totals.feesMinor > 0
-        ) {
+        if (feeLeg && coveredFeeAmounts.has(Math.abs(feeLeg.amountMinor))) {
           hasFeeEntry = true;
         }
         const transferLeg = hits.find(
@@ -718,6 +745,7 @@ export async function getStripePayoutAutomationView(input: {
   const [payoutsSnap, proposalsSnap] = await Promise.all([
     db
       .collection(STRIPE_PAYOUTS_COLLECTION)
+      .where("environment", "==", environment)
       .orderBy("lastProcessedAt", "desc")
       .limit(PAYOUT_VIEW_LIMIT)
       .get(),
@@ -808,31 +836,39 @@ export async function runStripePayoutSweep(): Promise<{
       skipped += 1;
       continue;
     }
-    if (payout.status !== "paid") {
-      // Status-only payout: persist it without the ledger fetch so the
-      // sweep's coverage includes failed/canceled receipts too.
-      await payoutRef(payout.id).set(
-        deepOmitUndefined({
-          payoutId: payout.id,
-          environment,
-          status: payout.status,
-          amountMinor: payout.amountMinor,
-          currency: payout.currency,
-          arrivalDate: payout.arrivalDate,
-          method: payout.method,
-          payoutType: payout.type,
-          createdMs: payout.createdMs,
-          pendingLedger: false,
-          lastProcessedAt: FieldValue.serverTimestamp(),
-          lastProcessedIso: new Date().toISOString(),
-        }),
-        { merge: true }
-      );
+    try {
+      if (payout.status !== "paid") {
+        // Status-only payout: persist it without the ledger fetch so the
+        // sweep's coverage includes failed/canceled receipts too.
+        await payoutRef(payout.id).set(
+          deepOmitUndefined({
+            payoutId: payout.id,
+            environment,
+            status: payout.status,
+            amountMinor: payout.amountMinor,
+            currency: payout.currency,
+            arrivalDate: payout.arrivalDate,
+            method: payout.method,
+            payoutType: payout.type,
+            createdMs: payout.createdMs,
+            pendingLedger: false,
+            lastProcessedAt: FieldValue.serverTimestamp(),
+            lastProcessedIso: new Date().toISOString(),
+          }),
+          { merge: true }
+        );
+      } else {
+        await processStripePayoutLedger(payout.id);
+      }
       processed += 1;
-      continue;
+    } catch (error) {
+      // One failing payout must not block recovery for the rest —
+      // pendingLedger stays set, so the next sweep retries it.
+      logError("stripe.payout.sweep_item_failed", error, {
+        payoutId: payout.id,
+      });
+      skipped += 1;
     }
-    await processStripePayoutLedger(payout.id);
-    processed += 1;
   }
   logInfo("stripe.payout.sweep", {
     scanned: recent.length,
