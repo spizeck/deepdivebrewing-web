@@ -59,7 +59,10 @@ npm run check:md-links       # relative Markdown links
 - Every PR runs the required **Verify** check and gets a Vercel preview
   deployment — check the preview for UI changes.
 - All review conversations must be resolved before merge.
-- PRs are squash-merged into `main`; merging deploys production.
+- PRs are squash-merged into `main`; merging deploys production —
+  **except Firebase resources**: `firestore.rules`, `storage.rules`, and
+  `firestore.indexes.json` are only applied by an explicit
+  `firebase deploy --only <target>` after merge.
 - Dependabot PRs go through the same CI and review — no auto-merge.
 
 ## Security issues
