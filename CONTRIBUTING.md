@@ -66,6 +66,12 @@ npm run check:md-links       # relative Markdown links
   code merges — an index can safely exist before the query that needs
   it, but a merged query without its index returns
   `FAILED_PRECONDITION` until the index finishes building.
+- `npm run check:indexes` (needs `.env.local` credentials) reports drift
+  between `firestore.indexes.json` and the deployed project: missing or
+  mismatched indexes, undeclared production indexes, and indexes still
+  building (counted separately — building is deployment timing, not
+  drift). Run it before merging index changes; it never modifies
+  production.
 - Dependabot PRs go through the same CI and review — no auto-merge.
 
 ## Security issues

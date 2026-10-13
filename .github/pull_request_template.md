@@ -34,5 +34,5 @@ production behavior, security implications. Delete this section if none. -->
   Firebase resources.
 - [ ] If `firestore.indexes.json` changed,
   `firebase deploy --only firestore:indexes` was run before merge and
-  the required index is READY. A merged query without its index fails
-  with `FAILED_PRECONDITION`.
+  `npm run check:indexes` reports the index READY. A merged query
+  without its index fails with `FAILED_PRECONDITION`.

@@ -619,5 +619,5 @@ it is never sent to the browser.
 | Cash record at `needs_attention` with `missing_cashPaymentMethodId` | No cash payment method is mapped | Set **Cash payment method** in the accounting-mapping panel, then **Retry** the record |
 | Sync panel shows paused / records not draining | Connection `reauthorization_required` or `disconnected` | Reconnect QuickBooks; the backlog resumes on the next sweep (or "Run sync sweep") |
 | Cron runs but nothing posts | `CRON_SECRET` unset in the deployment (route fails closed) | Vercel env scope; check for `401` on the cron invocation and `qbo.sweep.*` log lines |
-| Payout panel fails with `FAILED_PRECONDITION` / "query requires an index" | A composite index was merged but never deployed — Vercel does not apply `firestore.indexes.json` | `firebase deploy --only firestore:indexes`, then wait for the index to finish building |
+| Payout panel fails with `FAILED_PRECONDITION` / "query requires an index" | A composite index was merged but never deployed — Vercel does not apply `firestore.indexes.json` | `firebase deploy --only firestore:indexes`, then wait for the index to finish building; `npm run check:indexes` reports drift vs build-in-progress |
 | Same payment appears twice in QBO | Should never happen — report it | `qboSyncRecords` for the payment id; `PrivateNote` marker `ddb:<paymentId>` on the receipts |
