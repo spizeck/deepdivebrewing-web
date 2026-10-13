@@ -82,6 +82,8 @@ function syncItemDescription(item: StripePayoutSyncItem): string {
       return "already up to date";
     case "not_found":
       return "not found in this Stripe environment";
+    case "lease_lost":
+      return "another sync took over — retry when it finishes";
     case "failed":
       return "processing failed — safe to retry";
   }
@@ -499,7 +501,9 @@ export function AdminQuickbooksPayouts({
                 </span>
                 <span
                   className={
-                    item.outcome === "failed" || item.outcome === "not_found"
+                    item.outcome === "failed" ||
+                    item.outcome === "not_found" ||
+                    item.outcome === "lease_lost"
                       ? "text-xs text-ember"
                       : "text-xs text-muted-foreground"
                   }

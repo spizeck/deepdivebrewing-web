@@ -840,6 +840,7 @@ export interface StripePayoutSyncItem {
     | "status_recorded" // non-paid payout persisted without ledger work
     | "already_current" // stored ledger already matches canonical state
     | "not_found" // by-id only: no such payout in this Stripe environment
+    | "lease_lost" // another invocation owns the lease — retry when free
     | "failed"; // processing threw — safe to retry
   /** Accounting proposals this run's build computed (0 = ingested with
    *  no eligible postings — e.g. every movement predates the cutover). */
@@ -859,7 +860,7 @@ export interface StripePayoutSyncSummary {
   statusRecorded: number;
   alreadyCurrent: number;
   failed: number;
-  /** Scan hits still needing work when the run's process cap was hit —
+  /** Payouts still needing work after the process cap or a lease loss —
    *  a re-run continues from them; every step is idempotent. */
   remaining: number;
   /** The Stripe payout list itself was truncated — the lookback holds

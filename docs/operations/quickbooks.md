@@ -560,9 +560,11 @@ classifies every movement, and persists deterministic QuickBooks
   environment-scoped owner-token lease — a second manual invocation gets
   a 409, while a sweep that finds the lease held skips its run (the next
   scheduled sweep retries). The lease expires after two minutes so a
-  crashed run cannot wedge sync, and each payout's work renews it —
-  a run that loses ownership stops processing and cannot clear the
-  successor's lock. The
+  crashed run cannot wedge sync, and the lease renews before each
+  payout — a run that loses ownership stops before starting another
+  payout. An in-flight payout may finish (its writes converge on the
+  same deterministic ids), and the old run cannot clear the successor's
+  lock. The
   result distinguishes ingestion from proposal eligibility — a payout
   whose movements all predate the cutover reports as processed with
   zero proposals rather than silently absent.

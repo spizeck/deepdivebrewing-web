@@ -1124,9 +1124,12 @@ async function syncSingleStripePayout(
     } else if (
       !(await renewPayoutSyncLease(environment, owner, Date.now()))
     ) {
-      // Lease lost mid-run — another invocation owns the lock now.
+      // Lease lost mid-run — another invocation owns the lock now. Not a
+      // processing failure: the payout is untouched and retryable once
+      // the lock frees.
       item.status = payout.status;
-      summary.failed += 1;
+      item.outcome = "lease_lost";
+      summary.remaining += 1;
       logWarn("stripe.payout.sync_lease_lost", { environment, payoutId });
     } else {
       item.status = payout.status;

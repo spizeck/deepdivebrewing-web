@@ -824,6 +824,29 @@ describe("syncStripePayouts", () => {
     );
   });
 
+  it("reports lease_lost — not failed — when a by-id sync loses the lock", async () => {
+    const { syncStripePayouts } = await import("@/lib/stripe-payouts");
+    // The TTL elapsed between fetch and processing; a successor owns the
+    // lock now, so the payout is untouched and retryable — it must read
+    // as remaining work, not a processing failure.
+    onPayoutFetch = () => {
+      collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
+        environment: "sandbox",
+        owner: "successor-run",
+        leaseUntil: FakeTimestamp.fromMillis(Date.now() + 120_000),
+      });
+    };
+    const summary = await syncStripePayouts({ payoutId: "po_abc" });
+    assert.equal(summary.items[0].outcome, "lease_lost");
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.remaining, 1);
+    assert.equal(collectionStore("stripePayouts").has("po_abc"), false);
+    const lease = collectionStore("qboSweepState").get(
+      "stripePayoutSync-sandbox"
+    )!;
+    assert.equal(lease.owner, "successor-run");
+  });
+
   it("serializes the cron sweep behind the same lease", async () => {
     const { runStripePayoutSweep } = await import("@/lib/stripe-payouts");
     collectionStore("qboSweepState").set("stripePayoutSync-sandbox", {
