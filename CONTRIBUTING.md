@@ -62,7 +62,10 @@ npm run check:md-links       # relative Markdown links
 - PRs are squash-merged into `main`; merging deploys production —
   **except Firebase resources**: `firestore.rules`, `storage.rules`, and
   `firestore.indexes.json` are only applied by an explicit
-  `firebase deploy --only <target>` after merge.
+  `firebase deploy --only <target>`. Deploy them **before** the dependent
+  code merges — an index can safely exist before the query that needs
+  it, but a merged query without its index returns
+  `FAILED_PRECONDITION` until the index finishes building.
 - Dependabot PRs go through the same CI and review — no auto-merge.
 
 ## Security issues

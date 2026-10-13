@@ -30,5 +30,6 @@ production behavior, security implications. Delete this section if none. -->
 
 - [ ] No secrets, credentials, or private data were committed.
 - [ ] If `firestore.rules`, `storage.rules`, or `firestore.indexes.json`
-  changed: `firebase deploy --only <target>` was run after merge
-  (Vercel does not deploy Firebase resources).
+  changed: `firebase deploy --only <target>` was run **before** merge and
+  the index is READY (Vercel does not deploy Firebase resources, and a
+  merged query without its index fails with `FAILED_PRECONDITION`).

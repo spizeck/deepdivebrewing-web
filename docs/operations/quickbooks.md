@@ -556,9 +556,10 @@ classifies every movement, and persists deterministic QuickBooks
   `qboAccountingProposals` (`environment` asc + `computedAt` desc). Both
   are declared in `firestore.indexes.json`, but **Vercel deploys do not
   apply them** — indexes ship only via
-  `firebase deploy --only firestore:indexes`. Run that after merging any
-  PR that adds composite queries, or the endpoint returns
-  `FAILED_PRECONDITION` until the index builds.
+  `firebase deploy --only firestore:indexes`. Deploy indexes **before**
+  merging a PR that adds composite queries (an index is harmless before
+  its query exists; the reverse returns `FAILED_PRECONDITION` until the
+  index finishes building).
 
 ## What is deliberately not built
 
