@@ -161,6 +161,24 @@ describe("getQboMappingView — realm/environment binding", () => {
     assert.strictEqual(await configured(), true);
   });
 
+  it("propagates an unrecognized stored treatment so the resolver can classify it", async () => {
+    // A hand-edited document can hold a taxCalculation outside our
+    // vocabulary. The view must pass it through — dropping it would let
+    // an orphaned treatment read as the no-tax posture instead of
+    // missing_taxCodeId at the worker's fail-closed gate.
+    reset({
+      [MAPPING_DOC]: {
+        ...FULL_MAPPING,
+        environment: "sandbox",
+        realmId: "realm-1",
+        taxCalculation: "TaxIncluded",
+      },
+    });
+    const result = await view();
+    assert.strictEqual(result.configured, true);
+    assert.strictEqual(result.mapping?.taxCalculation, "TaxIncluded");
+  });
+
   it("flags a stored mapping missing required fields as incomplete", async () => {
     // A document that predates required-field enforcement: it is still
     // "configured" (bound, usable ids) but must never read as complete.
@@ -243,11 +261,63 @@ describe("saveQboMapping — required-field enforcement", () => {
     );
   });
 
-  it("accepts an optional tax code when one is selected", async () => {
+  it("accepts a tax code together with its verified calculation (#184)", async () => {
     reset();
-    const result = await save({ ...FULL_MAPPING, taxCodeId: "tax-1" });
+    const result = await save({
+      ...FULL_MAPPING,
+      taxCodeId: "tax-1",
+      taxCalculation: "inclusive",
+    });
     assert.strictEqual(result.configured, true);
     assert.strictEqual(mappingDoc()?.taxCodeId, "tax-1");
+    assert.strictEqual(mappingDoc()?.taxCalculation, "inclusive");
+    // The pair round-trips through the admin-facing view.
+    assert.strictEqual(result.mapping?.taxCalculation, "inclusive");
+  });
+
+  it("rejects a tax code without a tax calculation — the pair is atomic", async () => {
+    reset();
+    await assert.rejects(
+      save({ ...FULL_MAPPING, taxCodeId: "tax-1" }),
+      (error) => {
+        assert.ok(error instanceof QboError);
+        assert.strictEqual(error.kind, "validation");
+        assert.match(error.message, /tax calculation/i);
+        return true;
+      }
+    );
+    assert.strictEqual(mappingDoc(), undefined, "no half-configured tax write");
+  });
+
+  it("rejects a tax calculation without a tax code", async () => {
+    reset();
+    await assert.rejects(
+      save({ ...FULL_MAPPING, taxCalculation: "exclusive" }),
+      (error) => {
+        assert.ok(error instanceof QboError);
+        assert.strictEqual(error.kind, "validation");
+        assert.match(error.message, /tax code/i);
+        return true;
+      }
+    );
+    assert.strictEqual(mappingDoc(), undefined);
+  });
+
+  it("rejects an unrecognized tax calculation value", async () => {
+    reset();
+    await assert.rejects(
+      save({
+        ...FULL_MAPPING,
+        taxCodeId: "tax-1",
+        taxCalculation: "TaxInclusive",
+      }),
+      (error) => {
+        assert.ok(error instanceof QboError);
+        assert.match(error.message, /Invalid tax calculation/i);
+        return true;
+      }
+    );
+    assert.strictEqual(mappingDoc(), undefined);
   });
 
   it("accepts an optional cash deposit account when one is selected (#206)", async () => {

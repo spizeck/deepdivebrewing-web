@@ -600,25 +600,65 @@ export interface QboSalesReceiptSpec {
   methodLabel?: string;
   paymentIntentId?: string;
   chargeId?: string;
-  /** `"NotApplicable"` for non-US companies (QBO requires the field on
-   *  sales transactions there); undefined for US companies, which reject
-   *  it. Tax posting itself stays disabled — see design §10. */
-  globalTaxCalculation?: "NotApplicable";
+  /** Mapped TaxCode id for the line's `TaxCodeRef` — present only when
+   *  the accountant-verified tax mapping is active (`taxCodeId` +
+   *  `taxCalculation` in the accounting mapping, resolved through
+   *  `qboTaxSpecForMapping`). Absent → no tax posted; never a guessed
+   *  code. See design §10. */
+  taxCodeId?: string;
+  /** `"NotApplicable"` for a non-US company with no tax code;
+   *  `"TaxInclusive"`/`"TaxExcluded"` per the verified price treatment
+   *  when a code is mapped; undefined for US companies, which reject
+   *  the field entirely. See design §10. */
+  globalTaxCalculation?: "NotApplicable" | "TaxInclusive" | "TaxExcluded";
 }
 
 const QBO_PRIVATE_NOTE_MAX = 500;
 const QBO_LINE_DESCRIPTION_MAX = 500;
 
+// One SalesItemLineDetail line — the shape a RefundReceipt mirrors
+// line-for-line in #180 (same DetailType, same TaxCodeRef handling, a
+// reduced amountMinor for partial refunds). Shared so the reversal can
+// never drift from the sale's line semantics.
+export interface QboSalesItemLineSpec {
+  /** Line amount in integer minor units — the gross charge for a sale,
+   *  the refunded amount for a refund line. */
+  amountMinor: number;
+  incomeItemId: string;
+  description?: string;
+  /** Mapped TaxCode id — set only via the accountant-verified mapping
+   *  (see QboSalesReceiptSpec.taxCodeId). */
+  taxCodeId?: string;
+}
+
+export function buildQboSalesItemLine(
+  spec: QboSalesItemLineSpec
+): Record<string, unknown> {
+  const amount = spec.amountMinor / 100;
+  return {
+    Amount: amount,
+    DetailType: "SalesItemLineDetail",
+    ...(spec.description
+      ? { Description: spec.description.slice(0, QBO_LINE_DESCRIPTION_MAX) }
+      : {}),
+    SalesItemLineDetail: {
+      ItemRef: { value: spec.incomeItemId },
+      Qty: 1,
+      UnitPrice: amount,
+      ...(spec.taxCodeId ? { TaxCodeRef: { value: spec.taxCodeId } } : {}),
+    },
+  };
+}
+
 // Builds the POST /salesreceipt body. The gross customer charge is posted
 // (never Stripe net — fees are #181) as a single SalesItemLineDetail line
 // against the mapped item, deposited to the rail's mapped deposit account
 // (Stripe clearing for card, cash deposit for cash) and carrying the
-// rail's mapped PaymentMethodRef. No TaxCodeRef is ever sent: tax policy
-// for the CW company is an open accountant question (#184).
+// rail's mapped PaymentMethodRef. Tax posts only when the caller supplies
+// a mapping-resolved taxCodeId — see design §10.
 export function buildQboSalesReceiptPayload(
   spec: QboSalesReceiptSpec
 ): Record<string, unknown> {
-  const gross = spec.amountMinor / 100;
   const refs = [
     `Deep Dive Brewing payment ${qboSalesReceiptMarker(spec.sourceId)}`,
     spec.methodLabel ?? null,
@@ -638,18 +678,12 @@ export function buildQboSalesReceiptPayload(
       ? { GlobalTaxCalculation: spec.globalTaxCalculation }
       : {}),
     Line: [
-      {
-        Amount: gross,
-        DetailType: "SalesItemLineDetail",
-        ...(spec.description
-          ? { Description: spec.description.slice(0, QBO_LINE_DESCRIPTION_MAX) }
-          : {}),
-        SalesItemLineDetail: {
-          ItemRef: { value: spec.incomeItemId },
-          Qty: 1,
-          UnitPrice: gross,
-        },
-      },
+      buildQboSalesItemLine({
+        amountMinor: spec.amountMinor,
+        incomeItemId: spec.incomeItemId,
+        description: spec.description,
+        taxCodeId: spec.taxCodeId,
+      }),
     ],
   };
 }

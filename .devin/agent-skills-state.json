@@ -58,18 +58,18 @@
       },
       "installedAt": "2026-10-10T19:02:34.524Z"
     },
-    "web-interface-guidelines": {
-      "hash": "91910de939efe76a8f372252ecbd39107bea2a9fddb3d8c539c12faf82a43a5a",
+    "web-design-guidelines": {
+      "hash": "caaa5838ca5ea37ca25db2c6e9d03c1e1de93a302b894036a7254eabdcd0aa74",
       "files": {
-        "references/command.md": "d246b026f4f29b5823a9cc857f9edf3d2507002e055e32040cadeaf3b38e0234",
-        "SKILL.md": "4988a1c8c9bbb108940fbf2e53459d9bcda36e1415a2068f0a4e48aabc98fa9d"
+        "references/web-interface-guidelines.md": "2d13e8a93e8af41b3f7a14e7e1118a6919b7bb0af25caf323663c51b4793a7a9",
+        "SKILL.md": "ad1ef39735686e47f0069c7974d95499bfe1ee13c1076beb751c9f33753f0388"
       },
-      "installedAt": "2026-10-11T00:14:39.215Z"
+      "installedAt": "2026-10-13T00:08:12.527Z"
     }
   },
   "source": {
     "repo": "spizeck/app-foundations",
-    "revision": "7f1c70620ab0527c48f593f01c8957e87e0fc9e3",
+    "revision": "f6ffe1ba90fc4c71a392dd38c56c9dee43d65214",
     "manifestVersion": 1
   }
 }

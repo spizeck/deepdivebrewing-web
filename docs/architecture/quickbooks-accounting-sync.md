@@ -4,8 +4,10 @@ Design for posting Stripe payment facts into QuickBooks Online without
 double-counting money that Stripe/bank activity already represents.
 Status: **partially implemented** — the Sales Receipt write shipped in
 #179 and the mapping model + admin surface was finalized in #182.
-Refunds (#180), payouts/fees (#181), retry sweep (#183), and tax (#184)
-remain pending.
+Tax posting is **prepared but not activated** (#184): the configuration
+mechanism exists and stays inert until the accountant's answers are
+recorded in the mapping. Refunds (#180), payouts/fees (#181), and the
+retry sweep (#183, done) complete the remaining scope.
 
 The connection foundation (OAuth, tokens, webhooks, entity discovery,
 mapping, `intuit_tid` capture) is live in production and read-only — see
@@ -381,29 +383,80 @@ Stripe fees            ──existing path──► Fee expense account
   are separate, explicitly approved gates; a periodic journal entry by
   the accountant remains the zero-code alternative.
 
-## 10. Tax assumptions and limitations
+## 10. Tax assumptions, mechanism, and decision gate
 
 - Company country is **CW (Curaçao)**. Do not assume US sales-tax
   semantics, TaxCode names, or inclusive/exclusive conventions.
-- **Launch posture: no tax is posted.** Sales Receipts are created
-  without a `TaxCodeRef` (QBO treats lines per company tax settings;
-  for an untaxed service this is typically correct as "out of scope /
-  non-taxable").
+- **Posture: no tax is posted until explicitly activated.** Sales
+  Receipts are created without a `TaxCodeRef` (QBO treats lines per
+  company tax settings; for an untaxed service this is typically
+  correct as "out of scope / non-taxable"). Activation is a
+  configuration change, not a deploy — see "Prepared mechanism" below.
 - **Non-US transactions must set `GlobalTaxCalculation` explicitly** —
-  QBO requires the field on sales transactions for non-US companies.
-  The intended value is `NotApplicable` (no tax regime applies to the
-  line), but the exact accepted value depends on the company's tax
-  configuration and must be confirmed in the pre-flight tax check
-  (§2 item 6) — for a company with a configured tax regime the correct
-  treatment may differ. This is a required payload field, not an
-  optional nicety.
-- `taxCodeId` stays **optional and unset** until the accountant confirms
-  whether tour/tasting revenue carries Curaçao turnover tax (OB) and
-  which TaxCode the company uses. The mapping field exists so that a
-  confirmed answer needs no code change — only configuration.
+  QBO requires the field on sales transactions for non-US companies and
+  rejects it for US ones. With no tax code mapped the value is
+  `NotApplicable`; with a code mapped it must be `TaxInclusive` or
+  `TaxExcluded`, chosen by the verified price treatment below.
 - Risk acknowledged: if the company's tax settings *require* a code on
   sales lines, posting without one may need correction — the pre-flight
   checklist (§2 item 6) answers this before writes are enabled.
+
+### Prepared mechanism (#184)
+
+Tax posting is driven entirely by the accounting mapping — no code
+change, no schema beyond the one new field:
+
+- `taxCodeId` (existing optional field, validated against live TaxCode
+  entities) is the **activation switch**. It must carry the specific
+  TaxCodeRef the accountant verifies — never a code chosen by name or
+  guessed from the rate.
+- `taxCalculation` (new optional field, `"inclusive" | "exclusive"`)
+  records the accountant's answer to "do the charged prices already
+  contain the tax?" For a non-US company it selects
+  `TaxInclusive`/`TaxExcluded` for `GlobalTaxCalculation`; for a US
+  company the field is withheld entirely (QBO rejects it) while the
+  `TaxCodeRef` still applies.
+- **The pair is atomic.** The mapping save rejects either field on its
+  own, so a half-configured tax state can never be stored through the
+  admin surface. A document that violates the pairing anyway (hand
+  edit, legacy) makes the sync worker fail closed into
+  `needs_attention` (`missing_taxCodeId` / `missing_taxCalculation` /
+  `invalid_taxCalculation`)
+  — no guessed tax is ever posted.
+- `qboTaxSpecForMapping` (`lib/qbo-common.ts`) resolves the pair +
+  company country into the payload's `TaxCodeRef` and
+  `GlobalTaxCalculation`; `buildQboSalesItemLine` (`lib/qbo-protocol.ts`)
+  is the shared line shape the RefundReceipt in #180 mirrors, so a
+  reversal carries the same tax semantics (full and partial).
+- **Amounts never change.** The posted line amount is always the
+  settled gross (`amountMinor`). `TaxExcluded` therefore makes the
+  receipt's `TotalAmt` exceed the Stripe charge (tax added on top) —
+  the accountant must confirm which treatment produces a receipt that
+  reconciles against what the customer actually paid.
+
+### Accountant decision gate
+
+Do not activate until every answer below is recorded:
+
+1. Jurisdiction and tax treatment for Saba brewery-tour revenue
+   (Curaçao OB applies, exempt, or out of scope?) — the registration is
+   Curaçao, but transactions physically occur on Saba; do not assume
+   the Curaçao regime follows automatically.
+2. Same question for tastings.
+3. The correct rate or exemption treatment for each.
+4. The exact QBO `TaxCodeRef` to post (the company has sales tax codes
+   enabled) — pick by the accountant's instruction, not by name
+   similarity.
+5. Whether the charged prices include or exclude tax → sets
+   `taxCalculation`.
+6. Treatment of refunds and partial refunds (the RefundReceipt mirrors
+   the sale's lines; confirm that is the wanted reversal).
+7. Effective date — activation applies to future postings only; posted
+   receipts are never retro-modified.
+8. Whether historical transactions need separate accounting
+   adjustments — the app performs none.
+9. ~~QBO home currency~~ — **confirmed USD** by the owner, matching the
+   `CurrencyRef` the receipts already post.
 
 ## 11. Mapping requirements
 
@@ -419,7 +472,8 @@ closed per-field regardless).
 | `tastingIncomeItemId` | **Required** | `brewery_tour_tasting` purpose exists |
 | `otherIncomeItemId` | **Required** | `other` purpose needs a home |
 | `fallbackCustomerId` | **Required** — label "Generic sales customer" (stored key retained; see note) | Always used in this model (single generic customer), so "fallback" understates it |
-| `taxCodeId` | **Optional — keep unset** | Until the CW tax answer is confirmed (§10) |
+| `taxCodeId` | **Optional — keep unset** | Activation switch for tax posting (§10); set only from the accountant's verified answer |
+| `taxCalculation` | **Optional — required whenever `taxCodeId` is set** | `"inclusive"`/`"exclusive"` — the verified price treatment; drives `GlobalTaxCalculation` (§10). Stored on the same mapping document; not an entity selection, so it sits outside `QBO_MAPPING_FIELDS` |
 | `stripeFeeExpenseAccountId` | **Optional** (#181) | Powers the reconciliation report's "are fees already booked?" inspection; dormant for posting until the §9 fee decision is approved |
 
 **Stored key note (#182):** the persisted field name `fallbackCustomerId`
