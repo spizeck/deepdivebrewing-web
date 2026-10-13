@@ -556,8 +556,13 @@ classifies every movement, and persists deterministic QuickBooks
   payout by ID** targets a single `po_…` payout for troubleshooting —
   the id is validated, fetched through the server-side Stripe client,
   and skipped when it does not exist in this account/mode. Overlapping
-  runs are refused: the cron sweep and the manual action share one
-  environment-scoped lease, so a second invocation gets a 409. The
+  runs are fenced: the cron sweep and the manual action share one
+  environment-scoped owner-token lease — a second manual invocation gets
+  a 409, while a sweep that finds the lease held skips its run (the next
+  scheduled sweep retries). The lease expires after two minutes so a
+  crashed run cannot wedge sync, and each payout's work renews it —
+  a run that loses ownership stops processing and cannot clear the
+  successor's lock. The
   result distinguishes ingestion from proposal eligibility — a payout
   whose movements all predate the cutover reports as processed with
   zero proposals rather than silently absent.
