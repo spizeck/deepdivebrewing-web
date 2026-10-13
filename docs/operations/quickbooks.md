@@ -269,6 +269,7 @@ applied.
 | **Generic sales customer** | Required | `CustomerRef` on every sales receipt — one shared customer (e.g. `Stripe Checkout`); per-customer records are deliberately not created |
 | **Tax code** | Optional | The activation switch for tax posting — set only from the accountant's verified TaxCodeRef (#184). Selecting one also requires **Tax calculation** |
 | **Tax calculation** | Required with a tax code | "Prices include tax" or "Prices exclude tax" — the accountant's answer about the charged prices. Drives QBO's `GlobalTaxCalculation` on non-US receipts. Stored on the mapping document but not an entity selection, so it appears only once a tax code is chosen |
+| **Stripe fee expense account** | Optional | Dedicated expense account for Stripe processing fees (e.g. `Merchant account fees`). The reconciliation report uses it to check whether fees are already booked — no fee posting runs today. |
 
 All six required fields must be selected before a save succeeds — a
 partial mapping cannot be stored, and the panel calls out any missing
@@ -445,6 +446,67 @@ pre-flight test stays unposted only while it remains outside it. A
 backfill beyond the 30-day cap remains an explicit, separately reviewed
 admin action, not a sweep configuration change.
 
+## Stripe reconciliation report (issue #181)
+
+`/admin/integrations/quickbooks` → **Stripe reconciliation** is a
+read-only report. It never posts, adjusts, or deletes anything in
+QuickBooks or Stripe; its only write is the report snapshot itself
+(`qboReconState/<environment>`).
+
+- **Run it** with **Run reconciliation**. Blank dates run the trailing
+  30 days; `from`/`to` set an inclusive UTC window (≤ 180 days). **GET**
+  shows the last run without rescanning.
+- **What it reads**: Stripe Balance Transactions in the window (actual
+  `fee`/`net` — never estimated), the Stripe account balance, the app's
+  `payments` records (paid *or* refunded inside the window, so an
+  in-window refund of an earlier charge still attributes correctly),
+  the mapped clearing account's ledger balance, and
+  existing QBO entries (JournalEntry / Purchase / Transfer / Deposit)
+  touching the clearing or fee accounts.
+- **Attribution**: a Stripe charge/refund is DDB-owned only through the
+  app-issued identifiers stored on `payments` records (charge id,
+  PaymentIntent id, refund id, `metadata.paymentId`). Everything else is
+  external (the shared account's other sources, e.g. Ollie) or
+  unattributed when identity could not be proven inside the bounded
+  scan. Payouts and account-level movements carry no lane — a shared
+  Stripe account's payouts mix both sources.
+- **Clearing difference** = QBO clearing balance − Stripe available
+  balance. The clearing account intentionally retains funds for refunds
+  and fees, so a non-zero difference is not inherently an error — it is
+  the number the accountant reconciles against timing (payouts in
+  transit, pending charges) and the ledger items listed.
+- **Fee question**: the fee expense account balance plus the
+  *existing QuickBooks entries* list answer "is anyone already booking
+  Stripe fees?" — inspect bank-feed adjustments, expense entries, and
+  transfers shown there before proposing any new fee entry. Do not
+  assume fees are absent just because other tooling does not book them.
+- **Findings** flag unattributed movements, settled payments without a
+  matching Stripe charge, refunds recorded but absent in Stripe, and
+  amount/currency mismatches. Flags are inspection leads, never
+  automatic corrections.
+
+### Fee-accounting stance (unchanged posting posture)
+
+The app still posts **gross** Sales Receipts and no fees. One
+authoritative fee process must be chosen before anything posts — two
+candidate processes writing fees would double-book. The proposed
+architecture (design §9) is a dedicated mapped fee expense account fed
+from actual Stripe Balance Transaction fees, with durable Stripe
+transaction ids for dedupe (`stripe_fee` source-type vocabulary exists
+but is dormant — no producer or worker path is wired). Activation
+requires explicit owner/accountant approval; nothing here changes that.
+
+### Historical Stripe fees
+
+Fees on charges that predate any fee process are a **separate approval
+gate** from enabling future fee posting. Proposed procedure (nothing is
+implemented to write these): run the reconciliation report over
+historical windows to enumerate DDB-attributed fees per charge; have the
+accountant choose the correction instrument (periodic journal entry per
+period vs per-charge entries); then implement any write as a one-off
+reviewed operation — never an automatic backfill, never edits to filed
+periods without accountant approval.
+
 ## What is deliberately not built
 
 - Refund posting (`RefundReceipt` mirroring the original lines) — #180;
@@ -456,9 +518,10 @@ admin action, not a sweep configuration change.
   deposit account until someone reverses it by hand in QBO. When staff
   record a cash refund, reverse the matching Sales Receipt (`PrivateNote`
   marker `ddb:<paymentId>`) in QuickBooks the same day.
-- Stripe payout posting, Mercury deposit creation, clearing/balance
-  reconciliation, and fee accounting — #181 (mixed Ollie+DDB payouts
-  make this a distinct design problem)
+- Stripe payout posting, Mercury deposit creation, and fee **posting** —
+  the #181 reconciliation report is read-only by design; automated fee
+  entries remain unbuilt pending the inspection above and accountant
+  approval.
 - Tax posting — **prepared but not activated** (#184): the mapping can
   carry an accountant-verified `TaxCodeRef` + price treatment today,
   but stays unset until the answers in

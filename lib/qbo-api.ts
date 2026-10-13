@@ -3,19 +3,27 @@ import { logInfo } from "@/lib/log";
 import {
   buildQboQueryUrl,
   canonicalizeCompanyInfo,
+  canonicalizeQboAccountBalance,
   canonicalizeQboQueryEntities,
+  canonicalizeQboReconActivity,
   canonicalizeQboSalesReceiptCreated,
   canonicalizeQboSalesReceiptRefs,
+  qboAccountBalanceQuery,
   qboApiUrl,
   qboEntityQueryStatement,
   qboErrorForHttpStatus,
+  qboQueryResponseRowCount,
   qboQueryRowCount,
+  qboReconActivityQuery,
   qboSalesReceiptCorrelationQuery,
   qboSalesReceiptRowCount,
   QBO_QUERY_MAX_PAGES,
   QBO_QUERY_PAGE_SIZE,
   QBO_REQUEST_TIMEOUT_MS,
   toQboError,
+  type QboAccountBalance,
+  type QboReconActivityEntity,
+  type QboReconActivityEntry,
 } from "@/lib/qbo-protocol";
 import type {
   QboDiscoveryEntityType,
@@ -252,4 +260,92 @@ export async function findQboSalesReceiptForMarker(input: {
     correlationId,
   });
   return null;
+}
+
+// --- Reconciliation ledger reads (issue #181) — read-only ---
+
+// One account's ledger balance (the clearing account and, when mapped,
+// the fee expense account in the reconciliation report). A stale or
+// unresolvable id returns null rather than failing the report — a
+// missing mapping degrades the QBO leg, it must not hide Stripe facts.
+export async function fetchQboAccountBalance(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  accountId: string;
+}): Promise<QboAccountBalance | null> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    url: buildQboQueryUrl(
+      input.environment,
+      input.realmId,
+      qboAccountBalanceQuery(input.accountId)
+    ),
+  });
+  const balance = canonicalizeQboAccountBalance(payload);
+  logInfo("qbo.api.account_balance", {
+    environment: input.environment,
+    found: Boolean(balance),
+    correlationId,
+  });
+  return balance;
+}
+
+export interface QboReconActivityPage {
+  rows: QboReconActivityEntry[];
+  /** True when pagination hit the page cap — the window may hold more. */
+  truncated: boolean;
+}
+
+// Date-windowed scan of one activity entity (JournalEntry / Purchase /
+// Transfer / Deposit). The reconciliation report uses it to inspect
+// whether fees, adjustments, or clearing transfers already exist in the
+// books before any new entry is proposed — inspection, never posting.
+export async function queryQboReconActivity(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  entity: QboReconActivityEntity;
+  fromDate: string;
+  toDate: string;
+}): Promise<QboReconActivityPage> {
+  const rows: QboReconActivityEntry[] = [];
+  let truncated = false;
+  let correlationId: string | undefined;
+  for (let page = 0; page < QBO_QUERY_MAX_PAGES; page++) {
+    const { payload, correlationId: tid } = await qboApiFetch({
+      environment: input.environment,
+      realmId: input.realmId,
+      accessToken: input.accessToken,
+      url: buildQboQueryUrl(
+        input.environment,
+        input.realmId,
+        qboReconActivityQuery(
+          input.entity,
+          input.fromDate,
+          input.toDate,
+          page * QBO_QUERY_PAGE_SIZE + 1,
+          QBO_QUERY_PAGE_SIZE
+        )
+      ),
+    });
+    correlationId ??= tid;
+    rows.push(...canonicalizeQboReconActivity(input.entity, payload));
+    if (
+      qboQueryResponseRowCount(input.entity, payload) < QBO_QUERY_PAGE_SIZE
+    ) {
+      break;
+    }
+    if (page === QBO_QUERY_MAX_PAGES - 1) truncated = true;
+  }
+  logInfo("qbo.api.recon_activity", {
+    environment: input.environment,
+    entity: input.entity,
+    rows: rows.length,
+    truncated,
+    correlationId,
+  });
+  return { rows, truncated };
 }

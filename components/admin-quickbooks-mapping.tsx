@@ -39,6 +39,8 @@ const FIELD_DESCRIPTIONS: Record<keyof QboAccountingMapping, string> = {
     "Leave unset while the tax treatment of tour and tasting sales is being confirmed with the accountant.",
   taxCalculation:
     "The accountant's answer to whether charged prices already contain the tax. Required before a tax code can post.",
+  stripeFeeExpenseAccountId:
+    "Dedicated expense account for Stripe processing fees — e.g. “Merchant account fees”. Lets the reconciliation report see whether fees are already booked.",
 };
 
 const ENTITY_TYPES_NEEDED: QboDiscoveryEntityType[] = Array.from(

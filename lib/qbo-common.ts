@@ -158,6 +158,11 @@ export interface QboAccountingMapping {
    *  rejects either half of the pair on its own, and the worker fails
    *  closed if a stored document ever violates the pairing. */
   taxCalculation?: QboTaxCalculation;
+  /** Expense account Stripe processing fees post to (e.g. merchant /
+   *  credit-card fees). Optional — fee posting stays dormant until the
+   *  accountant confirms a mapped expense account and the enqueue
+   *  producer is wired on (issue #181 design §9). */
+  stripeFeeExpenseAccountId?: string;
 }
 
 // How the company's charged prices relate to the tax a mapped TaxCode
@@ -263,6 +268,12 @@ export const QBO_MAPPING_FIELDS: readonly QboMappingFieldSpec[] = [
     key: "taxCodeId",
     entityType: "tax-code",
     label: "Tax code",
+    required: false,
+  },
+  {
+    key: "stripeFeeExpenseAccountId",
+    entityType: "account",
+    label: "Stripe fee expense account",
     required: false,
   },
 ];
@@ -494,6 +505,15 @@ export const QBO_STRIPE_PAYMENT_SOURCE_TYPE = "stripe_payment";
 export const QBO_CASH_PAYMENT_SOURCE_TYPE = "cash_payment";
 export const QBO_SALES_RECEIPT_ENTITY_TYPE = "SalesReceipt";
 
+// Stripe processing-fee posting (issue #181). Deliberately dormant: the
+// source-type vocabulary exists so a future worker arm can enqueue
+// `stripe_fee` records with durable Stripe-transaction identity, but no
+// producer or worker path is wired — activation is a deliberate follow-up
+// once ownership and duplicate-prevention are verified with the
+// accountant (design §9).
+export const QBO_STRIPE_FEE_SOURCE_TYPE = "stripe_fee";
+export const QBO_PURCHASE_ENTITY_TYPE = "Purchase";
+
 // Maps a payment-tool `purpose` onto the income-item mapping field, per
 // the accounting design doc. This is the QBO side's bookkeeping decision
 // — the producer only supplies the purpose string. An unrecognized
@@ -532,6 +552,20 @@ export function qboSalesReceiptMarker(sourceId: string): string {
 export function qboSalesReceiptDocNumber(sourceId: string): string {
   const clean = sourceId.replace(/[^A-Za-z0-9]/g, "");
   return `DDB-${clean.slice(-17)}`.slice(0, 21);
+}
+
+// Correlation marker for the Stripe fee Purchase (issue #181) — distinct
+// from the receipt marker so a clearing-account scan can tell the sale and
+// its fee apart. Same adoption rule: a landed-but-unconfirmed Purchase is
+// found by this marker instead of re-posted.
+export function qboFeePurchaseMarker(sourceId: string): string {
+  return `ddb-fee:${sourceId}`;
+}
+
+// Purchase DocNumber counterpart to the receipt's `DDB-…` numbering.
+export function qboPurchaseDocNumber(sourceId: string): string {
+  const clean = sourceId.replace(/[^A-Za-z0-9]/g, "");
+  return `DDBF-${clean.slice(-16)}`.slice(0, 21);
 }
 
 // --- Tax policy resolution (issue #184) ---
