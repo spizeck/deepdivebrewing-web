@@ -123,13 +123,18 @@ describe("canonicalizeQboReconActivity", () => {
     ]);
   });
 
-  it("reads Purchase expense legs and falls back to the header account", () => {
+  it("reads Purchase expense legs and always emits the payment-account leg", () => {
+    // Detail lines debit the expense accounts; the header AccountRef is
+    // the paying account and is credited −TotalAmt — emitted even when
+    // lines exist, since the watched clearing account sits there.
     const withLines = canonicalizeQboReconActivity("Purchase", {
       QueryResponse: {
         Purchase: [
           {
             Id: "11",
             TxnDate: "2026-05-12",
+            AccountRef: { value: "94" },
+            TotalAmt: 4.2,
             Line: [
               {
                 Amount: 4.2,
@@ -144,6 +149,7 @@ describe("canonicalizeQboReconActivity", () => {
     });
     assert.deepStrictEqual(withLines[0].legs, [
       { accountId: "77", amountMinor: 420 },
+      { accountId: "94", amountMinor: -420 },
     ]);
 
     const sparse = canonicalizeQboReconActivity("Purchase", {
@@ -154,17 +160,47 @@ describe("canonicalizeQboReconActivity", () => {
       },
     });
     assert.deepStrictEqual(sparse[0].legs, [
-      { accountId: "55", amountMinor: 999 },
+      { accountId: "55", amountMinor: -999 },
     ]);
   });
 
-  it("reads Deposit lines and the DepositToAccountRef fallback", () => {
+  it("inverts Purchase legs for a vendor credit", () => {
+    const rows = canonicalizeQboReconActivity("Purchase", {
+      QueryResponse: {
+        Purchase: [
+          {
+            Id: "13",
+            TxnDate: "2026-05-14",
+            Credit: true,
+            AccountRef: { value: "94" },
+            TotalAmt: 10.0,
+            Line: [
+              {
+                Amount: 10.0,
+                AccountBasedExpenseLineDetail: {
+                  AccountRef: { value: "77" },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    assert.deepStrictEqual(rows[0].legs, [
+      { accountId: "77", amountMinor: -1000 },
+      { accountId: "94", amountMinor: 1000 },
+    ]);
+  });
+
+  it("credits Deposit source lines and always emits the destination leg", () => {
     const rows = canonicalizeQboReconActivity("Deposit", {
       QueryResponse: {
         Deposit: [
           {
             Id: "21",
             TxnDate: "2026-05-15",
+            DepositToAccountRef: { value: "12" },
+            TotalAmt: 100.0,
             Line: [
               {
                 Amount: 100.0,
@@ -178,7 +214,8 @@ describe("canonicalizeQboReconActivity", () => {
     });
     assert.strictEqual(rows.length, 2);
     assert.deepStrictEqual(rows[0].legs, [
-      { accountId: "94", amountMinor: 10000 },
+      { accountId: "94", amountMinor: -10000 },
+      { accountId: "12", amountMinor: 10000 },
     ]);
     assert.deepStrictEqual(rows[1].legs, [
       { accountId: "12", amountMinor: 25000 },

@@ -888,8 +888,11 @@ export function qboQueryResponseRowCount(
 
 // One signed account leg of a scanned transaction: `accountId` is the QBO
 // AccountRef value, `amountMinor` the signed home-currency effect on that
-// account (JournalEntry Debit +/Credit −; Purchase expense legs and
-// Deposit legs positive; Transfer carries −from/+to legs).
+// account in debit-positive convention — JournalEntry Debit +/Credit −;
+// a Purchase debits its expense lines (+) and credits the payment
+// `AccountRef` (−TotalAmt), inverted when `Credit: true`; a Deposit
+// credits its source lines (−) and debits `DepositToAccountRef`
+// (+TotalAmt); a Transfer carries −from/+to legs.
 export interface QboReconActivityLeg {
   accountId: string;
   amountMinor: number;
@@ -966,6 +969,9 @@ export function canonicalizeQboReconActivity(
           : entity === "Deposit"
             ? "DepositLineDetail"
             : "AccountBasedExpenseLineDetail";
+      // `Credit: true` marks a QBO vendor credit expressed as a Purchase:
+      // money flows the other way, so every leg's sign inverts.
+      const purchaseCredit = entity === "Purchase" && r.Credit === true;
       const lines = Array.isArray(r.Line) ? r.Line : [];
       for (const line of lines) {
         if (typeof line !== "object" || line === null) continue;
@@ -977,29 +983,35 @@ export function canonicalizeQboReconActivity(
         const accountId = detail ? accountRefValue(detail.AccountRef) : null;
         const amount = minorUnits(l.Amount);
         if (!accountId || amount === null) continue;
-        // JournalEntry legs are signed by PostingType; expense and
-        // deposit legs are positive amounts on their accounts.
+        // JournalEntry lines sign by PostingType; Purchase expense lines
+        // are debits on the expense account (vendor credits invert); a
+        // Deposit's lines are the source accounts being credited.
         const signed =
-          entity === "JournalEntry" && detail?.PostingType === "Credit"
-            ? -amount
-            : amount;
+          entity === "JournalEntry"
+            ? detail?.PostingType === "Credit"
+              ? -amount
+              : amount
+            : entity === "Deposit" || purchaseCredit
+              ? -amount
+              : amount;
         legs.push({ accountId, amountMinor: signed });
       }
-      // Fallbacks when rows arrive without expanded lines (QBO sparse
-      // responses): entity-level account fields still attribute the row.
-      if (!legs.length) {
-        if (entity === "Purchase") {
-          const accountId = accountRefValue(r.AccountRef);
-          const amount = minorUnits(r.TotalAmt);
-          if (accountId && amount !== null) {
-            legs.push({ accountId, amountMinor: amount });
-          }
-        } else if (entity === "Deposit") {
-          const accountId = accountRefValue(r.DepositToAccountRef);
-          const amount = minorUnits(r.TotalAmt);
-          if (accountId && amount !== null) {
-            legs.push({ accountId, amountMinor: amount });
-          }
+      // The header account leg is emitted in addition to detail lines —
+      // the watched clearing account is usually the paying or receiving
+      // account on the header, not a line account, so a Purchase or
+      // Deposit touching the clearing account must attribute here even
+      // when its lines posted elsewhere.
+      if (entity !== "JournalEntry") {
+        const accountId = accountRefValue(
+          entity === "Purchase" ? r.AccountRef : r.DepositToAccountRef
+        );
+        const total = minorUnits(r.TotalAmt);
+        if (accountId && total !== null) {
+          legs.push({
+            accountId,
+            amountMinor:
+              entity === "Deposit" || purchaseCredit ? total : -total,
+          });
         }
       }
     } else {

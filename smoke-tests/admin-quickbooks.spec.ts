@@ -150,9 +150,13 @@ function mockQboApi(
     syncBody?: unknown;
     sweepBody?: unknown;
     retryBody?: unknown;
+    reconBody?: unknown;
+    /** Delay the last-run GET to make the panel's loading state
+     *  observable. */
+    reconDelayMs?: number;
   } = {}
 ) {
-  return page.route(/\/api\/admin\/quickbooks\//, (route) => {
+  return page.route(/\/api\/admin\/quickbooks\//, async (route) => {
     const url = route.request().url();
     const method = route.request().method();
     const json = (body: unknown, status = 200) =>
@@ -224,6 +228,14 @@ function mockQboApi(
           result: { outcome: "synced", qboEntityId: "9001" },
         }
       );
+    }
+    if (url.endsWith("/api/admin/quickbooks/reconciliation")) {
+      if (overrides.reconDelayMs) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, overrides.reconDelayMs)
+        );
+      }
+      return json(overrides.reconBody ?? { ok: true, run: null });
     }
     if (url.endsWith("/api/admin/quickbooks/sync")) {
       if (method === "GET") return json(overrides.syncBody ?? SYNC_VIEW);
@@ -543,6 +555,25 @@ test("sync panel surfaces the paused state when reconnect is required", async ({
   await expect(
     page.getByText(/Sync is paused — reconnect QuickBooks/)
   ).toBeVisible();
+});
+
+test("reconciliation panel holds its loading state until the last-run read resolves", async ({
+  page,
+}) => {
+  // Regression: the panel used to drop out of its loading state before
+  // the initial GET returned, flashing "no run yet" ahead of the report.
+  await mockQboApi(page, CONNECTED, {
+    reconDelayMs: 2500,
+    reconBody: { ok: true, run: null },
+  });
+  await page.goto(FIXTURE);
+  await expect(
+    page.getByText("Loading the last reconciliation run…")
+  ).toBeVisible();
+  await expect(
+    page.getByText(/No reconciliation run yet/)
+  ).toHaveCount(0);
+  await expect(page.getByText(/No reconciliation run yet/)).toBeVisible();
 });
 
 test("axe: quickbooks workspace has no serious/critical violations", async ({

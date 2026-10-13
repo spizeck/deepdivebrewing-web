@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
+  buildDdbPaymentScan,
   buildReconFindings,
   classifyStripeBalanceTxn,
   dedupeBalanceTxns,
@@ -10,6 +11,7 @@ import {
   resolveRefundAttribution,
   QBO_RECON_MAX_RANGE_DAYS,
   type DdbStripeIdentity,
+  type ReconMatchResolution,
   type StripeBalanceTxnFacts,
 } from "@/lib/qbo-recon-common";
 
@@ -42,6 +44,10 @@ function identity(overrides: Partial<DdbStripeIdentity> = {}): DdbStripeIdentity
 }
 
 const NOW = Date.parse("2026-06-15T12:00:00.000Z");
+
+function emptyResolution(): ReconMatchResolution {
+  return { paymentIds: new Set(), chargesByIntentId: new Map() };
+}
 
 describe("resolveQboReconRange", () => {
   it("defaults to a trailing 30-day window ending today (UTC)", () => {
@@ -222,8 +228,12 @@ describe("buildReconFindings", () => {
       ),
     ];
     // t3 is ch_-sourced but unmatched → enrich resolves it external here.
-    const matched = new Set<string>();
-    const { totals, flags } = buildReconFindings(classified, [], matched, "USD");
+    const { totals, flags } = buildReconFindings(
+      classified,
+      [],
+      emptyResolution(),
+      "USD"
+    );
     assert.strictEqual(totals.txnCount, 4);
     assert.strictEqual(totals.grossChargesDdbMinor, 1000);
     assert.strictEqual(totals.feesDdbMinor, 30);
@@ -266,10 +276,124 @@ describe("buildReconFindings", () => {
         expectsRefund: false,
       },
     ];
-    const { flags } = buildReconFindings(classified, payments, new Set(), "USD");
+    const { flags } = buildReconFindings(
+      classified,
+      payments,
+      emptyResolution(),
+      "USD"
+    );
     const kinds = flags.map((f) => `${f.kind}:${f.ref}`);
     assert.ok(kinds.includes("amount_mismatch:pay_match"));
     assert.ok(kinds.includes("missing_charge:pay_missing"));
+  });
+
+  it("matches a payment through an enrichment-resolved PaymentIntent — no false missing charge", () => {
+    // Regression: a payment that recorded only its PaymentIntent id used
+    // to flag missing_charge even after enrichment resolved the charge
+    // transaction to DDB.
+    const chargeTxn = txn({
+      id: "t1",
+      source: "ch_resolved",
+      amountMinor: 1000,
+      feeMinor: 30,
+      netMinor: 970,
+    });
+    const classified = [
+      {
+        txn: chargeTxn,
+        bucket: "charge" as const,
+        attribution: "ddb" as const,
+        resolvable: false,
+      },
+    ];
+    const payments = [
+      {
+        paymentId: "pay_pi",
+        amountMinor: 1000,
+        currency: "USD",
+        paymentIntentId: "pi_ddb",
+        expectsCharge: true,
+        expectsRefund: false,
+      },
+    ];
+    const { flags } = buildReconFindings(
+      classified,
+      payments,
+      {
+        paymentIds: new Set(),
+        chargesByIntentId: new Map([["pi_ddb", chargeTxn]]),
+      },
+      "USD"
+    );
+    assert.ok(!flags.some((f) => f.kind === "missing_charge"));
+    assert.ok(!flags.some((f) => f.kind === "amount_mismatch"));
+  });
+
+  it("still flags an amount mismatch on a PaymentIntent-resolved charge", () => {
+    const chargeTxn = txn({
+      id: "t1",
+      source: "ch_resolved",
+      amountMinor: 900,
+      feeMinor: 27,
+      netMinor: 873,
+    });
+    const classified = [
+      {
+        txn: chargeTxn,
+        bucket: "charge" as const,
+        attribution: "ddb" as const,
+        resolvable: false,
+      },
+    ];
+    const payments = [
+      {
+        paymentId: "pay_pi",
+        amountMinor: 1000,
+        currency: "USD",
+        paymentIntentId: "pi_ddb",
+        expectsCharge: true,
+        expectsRefund: false,
+      },
+    ];
+    const { flags } = buildReconFindings(
+      classified,
+      payments,
+      {
+        paymentIds: new Set(),
+        chargesByIntentId: new Map([["pi_ddb", chargeTxn]]),
+      },
+      "USD"
+    );
+    const kinds = flags.map((f) => `${f.kind}:${f.ref}`);
+    assert.ok(kinds.includes("amount_mismatch:pay_pi"));
+    assert.ok(!kinds.includes("missing_charge:pay_pi"));
+  });
+
+  it("matches a charge whose Stripe source is the PaymentIntent itself", () => {
+    const id = identity({ paymentIntentIds: new Set(["pi_ddb"]) });
+    const classified = [
+      classifyStripeBalanceTxn(
+        txn({ id: "t1", source: "pi_ddb", amountMinor: 1000, feeMinor: 30, netMinor: 970 }),
+        id
+      ),
+    ];
+    const payments = [
+      {
+        paymentId: "pay_pi",
+        amountMinor: 1000,
+        currency: "USD",
+        paymentIntentId: "pi_ddb",
+        expectsCharge: true,
+        expectsRefund: false,
+      },
+    ];
+    const { flags } = buildReconFindings(
+      classified,
+      payments,
+      emptyResolution(),
+      "USD"
+    );
+    assert.ok(!flags.some((f) => f.kind === "missing_charge"));
   });
 
   it("flags a recorded refund absent from Stripe and a currency mismatch", () => {
@@ -290,10 +414,49 @@ describe("buildReconFindings", () => {
         expectsRefund: true,
       },
     ];
-    const { flags } = buildReconFindings(classified, payments, new Set(), "USD");
+    const { flags } = buildReconFindings(
+      classified,
+      payments,
+      emptyResolution(),
+      "USD"
+    );
     const kinds = flags.map((f) => f.kind);
     assert.ok(kinds.includes("currency_mismatch"));
     assert.ok(kinds.includes("missing_refund"));
+  });
+
+  it("flags a foreign-currency transaction but excludes it from every monetary total", () => {
+    // Regression: an EUR movement used to inflate the USD lane, payout,
+    // and available/pending totals after being flagged.
+    const id = identity({ chargeIds: new Set(["ch_ddb"]) });
+    const classified = [
+      classifyStripeBalanceTxn(
+        txn({ id: "t1", source: "ch_ddb", amountMinor: 1000, feeMinor: 30, netMinor: 970 }),
+        id
+      ),
+      classifyStripeBalanceTxn(
+        txn({ id: "t2", source: "ch_eur", currency: "EUR", amountMinor: 5000, feeMinor: 100, netMinor: 4900 }),
+        id
+      ),
+    ];
+    const { totals, flags } = buildReconFindings(
+      classified,
+      [],
+      emptyResolution(),
+      "USD"
+    );
+    assert.ok(flags.some((f) => f.kind === "currency_mismatch" && f.ref === "t2"));
+    // The EUR transaction still counts as examined but contributes
+    // nothing monetary.
+    assert.strictEqual(totals.txnCount, 2);
+    assert.strictEqual(totals.grossChargesDdbMinor, 1000);
+    assert.strictEqual(totals.feesDdbMinor, 30);
+    assert.strictEqual(totals.netDdbMinor, 970);
+    assert.strictEqual(totals.availableNetMinor, 970);
+    assert.strictEqual(totals.pendingNetMinor, 0);
+    assert.strictEqual(totals.grossChargesExternalMinor, 0);
+    assert.strictEqual(totals.unattributedGrossMinor, 0);
+    assert.strictEqual(totals.unattributedCount, 0);
   });
 
   it("never attributes account-level movements to a lane", () => {
@@ -303,10 +466,104 @@ describe("buildReconFindings", () => {
         identity()
       ),
     ];
-    const { totals } = buildReconFindings(classified, [], new Set(), "USD");
+    const { totals } = buildReconFindings(
+      classified,
+      [],
+      emptyResolution(),
+      "USD"
+    );
     assert.strictEqual(totals.otherCount, 1);
     assert.strictEqual(totals.otherNetMinor, 42);
     assert.strictEqual(totals.grossChargesDdbMinor, 0);
     assert.strictEqual(totals.grossChargesExternalMinor, 0);
+  });
+});
+
+describe("buildDdbPaymentScan — merged paid/refunded windows", () => {
+  const range = {
+    fromMs: Date.parse("2026-05-01T00:00:00.000Z"),
+    toMsExclusive: Date.parse("2026-06-01T00:00:00.000Z"),
+  };
+
+  it("expects a charge only when the payment itself settled in range", () => {
+    const { facts } = buildDdbPaymentScan(
+      [
+        {
+          paymentId: "pay_in",
+          status: "paid",
+          paymentMethod: "card",
+          paidAtMs: range.fromMs + 1000,
+          amountMinor: 1000,
+          currency: "usd",
+          chargeId: "ch_1",
+        },
+        {
+          paymentId: "pay_before",
+          status: "paid",
+          paymentMethod: "card",
+          paidAtMs: range.fromMs - 1000,
+          amountMinor: 500,
+          chargeId: "ch_0",
+        },
+      ],
+      range
+    );
+    const byId = new Map(facts.map((f) => [f.paymentId, f]));
+    assert.strictEqual(byId.get("pay_in")?.expectsCharge, true);
+    // Regression: a payment included via the refund window must not be
+    // expected to produce a charge inside the current window.
+    assert.strictEqual(byId.get("pay_before")?.expectsCharge, false);
+  });
+
+  it("attributes an in-window refund of an earlier payment without expecting the charge", () => {
+    const { identity, facts } = buildDdbPaymentScan(
+      [
+        {
+          paymentId: "pay_old",
+          status: "refunded",
+          paymentMethod: "card",
+          paidAtMs: range.fromMs - 30 * 86_400_000,
+          refundedAtMs: range.fromMs + 86_400_000,
+          amountMinor: 800,
+          currency: "USD",
+          chargeId: "ch_old",
+          refundId: "re_old",
+        },
+      ],
+      range
+    );
+    // Positive identity covers the refund and its owning charge even
+    // though paidAt predates the window.
+    assert.ok(identity.refundIds.has("re_old"));
+    assert.ok(identity.chargeIds.has("ch_old"));
+    assert.ok(identity.paymentIds.has("pay_old"));
+    const fact = facts.find((f) => f.paymentId === "pay_old");
+    assert.strictEqual(fact?.expectsRefund, true);
+    assert.strictEqual(fact?.expectsCharge, false);
+  });
+
+  it("contributes no identity or expectations for cash payments and non-settled records", () => {
+    const { identity, facts } = buildDdbPaymentScan(
+      [
+        {
+          paymentId: "pay_cash",
+          status: "paid",
+          paymentMethod: "cash",
+          paidAtMs: range.fromMs + 1000,
+        },
+        {
+          paymentId: "pay_pending",
+          status: "pending",
+          paymentMethod: "card",
+          paidAtMs: range.fromMs + 1000,
+        },
+      ],
+      range
+    );
+    assert.strictEqual(identity.paymentIds.size, 1);
+    assert.strictEqual(identity.paymentIds.has("pay_cash"), true);
+    const fact = facts.find((f) => f.paymentId === "pay_cash");
+    assert.strictEqual(fact?.expectsCharge, false);
+    assert.strictEqual(fact?.expectsRefund, false);
   });
 });

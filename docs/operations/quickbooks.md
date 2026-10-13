@@ -458,7 +458,9 @@ QuickBooks or Stripe; its only write is the report snapshot itself
   shows the last run without rescanning.
 - **What it reads**: Stripe Balance Transactions in the window (actual
   `fee`/`net` — never estimated), the Stripe account balance, the app's
-  `payments` records, the mapped clearing account's ledger balance, and
+  `payments` records (paid *or* refunded inside the window, so an
+  in-window refund of an earlier charge still attributes correctly),
+  the mapped clearing account's ledger balance, and
   existing QBO entries (JournalEntry / Purchase / Transfer / Deposit)
   touching the clearing or fee accounts.
 - **Attribution**: a Stripe charge/refund is DDB-owned only through the

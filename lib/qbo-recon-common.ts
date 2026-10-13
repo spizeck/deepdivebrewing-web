@@ -15,6 +15,10 @@
 // or unattributed when it could not be resolved inside the bounded scan.
 
 import type { QboEnvironment } from "@/lib/qbo-common";
+import {
+  normalizePaymentMethod,
+  normalizePaymentStatus,
+} from "@/lib/payments-common";
 
 // Latest completed run — one document per environment, overwritten on each
 // run. Deny-all to Firebase clients like every qbo* collection.
@@ -312,14 +316,100 @@ export interface DdbReconPaymentFacts {
   expectsRefund: boolean;
 }
 
+// The payment-record fields the cross-check consumes, already reduced
+// from the Firestore document — keeps the window/identity semantics in
+// this pure module where they are unit-testable; the document reads stay
+// in lib/qbo-recon.ts.
+export interface DdbReconPaymentRecord {
+  paymentId: string;
+  status?: unknown;
+  paymentMethod?: unknown;
+  paidAtMs?: number | null;
+  refundedAtMs?: number | null;
+  amountMinor?: unknown;
+  currency?: unknown;
+  chargeId?: string;
+  paymentIntentId?: string;
+  refundId?: string;
+}
+
+export interface DdbPaymentScan {
+  identity: DdbStripeIdentity;
+  facts: DdbReconPaymentFacts[];
+}
+
+// Reduces canonical `payments` records to the positive-identity set and
+// the per-payment cross-check facts. Callers merge two in-range document
+// scans — `paidAt` inside the window and `refundedAt` inside the window —
+// so a refund landing in range still attributes to a DDB payment whose
+// charge predates the window. Such a payment never `expectsCharge` for
+// this window: its balance transaction was created when it was paid,
+// outside the scan, and must not be flagged missing.
+export function buildDdbPaymentScan(
+  records: DdbReconPaymentRecord[],
+  range: { fromMs: number; toMsExclusive: number }
+): DdbPaymentScan {
+  const chargeIds = new Set<string>();
+  const paymentIntentIds = new Set<string>();
+  const refundIds = new Set<string>();
+  const paymentIds = new Set<string>();
+  const facts: DdbReconPaymentFacts[] = [];
+
+  const inRange = (ms: number | null | undefined) =>
+    typeof ms === "number" &&
+    ms >= range.fromMs &&
+    ms < range.toMsExclusive;
+
+  for (const record of records) {
+    const status = normalizePaymentStatus(record.status);
+    if (status !== "paid" && status !== "refunded") continue;
+    paymentIds.add(record.paymentId);
+    if (record.chargeId) chargeIds.add(record.chargeId);
+    if (record.paymentIntentId) paymentIntentIds.add(record.paymentIntentId);
+    if (record.refundId) refundIds.add(record.refundId);
+    facts.push({
+      paymentId: record.paymentId,
+      amountMinor:
+        typeof record.amountMinor === "number" ? record.amountMinor : 0,
+      currency:
+        typeof record.currency === "string"
+          ? record.currency.toUpperCase()
+          : "USD",
+      chargeId: record.chargeId,
+      paymentIntentId: record.paymentIntentId,
+      refundId: record.refundId,
+      expectsCharge:
+        normalizePaymentMethod(record.paymentMethod) !== "cash" &&
+        inRange(record.paidAtMs),
+      expectsRefund: status === "refunded" && inRange(record.refundedAtMs),
+    });
+  }
+
+  return {
+    identity: { chargeIds, paymentIntentIds, refundIds, paymentIds },
+    facts,
+  };
+}
+
+// What the bounded provider enrichment resolved: payments identified
+// through `metadata.paymentId`, and charge transactions linked back to a
+// stored PaymentIntent id. A payment matched through either is never
+// flagged missing, and a resolved charge is still amount-checked.
+export interface ReconMatchResolution {
+  paymentIds: ReadonlySet<string>;
+  /** PaymentIntent id → the classified charge balance transaction it
+   *  resolved to. */
+  chargesByIntentId: ReadonlyMap<string, StripeBalanceTxnFacts>;
+}
+
 // Aggregates classified transactions and cross-checks the DDB payment
-// records that should have produced in-range movements. `matchedPaymentIds`
-// carries the ids enrichment already resolved — a payment matched there
-// (or through any classified charge source) is never flagged missing.
+// records that should have produced in-range movements. `resolution`
+// carries what enrichment resolved — a payment matched there (or
+// through any classified charge source) is never flagged missing.
 export function buildReconFindings(
   classified: ClassifiedBalanceTxn[],
   payments: DdbReconPaymentFacts[],
-  matchedPaymentIds: ReadonlySet<string>,
+  resolution: ReconMatchResolution,
   runCurrency: string
 ): { totals: QboReconTotals; flags: QboReconFlag[] } {
   const totals: QboReconTotals = {
@@ -346,7 +436,6 @@ export function buildReconFindings(
     pendingNetMinor: 0,
   };
   const flags: QboReconFlag[] = [];
-  const matchedSources = new Set<string>();
   const chargeAmountBySource = new Map<string, StripeBalanceTxnFacts>();
 
   for (const item of classified) {
@@ -358,6 +447,10 @@ export function buildReconFindings(
         detail: `Balance transaction currency ${txn.currency} differs from the run currency ${runCurrency}.`,
         amountMinor: txn.amountMinor,
       });
+      // Every total is reported in `runCurrency` — a foreign-currency
+      // movement is flagged for inspection but never summed into
+      // monetary aggregates or lane counts.
+      continue;
     }
     if (txn.status === "pending") {
       totals.pendingNetMinor += txn.netMinor;
@@ -376,7 +469,6 @@ export function buildReconFindings(
     }
     if (bucket === "charge") {
       if (txn.source) {
-        matchedSources.add(txn.source);
         chargeAmountBySource.set(txn.source, txn);
       }
       if (attribution === "ddb") {
@@ -429,13 +521,25 @@ export function buildReconFindings(
   }
 
   // Cross-check: every card payment expected in range should have produced
-  // a matching charge transaction at the recorded amount.
+  // a matching charge transaction at the recorded amount. A payment links
+  // to its charge through its stored charge id, through the PaymentIntent
+  // id when Stripe reports it as the transaction source, or through the
+  // PaymentIntent resolved by enrichment — the middle and last paths are
+  // how payments that never recorded a charge id still match.
   for (const payment of payments) {
-    if (payment.expectsCharge && !matchedPaymentIds.has(payment.paymentId)) {
-      const seen =
-        (payment.chargeId && matchedSources.has(payment.chargeId)) ||
-        (payment.paymentIntentId && matchedSources.has(payment.paymentIntentId));
-      if (!seen) {
+    if (
+      payment.expectsCharge &&
+      !resolution.paymentIds.has(payment.paymentId)
+    ) {
+      const txn =
+        (payment.chargeId
+          ? chargeAmountBySource.get(payment.chargeId)
+          : undefined) ??
+        (payment.paymentIntentId
+          ? chargeAmountBySource.get(payment.paymentIntentId) ??
+            resolution.chargesByIntentId.get(payment.paymentIntentId)
+          : undefined);
+      if (!txn) {
         flags.push({
           kind: "missing_charge",
           ref: payment.paymentId,
@@ -443,20 +547,13 @@ export function buildReconFindings(
             "A settled DDB card payment has no matching Stripe balance transaction in range.",
           amountMinor: payment.amountMinor,
         });
-      } else {
-        const source =
-          payment.chargeId && matchedSources.has(payment.chargeId)
-            ? payment.chargeId
-            : payment.paymentIntentId!;
-        const txn = chargeAmountBySource.get(source);
-        if (txn && txn.amountMinor !== payment.amountMinor) {
-          flags.push({
-            kind: "amount_mismatch",
-            ref: payment.paymentId,
-            detail: `Stripe reports gross ${txn.amountMinor} but the payment records ${payment.amountMinor}.`,
-            amountMinor: payment.amountMinor,
-          });
-        }
+      } else if (txn.amountMinor !== payment.amountMinor) {
+        flags.push({
+          kind: "amount_mismatch",
+          ref: payment.paymentId,
+          detail: `Stripe reports gross ${txn.amountMinor} but the payment records ${payment.amountMinor}.`,
+          amountMinor: payment.amountMinor,
+        });
       }
     }
     if (

@@ -4,8 +4,6 @@ import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { getQboEnvironment, isQboConfigured } from "@/lib/qbo-config";
 import { logError } from "@/lib/log";
 import {
-  normalizePaymentMethod,
-  normalizePaymentStatus,
   timestampMillis,
   PAYMENTS_COLLECTION,
 } from "@/lib/payments-common";
@@ -23,6 +21,7 @@ import {
   listStripeBalanceTransactions,
 } from "@/lib/stripe-balance";
 import {
+  buildDdbPaymentScan,
   buildReconFindings,
   classifyStripeBalanceTxn,
   dedupeBalanceTxns,
@@ -36,6 +35,8 @@ import {
   type QboReconLedgerItem,
   type QboReconRange,
   type QboReconRunView,
+  type ReconMatchResolution,
+  type StripeBalanceTxnFacts,
 } from "@/lib/qbo-recon-common";
 import {
   abbreviateRealmId,
@@ -73,89 +74,78 @@ interface PaymentsScan {
   truncated: boolean;
 }
 
-// Canonical `payments` records settled inside the window — the positive
-// identity for attribution and the cross-check set for missing/mismatched
-// movements. Cash payments never touch Stripe: they contribute no
-// identity and expect no balance transactions.
+// Canonical `payments` records tied to the window — the positive
+// identity for attribution and the cross-check set for missing/
+// mismatched movements. Two scans merge by document id: payments paid
+// inside the window, and payments refunded inside the window. The
+// second scan is what lets an in-window refund of an earlier payment
+// attribute to the DDB lane instead of reading as external. Cash
+// payments never touch Stripe: they contribute no identity and expect
+// no balance transactions.
 async function scanPaymentsInRange(range: QboReconRange): Promise<PaymentsScan> {
   const db = getFirebaseAdminDb();
-  const snap = await db
-    .collection(PAYMENTS_COLLECTION)
-    .where("paidAt", ">=", Timestamp.fromMillis(range.fromMs))
-    .where("paidAt", "<", Timestamp.fromMillis(range.toMsExclusive))
-    .limit(PAYMENTS_SCAN_LIMIT)
-    .get();
+  const [paidSnap, refundedSnap] = await Promise.all([
+    db
+      .collection(PAYMENTS_COLLECTION)
+      .where("paidAt", ">=", Timestamp.fromMillis(range.fromMs))
+      .where("paidAt", "<", Timestamp.fromMillis(range.toMsExclusive))
+      .limit(PAYMENTS_SCAN_LIMIT)
+      .get(),
+    db
+      .collection(PAYMENTS_COLLECTION)
+      .where("refundedAt", ">=", Timestamp.fromMillis(range.fromMs))
+      .where("refundedAt", "<", Timestamp.fromMillis(range.toMsExclusive))
+      .limit(PAYMENTS_SCAN_LIMIT)
+      .get(),
+  ]);
 
-  const chargeIds = new Set<string>();
-  const paymentIntentIds = new Set<string>();
-  const refundIds = new Set<string>();
-  const paymentIds = new Set<string>();
-  const facts: DdbReconPaymentFacts[] = [];
-
-  for (const doc of snap.docs) {
-    const payment = doc.data();
-    const status = normalizePaymentStatus(payment.status);
-    if (status !== "paid" && status !== "refunded") continue;
-    paymentIds.add(doc.id);
-    if (typeof payment.stripeChargeId === "string" && payment.stripeChargeId) {
-      chargeIds.add(payment.stripeChargeId);
-    }
-    if (
-      typeof payment.stripePaymentIntentId === "string" &&
-      payment.stripePaymentIntentId
-    ) {
-      paymentIntentIds.add(payment.stripePaymentIntentId);
-    }
-    if (typeof payment.stripeRefundId === "string" && payment.stripeRefundId) {
-      refundIds.add(payment.stripeRefundId);
-    }
-    const card = normalizePaymentMethod(payment.paymentMethod) !== "cash";
-    const refundedAtMs = timestampMillis(payment.refundedAt);
-    facts.push({
-      paymentId: doc.id,
-      amountMinor:
-        typeof payment.amountMinor === "number" ? payment.amountMinor : 0,
-      currency:
-        typeof payment.currency === "string"
-          ? payment.currency.toUpperCase()
-          : "USD",
-      chargeId:
-        typeof payment.stripeChargeId === "string"
-          ? payment.stripeChargeId
-          : undefined,
-      paymentIntentId:
-        typeof payment.stripePaymentIntentId === "string"
-          ? payment.stripePaymentIntentId
-          : undefined,
-      refundId:
-        typeof payment.stripeRefundId === "string"
-          ? payment.stripeRefundId
-          : undefined,
-      expectsCharge: card,
-      expectsRefund:
-        status === "refunded" &&
-        refundedAtMs !== null &&
-        refundedAtMs >= range.fromMs &&
-        refundedAtMs < range.toMsExclusive,
-    });
+  // A payment paid AND refunded inside the window appears in both result
+  // sets — merge by document id so it is scanned once.
+  const docs = new Map(paidSnap.docs.map((doc) => [doc.id, doc]));
+  for (const doc of refundedSnap.docs) {
+    docs.set(doc.id, doc);
   }
 
+  const stringField = (value: unknown) =>
+    typeof value === "string" && value ? value : undefined;
+  const records = [...docs.values()].map((doc) => {
+    const payment = doc.data();
+    return {
+      paymentId: doc.id,
+      status: payment.status,
+      paymentMethod: payment.paymentMethod,
+      paidAtMs: timestampMillis(payment.paidAt),
+      refundedAtMs: timestampMillis(payment.refundedAt),
+      amountMinor: payment.amountMinor,
+      currency: payment.currency,
+      chargeId: stringField(payment.stripeChargeId),
+      paymentIntentId: stringField(payment.stripePaymentIntentId),
+      refundId: stringField(payment.stripeRefundId),
+    };
+  });
+  const { identity, facts } = buildDdbPaymentScan(records, range);
+
   return {
-    identity: { chargeIds, paymentIntentIds, refundIds, paymentIds },
+    identity,
     facts,
-    truncated: snap.size >= PAYMENTS_SCAN_LIMIT,
+    truncated:
+      paidSnap.size >= PAYMENTS_SCAN_LIMIT ||
+      refundedSnap.size >= PAYMENTS_SCAN_LIMIT,
   };
 }
 
 // Second-pass attribution: unresolved charge/refund sources get one
 // bounded provider lookup each (owning PaymentIntent / charge metadata —
 // the app writes `metadata.paymentId` at session creation). Anything the
-// budget skips stays unattributed in the report.
+// budget skips stays unattributed in the report. Charges resolved
+// through their PaymentIntent are handed back so the cross-check can
+// match a payment that never recorded a charge id.
 async function enrichUnattributed(
   classified: ClassifiedBalanceTxn[],
   identity: DdbStripeIdentity
-): Promise<{ matchedPaymentIds: Set<string>; truncated: boolean }> {
-  const matchedPaymentIds = new Set<string>();
+): Promise<{ resolution: ReconMatchResolution; truncated: boolean }> {
+  const paymentIds = new Set<string>();
+  const chargesByIntentId = new Map<string, StripeBalanceTxnFacts>();
   let budget = ENRICHMENT_BUDGET;
   let truncated = false;
 
@@ -172,14 +162,17 @@ async function enrichUnattributed(
       if (item.bucket === "charge") {
         const facts = await fetchStripeChargeFacts(source);
         item.attribution = resolveChargeAttribution(facts, identity);
-        if (facts.paymentId && item.attribution === "ddb") {
-          matchedPaymentIds.add(facts.paymentId);
+        if (item.attribution === "ddb") {
+          if (facts.paymentId) paymentIds.add(facts.paymentId);
+          if (facts.paymentIntentId) {
+            chargesByIntentId.set(facts.paymentIntentId, item.txn);
+          }
         }
       } else if (item.bucket === "refund") {
         const facts = await fetchStripeRefundFacts(source);
         item.attribution = resolveRefundAttribution(facts, identity);
-        if (facts.paymentId && item.attribution === "ddb") {
-          matchedPaymentIds.add(facts.paymentId);
+        if (item.attribution === "ddb" && facts.paymentId) {
+          paymentIds.add(facts.paymentId);
         }
       }
       item.resolvable = false;
@@ -189,7 +182,7 @@ async function enrichUnattributed(
       // provider hiccup must not sink the whole report.
     }
   }
-  return { matchedPaymentIds, truncated };
+  return { resolution: { paymentIds, chargesByIntentId }, truncated };
 }
 
 interface QboLeg {
@@ -362,7 +355,7 @@ export async function runQboReconciliation(input: {
   const { totals, flags } = buildReconFindings(
     classified,
     scan.facts,
-    enrichment.matchedPaymentIds,
+    enrichment.resolution,
     currency
   );
 

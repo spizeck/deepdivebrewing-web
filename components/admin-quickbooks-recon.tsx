@@ -85,11 +85,12 @@ export function AdminQuickbooksRecon({
     }
   }, [apiFetch]);
 
+  // The panel renders nothing while disconnected, so the loading state
+  // only needs to resolve when a real GET runs — clearing it on the
+  // disconnected branch would flash "no run yet" before the first load
+  // once `connected` turns true.
   useEffect(() => {
-    if (!connected) {
-      setInitialLoading(false);
-      return;
-    }
+    if (!connected) return;
     void loadLatest();
   }, [connected, loadLatest]);
 
