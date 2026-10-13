@@ -224,17 +224,18 @@ describe("qboTaxSpecForMapping", () => {
     });
   });
 
-  it("ignores a stored treatment that has no code to apply to", () => {
-    // taxCalculation without taxCodeId is inert — the code is the
-    // activation switch, so posture stays no-tax-posted.
-    const spec = qboTaxSpecForMapping(
-      { taxCalculation: "inclusive" },
-      "CW"
-    );
-    assert.deepStrictEqual(spec, {
-      ok: true,
-      globalTaxCalculation: "NotApplicable",
-    });
+  it("fails closed on a stored treatment that has no code", () => {
+    // taxCalculation without taxCodeId is the other half of a broken
+    // pair — only reachable via hand edit/legacy since the save path
+    // stores them atomically. Fail closed rather than silently posting
+    // untaxed receipts forever.
+    for (const treatment of ["inclusive", "exclusive", "TaxInclusive"]) {
+      assert.deepStrictEqual(
+        qboTaxSpecForMapping({ taxCalculation: treatment }, "CW"),
+        { ok: false, reason: "missing_taxCodeId" },
+        treatment
+      );
+    }
   });
 
   it("fails closed when a code is mapped without a treatment", () => {

@@ -554,16 +554,21 @@ export type QboTaxSpec =
     }
   | {
       ok: false;
-      /** The stored mapping pairs a tax code with a missing or
-       *  unrecognized treatment — fail closed, never post guessed tax. */
-      reason: "missing_taxCalculation" | "invalid_taxCalculation";
+      /** The stored mapping holds half of the tax pair — a code with
+       *  a missing or unrecognized treatment, or a treatment with no
+       *  code. Fail closed, never post guessed tax. */
+      reason:
+        | "missing_taxCodeId"
+        | "missing_taxCalculation"
+        | "invalid_taxCalculation";
     };
 
 // Resolves the tax posture for one transaction. A mapped `taxCodeId` is
 // the explicit activation: it posts only together with the accountant's
-// price/tax treatment. No code → today's launch posture (no tax posted;
-// `NotApplicable` where QBO requires the field). `taxCalculation` without
-// a code is inert — there is nothing for it to apply to.
+// price/tax treatment. Both fields absent → today's launch posture (no
+// tax posted; `NotApplicable` where QBO requires the field). Either half
+// without the other fails closed — a stored half-pair is a
+// misconfiguration the operator must fix, not a silent no-tax posting.
 export function qboTaxSpecForMapping(
   mapping: { taxCodeId?: string; taxCalculation?: unknown },
   companyCountry: string | undefined
@@ -574,6 +579,9 @@ export function qboTaxSpecForMapping(
       ? mapping.taxCodeId
       : undefined;
   if (!taxCodeId) {
+    if (mapping.taxCalculation !== undefined) {
+      return { ok: false, reason: "missing_taxCodeId" };
+    }
     return {
       ok: true,
       globalTaxCalculation: isUs ? undefined : "NotApplicable",

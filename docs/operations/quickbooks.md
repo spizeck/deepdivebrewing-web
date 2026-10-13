@@ -317,8 +317,9 @@ To activate: edit the accounting mapping, pick the verified **Tax
 code**, and set **Tax calculation**. The save stores the pair
 atomically — either half on its own is rejected. A stored document that
 somehow violates the pairing (hand edit, legacy) fails the posting
-closed into `needs_attention` (`missing_taxCalculation` /
-`invalid_taxCalculation`) rather than posting guessed tax.
+closed into `needs_attention` (`missing_taxCodeId` /
+`missing_taxCalculation` / `invalid_taxCalculation`) rather than
+posting guessed tax.
 
 ### Lifecycle and retry
 

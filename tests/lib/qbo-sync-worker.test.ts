@@ -567,6 +567,17 @@ describe("processQboSyncRecord — gates and failures", () => {
     assert.strictEqual(state.createCalls.length, 0);
   });
 
+  it("fails closed when a stored treatment has no code", async () => {
+    // The mirror half of a broken pair — the worker refuses rather than
+    // silently posting untaxed receipts off a misconfiguration.
+    seedPending();
+    state.mapping.mapping!.taxCalculation = "inclusive";
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(syncDoc()?.lastErrorCode, "missing_taxCodeId");
+    assert.strictEqual(state.createCalls.length, 0);
+  });
+
   it("posts the code but omits GlobalTaxCalculation for a US company", async () => {
     // The development sandbox is a US company — the field is rejected
     // there, while the mapped code still applies to the line.

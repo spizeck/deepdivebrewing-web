@@ -408,7 +408,8 @@ change, no schema beyond the one new field:
   own, so a half-configured tax state can never be stored through the
   admin surface. A document that violates the pairing anyway (hand
   edit, legacy) makes the sync worker fail closed into
-  `needs_attention` (`missing_taxCalculation`/`invalid_taxCalculation`)
+  `needs_attention` (`missing_taxCodeId` / `missing_taxCalculation` /
+  `invalid_taxCalculation`)
   — no guessed tax is ever posted.
 - `qboTaxSpecForMapping` (`lib/qbo-common.ts`) resolves the pair +
   company country into the payload's `TaxCodeRef` and
