@@ -551,6 +551,15 @@ classifies every movement, and persists deterministic QuickBooks
 - **Foreign currencies**: a movement whose currency differs from the
   payout's is flagged `foreign_currency` and excluded from every total —
   never converted.
+- **Firestore indexes**: the panel's queries need composite indexes on
+  `stripePayouts` (`environment` asc + `lastProcessedAt` desc) and
+  `qboAccountingProposals` (`environment` asc + `computedAt` desc). Both
+  are declared in `firestore.indexes.json`, but **Vercel deploys do not
+  apply them** — indexes ship only via
+  `firebase deploy --only firestore:indexes`. Deploy indexes **before**
+  merging a PR that adds composite queries (an index is harmless before
+  its query exists; the reverse returns `FAILED_PRECONDITION` until the
+  index finishes building).
 
 ## What is deliberately not built
 
@@ -610,4 +619,5 @@ it is never sent to the browser.
 | Cash record at `needs_attention` with `missing_cashPaymentMethodId` | No cash payment method is mapped | Set **Cash payment method** in the accounting-mapping panel, then **Retry** the record |
 | Sync panel shows paused / records not draining | Connection `reauthorization_required` or `disconnected` | Reconnect QuickBooks; the backlog resumes on the next sweep (or "Run sync sweep") |
 | Cron runs but nothing posts | `CRON_SECRET` unset in the deployment (route fails closed) | Vercel env scope; check for `401` on the cron invocation and `qbo.sweep.*` log lines |
+| Payout panel fails with `FAILED_PRECONDITION` / "query requires an index" | A composite index was merged but never deployed — Vercel does not apply `firestore.indexes.json` | `firebase deploy --only firestore:indexes`, then wait for the index to finish building; `npm run check:indexes` reports drift vs build-in-progress |
 | Same payment appears twice in QBO | Should never happen — report it | `qboSyncRecords` for the payment id; `PrivateNote` marker `ddb:<paymentId>` on the receipts |

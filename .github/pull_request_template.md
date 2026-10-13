@@ -29,3 +29,10 @@ Closes #
 production behavior, security implications. Delete this section if none. -->
 
 - [ ] No secrets, credentials, or private data were committed.
+- [ ] If `firestore.rules` or `storage.rules` changed, the applicable
+  rules target was deployed before merge. Vercel does not deploy
+  Firebase resources.
+- [ ] If `firestore.indexes.json` changed,
+  `firebase deploy --only firestore:indexes` was run before merge and
+  `npm run check:indexes` reports the index READY. A merged query
+  without its index fails with `FAILED_PRECONDITION`.

@@ -59,7 +59,19 @@ npm run check:md-links       # relative Markdown links
 - Every PR runs the required **Verify** check and gets a Vercel preview
   deployment — check the preview for UI changes.
 - All review conversations must be resolved before merge.
-- PRs are squash-merged into `main`; merging deploys production.
+- PRs are squash-merged into `main`; merging deploys production —
+  **except Firebase resources**: `firestore.rules`, `storage.rules`, and
+  `firestore.indexes.json` are only applied by an explicit
+  `firebase deploy --only <target>`. Deploy them **before** the dependent
+  code merges — an index can safely exist before the query that needs
+  it, but a merged query without its index returns
+  `FAILED_PRECONDITION` until the index finishes building.
+- `npm run check:indexes` (needs `.env.local` credentials) reports drift
+  between `firestore.indexes.json` and the deployed project: missing or
+  mismatched indexes, undeclared production indexes, and indexes still
+  building (counted separately — building is deployment timing, not
+  drift). Run it before merging index changes; it never modifies
+  production.
 - Dependabot PRs go through the same CI and review — no auto-merge.
 
 ## Security issues

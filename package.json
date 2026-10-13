@@ -16,6 +16,7 @@
     "test:smoke": "npm run build && playwright test",
     "check:md-links": "node scripts/check-md-links.mjs",
     "check:react-versions": "node scripts/check-react-versions.mjs",
+    "check:indexes": "node --env-file=.env.local --import tsx scripts/check-firestore-indexes.ts",
     "seed:beers": "tsx scripts/seed-beers.ts",
     "seed:venues": "tsx scripts/seed-venues.ts",
     "optimize-assets": "node scripts/optimize-assets.mjs",
