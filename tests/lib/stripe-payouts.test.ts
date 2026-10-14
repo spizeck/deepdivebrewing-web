@@ -1432,3 +1432,36 @@ describe("syncStripePayouts", () => {
     );
   });
 });
+
+describe("getStripePayoutAutomationView", () => {
+  it("orders payouts by Stripe arrival date, newest first, with payout id as tie-breaker", async () => {
+    // Seeded deliberately out of order — retrieval order (insertion
+    // order through the fake) must not leak into the view.
+    const seeded: [string, string][] = [
+      ["po_mid", "2026-10-10"],
+      ["po_new", "2026-10-14"],
+      ["po_old", "2026-10-05"],
+      ["po_same_b", "2026-10-14"],
+      ["po_same_a", "2026-10-14"],
+    ];
+    for (const [id, arrivalDate] of seeded) {
+      collectionStore("stripePayouts").set(id, {
+        payoutId: id,
+        environment: "sandbox",
+        status: "paid",
+        amountMinor: 1000,
+        currency: "USD",
+        arrivalDate,
+        lastProcessedAt: FakeTimestamp.fromMillis(Date.now()),
+      });
+    }
+    const { getStripePayoutAutomationView } = await import(
+      "@/lib/stripe-payouts"
+    );
+    const view = await getStripePayoutAutomationView({});
+    assert.deepEqual(
+      view.payouts.map((p) => p.payoutId),
+      ["po_same_b", "po_same_a", "po_new", "po_mid", "po_old"]
+    );
+  });
+});

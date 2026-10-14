@@ -1113,6 +1113,17 @@ export async function getStripePayoutAutomationView(input: {
       proposals: proposalListByPayout.get(doc.id) ?? [],
     });
   });
+  // Stable presentation order: the Stripe payout's own arrival date,
+  // newest first, with the payout id as a deterministic tie-breaker.
+  // The query above pages by last-processed time — reprocessing or a
+  // manual sync would otherwise reshuffle the dashboard on every pass.
+  // Docs missing an arrival date sort last.
+  payouts.sort((a, b) => {
+    const dateCmp = (b.arrivalDate ?? "").localeCompare(
+      a.arrivalDate ?? ""
+    );
+    return dateCmp !== 0 ? dateCmp : b.payoutId.localeCompare(a.payoutId);
+  });
 
   return {
     configured: true,
