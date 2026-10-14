@@ -989,6 +989,12 @@ export interface QboAccountingProposal {
     qboEntityId?: string;
     adopted?: boolean;
   };
+  /** True when the proposal's evidence tier qualifies for unattended
+   *  execution in `automatic` mode — verified-identifier moves, and
+   *  aggregates whose payout is fully identified and fully in-scope.
+   *  Never sufficient alone: the executor still requires the mode flag,
+   *  a live proposal, and apply-time revalidation. */
+  autoEligible?: boolean;
 }
 
 export type StripeAccountingMode = "observe" | "approval" | "automatic";
@@ -1113,6 +1119,10 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "move_payment_to_clearing",
       status: clearingId ? "proposed" : "blocked",
+      // Only a verified identifier chain can ever run unattended;
+      // suggested matches stay review-only forever, even in automatic
+      // mode.
+      autoEligible: line.confidence === "verified",
       amountMinor: line.grossMinor,
       currency: line.currency,
       accountingDate,
@@ -1164,6 +1174,19 @@ export function buildPayoutProposals(
     ? ["partial_scope_eligible_lines_only"]
     : [];
 
+  // Aggregate proposals can run unattended only when every eligible
+  // movement in the payout is positively identified (DDB-confirmed or
+  // verified-Ollie) and the whole payout is in scope — an unidentified
+  // or pre-cutover line means a human still has to look at the payout,
+  // so its fee/transfer postings stay manual too.
+  const aggregateAutoEligible =
+    eligibleLines.length > 0 &&
+    !partialScope &&
+    eligibleLines.every(
+      (line) =>
+        line.confidence === "confirmed" || line.confidence === "verified"
+    );
+
   if (
     eligibleFeesMinor > 0 &&
     !input.existingCover?.hasFeeEntry
@@ -1179,6 +1202,7 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "stripe_fee_expense",
       status: clearingId && feeId ? "proposed" : "blocked",
+      autoEligible: aggregateAutoEligible,
       amountMinor: eligibleFeesMinor,
       currency: payout.currency,
       accountingDate,
@@ -1219,6 +1243,7 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "payout_transfer",
       status: clearingId && payoutAccountId ? "proposed" : "blocked",
+      autoEligible: aggregateAutoEligible,
       amountMinor: payout.amountMinor,
       currency: payout.currency,
       accountingDate,

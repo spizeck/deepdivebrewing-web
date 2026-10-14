@@ -145,7 +145,8 @@ async function claimProposal(
   proposalId: string,
   environment: QboEnvironment,
   cutover: string,
-  actorLabel: string
+  actorLabel: string,
+  auto: boolean
 ): Promise<{ claim?: ApplyClaim; early?: ProposalApplyOutcome }> {
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
@@ -178,7 +179,20 @@ async function claimProposal(
     ) {
       return { early: { outcome: "in_progress" as const } };
     }
-    if (data.status !== "approved") {
+    // Automatic mode may self-approve a `proposed` entry whose evidence
+    // tier qualifies (`autoEligible` — verified identifier chains and
+    // fully-identified, fully-in-scope aggregates). The system decision
+    // is recorded with the same fingerprint binding a human's would get.
+    let autoApproved = false;
+    if (
+      data.status === "proposed" &&
+      auto &&
+      data.autoEligible === true &&
+      data.materialFingerprint
+    ) {
+      autoApproved = true;
+    }
+    if (data.status !== "approved" && !autoApproved) {
       return {
         early: {
           outcome: "refused" as const,
@@ -188,7 +202,8 @@ async function claimProposal(
     }
     if (
       !data.materialFingerprint ||
-      data.decision?.fingerprint !== data.materialFingerprint
+      (!autoApproved &&
+        data.decision?.fingerprint !== data.materialFingerprint)
     ) {
       return {
         early: {
@@ -208,6 +223,18 @@ async function claimProposal(
     }
 
     tx.update(ref, {
+      ...(autoApproved
+        ? {
+            status: "approved",
+            decision: {
+              action: "approve",
+              actorUid: "automation",
+              at: nowIso,
+              note: "auto-approved — automatic mode, verified evidence",
+              fingerprint: data.materialFingerprint,
+            },
+          }
+        : {}),
       execution: {
         state: "in_progress",
         attempts: (execution?.attempts ?? 0) + 1,
@@ -219,7 +246,9 @@ async function claimProposal(
       auditTrail: appendAudit(data, {
         at: nowIso,
         actor: actorLabel,
-        note: `execution attempt ${(execution?.attempts ?? 0) + 1} started`,
+        note:
+          (autoApproved ? "auto-approved (automatic mode) — " : "") +
+          `execution attempt ${(execution?.attempts ?? 0) + 1} started`,
       }),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -614,6 +643,9 @@ function classifyWriteError(error: unknown): ProviderVerdict {
 export async function applyPayoutProposal(input: {
   proposalId: string;
   actor: { uid: string; email?: string };
+  /** Internal grant for the automatic-mode sweep — self-approves an
+   *  `autoEligible` proposal. Never passed by an admin route. */
+  auto?: boolean;
 }): Promise<ApplyProposalResult> {
   const proposalId = input.proposalId.trim();
   if (!proposalId || proposalId.length > 256) {
@@ -622,7 +654,8 @@ export async function applyPayoutProposal(input: {
   const actorLabel = input.actor.email ?? input.actor.uid;
   const environment = getQboEnvironment();
 
-  if (getStripeAccountingMode() === "observe") {
+  const mode = getStripeAccountingMode();
+  if (mode === "observe") {
     throw new QboError(
       "Proposal execution requires a non-observe accounting mode — the deployment is in observe mode.",
       "permission_denied",
@@ -642,7 +675,8 @@ export async function applyPayoutProposal(input: {
     proposalId,
     environment,
     cutover,
-    actorLabel
+    actorLabel,
+    input.auto === true && mode === "automatic"
   );
   if (early || !claim) {
     return { proposalId, apply: early ?? { outcome: "missing" } };

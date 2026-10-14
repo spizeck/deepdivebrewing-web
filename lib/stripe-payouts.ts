@@ -55,6 +55,7 @@ import {
   STRIPE_EVENTS_COLLECTION,
   timestampMillis,
 } from "@/lib/payments-common";
+import { applyPayoutProposal } from "@/lib/stripe-payout-executor";
 import { logError, logInfo, logWarn } from "@/lib/log";
 import { QboError } from "@/lib/qbo-errors";
 import {
@@ -703,6 +704,16 @@ export async function processStripePayoutLedger(
     actor: "system",
     note: `computed in ${mode} mode`,
   };
+  // Automatic mode self-applies only proposals the builder marked
+  // `autoEligible` — verified-identifier moves and aggregates whose
+  // payout is fully identified and fully in-scope. The apply still runs
+  // the executor's full claim/fingerprint/revalidation path; `auto` only
+  // supplies the approval the mode was designed to make unnecessary.
+  const autoTargets: {
+    proposalId: string;
+    status: string;
+    autoEligible: boolean;
+  }[] = [];
 
   const lines = ledger.lines.slice(0, STORED_LINE_LIMIT);
   const laneCounts = { ddb: 0, ollie: 0, external: 0, accountLevel: 0 };
@@ -799,6 +810,7 @@ export async function processStripePayoutLedger(
   // statuses (`rejected`, `applied`) are never touched.
   for (const proposal of mergeProposals) {
     const ref = proposalsCollection().doc(proposal.proposalId);
+    let finalStatus = proposal.status;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       const live = snap.exists ? (snap.data() ?? {}) : {};
@@ -836,6 +848,7 @@ export async function processStripePayoutLedger(
           });
         }
       }
+      finalStatus = status;
       tx.set(
         ref,
         deepOmitUndefined({
@@ -848,6 +861,11 @@ export async function processStripePayoutLedger(
         { merge: true }
       );
     });
+    autoTargets.push({
+      proposalId: proposal.proposalId,
+      status: finalStatus,
+      autoEligible: proposal.autoEligible === true,
+    });
   }
 
   logInfo("stripe.payout.ledger_built", {
@@ -857,6 +875,48 @@ export async function processStripePayoutLedger(
     exceptions: exceptions.length,
     balanced: ledger.totals.balanced,
   });
+
+  // Automatic mode: apply the proposals whose evidence tier qualifies
+  // for unattended execution. Every apply still runs the full guarded
+  // path — claim lease, fingerprint binding, QBO revalidation, recovery
+  // lookup — and a per-proposal failure is recorded, never fatal to the
+  // ledger build.
+  if (mode === "automatic") {
+    let applied = 0;
+    let pending = 0;
+    for (const target of autoTargets) {
+      if (
+        !target.autoEligible ||
+        (target.status !== "proposed" && target.status !== "approved")
+      ) {
+        continue;
+      }
+      try {
+        const res = await applyPayoutProposal({
+          proposalId: target.proposalId,
+          actor: { uid: "stripe-payout-automation" },
+          auto: true,
+        });
+        if (
+          res.apply.outcome === "applied" ||
+          res.apply.outcome === "already_applied"
+        ) {
+          applied++;
+        } else {
+          pending++;
+        }
+      } catch {
+        pending++;
+      }
+    }
+    if (applied || pending) {
+      logInfo("stripe.payout.auto_apply", {
+        payoutId: payout.id,
+        applied,
+        pending,
+      });
+    }
+  }
   return {
     status: payout.status,
     lineCount: ledger.lines.length,

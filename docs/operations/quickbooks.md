@@ -523,8 +523,17 @@ far that pipeline may go:
 - `approval` — admins with the `accounting` permission may approve/
   reject proposals and explicitly apply an approved one
   (`POST …/payouts/proposals/apply`). Nothing runs unattended.
-- `automatic` — reserved for the pilot-gated unattended path; same
-  manual surface stays available.
+- `automatic` — after every ledger build, proposals the builder marked
+  `autoEligible` self-approve (a recorded `automation` decision bound to
+  the material fingerprint) and run through the same guarded executor.
+  `autoEligible` is narrow by construction: a `move_payment_to_clearing`
+  qualifies only on a `verified` identifier chain; the fee/transfer
+  aggregates qualify only when every eligible line is `confirmed` or
+  `verified` and no pre-cutover share exists. Suggested/ambiguous
+  matches, blocked mappings, and anything else stay review-required. The
+  manual decision/apply surface works the same in this mode. Enable only
+  after the controlled pilot signs off — production stays `observe`
+  until then.
 
 - **Lanes**: each movement is `ddb` (positive application identity — a
   stored charge/PaymentIntent/refund id or `metadata.paymentId`),
@@ -690,11 +699,12 @@ far that pipeline may go:
   deposit account until someone reverses it by hand in QBO. When staff
   record a cash refund, reverse the matching Sales Receipt (`PrivateNote`
   marker `ddb:<paymentId>`) in QuickBooks the same day.
-- **Unattended** payout posting — the executor exists and is guarded
-  (see [Stripe payout accounting](#stripe-payout-accounting)), but no
-  code path invokes it without an explicit authorized apply call, and
-  production remains `observe`. The automatic-mode sweep lands behind
-  the controlled pilot.
+- **Unattended** payout posting in production — `automatic` mode
+  self-applies `autoEligible` proposals after each ledger build, but the
+  flag is deliberately left `observe` until the controlled pilot signs
+  off. Nothing about the flag bypasses prerequisites — the executor
+  still requires live proposals, fingerprint-bound facts, and apply-time
+  QBO revalidation.
 - Refund/dispute/reversal **posting** — such movements are classified
   and surfaced as review exceptions; their accounting treatment is not
   implemented and they can never execute.

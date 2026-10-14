@@ -625,6 +625,66 @@ describe("buildPayoutProposals", () => {
       qboProposalIdFor("production", "po_1", "payout_transfer", "aggregate")
     );
   });
+
+  it("marks only verified moves and fully-identified aggregates autoEligible", () => {
+    // Suggested Ollie match (no identity evidence): nothing may run
+    // unattended.
+    const suggested = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: proposedLedger(),
+      mode: "observe",
+      mapping,
+    });
+    assert.ok(suggested.every((p) => p.autoEligible === false));
+
+    // Fully identified payout: DDB-confirmed line — the aggregates are
+    // auto-eligible even though no move proposal exists for the line.
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    const ddbLedger = buildPayoutLedger(
+      emptyInput({ txns: [charge()], ddbIndex: index })
+    );
+    const ddbProposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: ddbLedger,
+      mode: "observe",
+      mapping,
+    });
+    assert.ok(
+      ddbProposals.every(
+        (p) =>
+          p.kind !== "move_payment_to_clearing" && p.autoEligible === true
+      )
+    );
+
+    // A cutover-straddling payout keeps aggregates manual even when the
+    // eligible lines are identified.
+    const mixedLedger = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          charge({ txnId: "t_new", sourceId: "ch_1" }),
+          charge({
+            txnId: "t_old",
+            sourceId: "ch_old",
+            createdMs: NOW - 30 * DAY_MS,
+          }),
+        ],
+        ddbIndex: index,
+        cutover: "2026-10-10",
+      })
+    );
+    const mixed = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: mixedLedger,
+      mode: "observe",
+      mapping,
+    });
+    assert.ok(mixed.every((p) => p.autoEligible === false));
+  });
 });
 
 // --- Evidence-based Ollie identity matching ---
