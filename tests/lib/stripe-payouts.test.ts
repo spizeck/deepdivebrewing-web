@@ -275,6 +275,11 @@ let qboPayments: FakeDoc[] = [];
 let qboInvoices: FakeDoc[] = [];
 let qboInvoiceError: Error | null = null;
 let reconActivity: FakeDoc[] = [];
+// Live single-payment reads — the reconciled-identity revalidation path.
+// Entries absent from the map read as a deleted payment (null); an entry
+// of `null` simulates the same, and a thrown error simulates an outage.
+const qboPaymentsById = new Map<string, FakeDoc | null>();
+let qboPaymentFetchError: Error | null = null;
 let ufAccount: { id: string; name: string } | null = {
   id: "uf-1",
   name: "Undeposited Funds",
@@ -295,6 +300,10 @@ mock.module("@/lib/qbo-api", {
       rows: reconActivity.filter((r) => r.entityType === entity),
       truncated: false,
     }),
+    fetchQboPaymentById: async ({ paymentId }: { paymentId: string }) => {
+      if (qboPaymentFetchError) throw qboPaymentFetchError;
+      return qboPaymentsById.get(paymentId) ?? null;
+    },
     fetchQboAccountBalance: async () => null,
   },
 });
@@ -455,6 +464,8 @@ beforeEach(() => {
   stripeTestMode = true;
   qboPayments = [{ ...OLLIE_PAYMENT }];
   qboInvoices = [{ id: "inv-1", docNumber: "00327" }];
+  qboPaymentsById.clear();
+  qboPaymentFetchError = null;
   qboInvoiceError = null;
   reconActivity = [];
   ufAccount = { id: "uf-1", name: "Undeposited Funds" };
@@ -1099,6 +1110,298 @@ describe("processStripePayoutLedger", () => {
       0
     );
     for (const p of proposals) assert.equal(p.status, "blocked");
+  });
+});
+
+describe("processStripePayoutLedger — reconciled payment identity", () => {
+  // Production regression fixture — payout po_1UPu2kC2zsUcVaNLpowu61JK
+  // (2026-10-13, net $285.18): charge txn_3UOHlrC2zsUcVaNLOvs5Nk81 was
+  // suggested-matched to QBO Payment 1795 (ref 1626166, Sea Saba,
+  // $294.01 gross / $8.83 fee). The admin confirmed the identity and
+  // all three historical proposals applied — Payment 1795 moved to
+  // Stripe clearing, JE posted for the fee, transfer for the payout.
+  // Reprocessing then dropped the line to External/unmatched because a
+  // reclassified payment can never reappear in the UF candidate scan.
+  const PAYOUT_ID = "po_1UPu2kC2zsUcVaNLpowu61JK";
+  const TXN_ID = "txn_3UOHlrC2zsUcVaNLOvs5Nk81";
+  const PAYMENT_ID = "1795";
+
+  function seedOct13() {
+    stripePayout = {
+      id: PAYOUT_ID,
+      status: "paid",
+      amountMinor: 28518,
+      currency: "USD",
+      arrivalDate: "2026-10-13",
+      createdMs: Date.parse("2026-10-13T00:00:00.000Z"),
+    };
+    payoutTxns = [
+      {
+        txnId: TXN_ID,
+        type: "charge",
+        grossMinor: 29401,
+        feeMinor: 883,
+        netMinor: 28518,
+        currency: "USD",
+        sourceId: "ch_sea_saba",
+        // Source payment predates the production cutover — historical.
+        createdMs: Date.parse("2026-10-08T00:00:00.000Z"),
+      },
+    ];
+    cutover = "2026-10-09";
+  }
+
+  function qbo1795(overrides: FakeDoc = {}): FakeDoc {
+    return {
+      id: PAYMENT_ID,
+      txnDate: "2026-10-08",
+      totalMinor: 29401,
+      depositToAccountId: "34", // Stripe clearing — post-move state
+      currency: "USD",
+      customerName: "Sea Saba",
+      refNumber: "1626166",
+      linkedTxnIds: [],
+      ...overrides,
+    };
+  }
+
+  async function moveProposalId(): Promise<string> {
+    const { qboProposalIdFor } = await import(
+      "@/lib/stripe-payouts-common"
+    );
+    return qboProposalIdFor(
+      "sandbox",
+      PAYOUT_ID,
+      "move_payment_to_clearing",
+      PAYMENT_ID
+    );
+  }
+
+  function seedAppliedMove(): Promise<string> {
+    return moveProposalId().then((moveId) => {
+      collectionStore("qboAccountingProposals").set(moveId, {
+        proposalId: moveId,
+        environment: "sandbox",
+        payoutId: PAYOUT_ID,
+        kind: "move_payment_to_clearing",
+        status: "applied",
+        historical: true,
+        lineConfidence: "suggested",
+        amountMinor: 29401,
+        currency: "USD",
+        accountingDate: "2026-10-13",
+        debit: { accountId: "34", label: "Stripe Clearing" },
+        credit: { accountId: "uf-1", label: "Undeposited Funds" },
+        stripeRefs: { payoutId: PAYOUT_ID, balanceTxnId: TXN_ID },
+        qboRefs: { paymentId: PAYMENT_ID, paymentRef: "1626166" },
+        decision: {
+          action: "approved",
+          confirmedQboPaymentId: PAYMENT_ID,
+        },
+        execution: {
+          outcome: "applied",
+          entityType: "Payment",
+          entityId: PAYMENT_ID,
+        },
+        mode: "approval",
+      });
+      return moveId;
+    });
+  }
+
+  function moveProposals(): FakeDoc[] {
+    return [...collectionStore("qboAccountingProposals").values()].filter(
+      (p) => p.kind === "move_payment_to_clearing"
+    );
+  }
+
+  it("keeps the payment identified after the applied move — full lifecycle", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct13();
+    // 1) Initial build — Payment 1795 still in Undeposited Funds.
+    qboPayments = [qbo1795({ depositToAccountId: "uf-1" })];
+    await processStripePayoutLedger(PAYOUT_ID);
+    let doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    let line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.confidence, "suggested");
+    assert.equal(line.reconciled, undefined);
+    const moveId = await moveProposalId();
+    const move = collectionStore("qboAccountingProposals").get(moveId)!;
+    assert.equal(move.status, "proposed");
+    assert.equal(move.historical, true);
+    assert.equal(move.autoEligible, false);
+
+    // 2) Admin confirms + executor applies all three proposals; the
+    //    payment leaves UF for Stripe clearing.
+    for (const p of collectionStore("qboAccountingProposals").values()) {
+      p.status = "applied";
+      p.execution = { outcome: "applied" };
+    }
+    qboPayments = [qbo1795()];
+    qboPaymentsById.set(PAYMENT_ID, qbo1795());
+
+    // 3) Reprocess — the durable applied record keeps the identity.
+    await processStripePayoutLedger(PAYOUT_ID);
+    doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.confidence, "suggested"); // never upgraded
+    assert.equal(line.reconciled, "applied");
+    assert.equal(line.qboPaymentId, PAYMENT_ID);
+    // cutover_skipped is expected for a pre-cutover line — what must be
+    // absent is any match/conflict exception for the reconciled charge.
+    for (const e of doc.exceptions as FakeDoc[]) {
+      if (e.ref !== TXN_ID) continue;
+      assert.notEqual(e.code, "unmatched_movement");
+      assert.notEqual(e.code, "reconciled_state_conflict");
+      assert.notEqual(e.code, "ambiguous_match");
+    }
+
+    // The applied move doc is untouched and remains the only move
+    // proposal — no second executable reclassification is offered.
+    const moves = moveProposals();
+    assert.equal(moves.length, 1);
+    assert.equal(moves[0].status, "applied");
+    assert.equal(
+      (moves[0].qboRefs as { paymentId: string }).paymentId,
+      PAYMENT_ID
+    );
+
+    // JournalEntry (fee) and Transfer stay applied — no duplicates.
+    const aggregates = [
+      ...collectionStore("qboAccountingProposals").values(),
+    ].filter((p) => p.kind !== "move_payment_to_clearing");
+    assert.equal(aggregates.length, 2);
+    for (const p of aggregates) assert.equal(p.status, "applied");
+  });
+
+  it("reports reconciled_state_conflict when the payment was deleted", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct13();
+    const moveId = await seedAppliedMove();
+    qboPayments = [];
+    // No qboPaymentsById entry → live read returns null (deleted).
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    // Fail closed: identity preserved for reporting, flagged conflict,
+    // never silently rematched to an amount/date lookalike.
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.reconciled, "conflict");
+    const exc = (doc.exceptions as FakeDoc[]).find(
+      (e) => e.ref === TXN_ID
+    );
+    assert.equal(exc?.code, "reconciled_state_conflict");
+    const moves = moveProposals();
+    assert.equal(moves.length, 1);
+    assert.equal(moves[0].status, "applied");
+    assert.ok(collectionStore("qboAccountingProposals").has(moveId));
+  });
+
+  it("reports conflict when amount, currency, or account contradict", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    const cases: { name: string; live: FakeDoc }[] = [
+      { name: "amount changed", live: qbo1795({ totalMinor: 29500 }) },
+      { name: "currency changed", live: qbo1795({ currency: "EUR" }) },
+      {
+        name: "back in Undeposited Funds",
+        live: qbo1795({ depositToAccountId: "uf-1" }),
+      },
+      {
+        name: "unexpected account",
+        live: qbo1795({ depositToAccountId: "77" }),
+      },
+    ];
+    for (const c of cases) {
+      store.clear();
+      seedOct13();
+      await seedAppliedMove();
+      qboPayments = [];
+      qboPaymentsById.set(PAYMENT_ID, c.live);
+      await processStripePayoutLedger(PAYOUT_ID);
+      const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+      const line = (doc.lines as FakeDoc[]).find(
+        (l) => l.txnId === TXN_ID
+      )!;
+      assert.equal(line.reconciled, "conflict", c.name);
+      assert.equal(line.lane, "ollie", c.name);
+      const exc = (doc.exceptions as FakeDoc[]).find(
+        (e) => e.ref === TXN_ID
+      );
+      assert.equal(exc?.code, "reconciled_state_conflict", c.name);
+      assert.equal(moveProposals().length, 1, c.name);
+    }
+  });
+
+  it("marks the line unverified, not unmatched, when live reads fail", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct13();
+    await seedAppliedMove();
+    qboPayments = [];
+    qboPaymentFetchError = new Error("qbo outage");
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    // An outage is not evidence: keep the identity, flag it unverified,
+    // raise no conflict exception, propose nothing new.
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.confidence, "suggested");
+    assert.equal(line.reconciled, "unverified");
+    assert.equal(line.qboPaymentId, PAYMENT_ID);
+    assert.ok(
+      !(doc.exceptions as FakeDoc[]).some(
+        (e) => e.ref === TXN_ID && e.code !== "cutover_skipped"
+      )
+    );
+    assert.equal(moveProposals().length, 1);
+  });
+
+  it("keeps genuine external activity unmatched alongside a reconciled line", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct13();
+    await seedAppliedMove();
+    qboPaymentsById.set(PAYMENT_ID, qbo1795());
+    payoutTxns.push({
+      txnId: "txn_external",
+      type: "charge",
+      grossMinor: 5000,
+      feeMinor: 175,
+      netMinor: 4825,
+      currency: "USD",
+      sourceId: "ch_other",
+      createdMs: Date.parse("2026-10-12T00:00:00.000Z"),
+    });
+    stripePayout = { ...stripePayout!, amountMinor: 33343 };
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const lines = doc.lines as FakeDoc[];
+    const ollie = lines.find((l) => l.txnId === TXN_ID)!;
+    const external = lines.find((l) => l.txnId === "txn_external")!;
+    assert.equal(ollie.reconciled, "applied");
+    assert.equal(external.lane, "external");
+    assert.equal(external.confidence, "unmatched");
+    assert.equal(external.reconciled, undefined);
+    assert.ok(
+      (doc.exceptions as FakeDoc[]).some(
+        (e) => e.ref === "txn_external" && e.code === "unmatched_movement"
+      )
+    );
+  });
+
+  it("a reconciled historical line never becomes auto-executable", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct13();
+    await seedAppliedMove();
+    qboPaymentsById.set(PAYMENT_ID, qbo1795());
+    accountingMode = "automatic";
+    await processStripePayoutLedger(PAYOUT_ID);
+    // No move proposal exists to execute, and the historical aggregates
+    // are manual-only — automatic mode touches nothing.
+    assert.equal(applyCalls.length, 0);
+    for (const p of collectionStore("qboAccountingProposals").values()) {
+      assert.notEqual(p.autoEligible, true);
+    }
   });
 });
 

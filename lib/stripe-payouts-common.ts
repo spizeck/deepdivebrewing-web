@@ -165,6 +165,14 @@ export interface StripePayoutLine extends StripePayoutTxn {
    *  "order:327" — namespace plus normalized digits, stable across
    *  padding differences. */
   identityRefs?: string[];
+  /** Set when the line's QBO relationship comes from a previously
+   *  *applied* reclassification rather than a fresh UF candidate match —
+   *  the payment already moved out of Undeposited Funds, so it can never
+   *  reappear in the candidate scan. `applied` = live QBO state confirms
+   *  the recorded move; `conflict` = live state contradicts it
+   *  (investigate — the exception log carries the detail); `unverified` =
+   *  live revalidation was unreachable this run. */
+  reconciled?: "applied" | "conflict" | "unverified";
   /** Short evidence codes explaining the classification. */
   evidence: string[];
 }
@@ -633,10 +641,39 @@ export interface PayoutException {
     | "unmatched_movement"
     | "foreign_currency"
     | "existing_manual_entry"
-    | "cutover_skipped";
+    | "cutover_skipped"
+    | "reconciled_state_conflict";
   ref: string;
   detail: string;
   amountMinor?: number;
+}
+
+/** A QBO payment relationship this payout already established through
+ *  an applied `move_payment_to_clearing` proposal — the durable record
+ *  of a completed reconciliation. Built by the caller from persisted
+ *  proposal/execution docs, then revalidated against live QBO state. */
+export interface ReconciledPayment {
+  /** QBO payment id the applied move bound to (== the proposal's
+   *  `qboRefs.paymentId`, which required explicit admin confirmation). */
+  paymentId: string;
+  paymentRef?: string;
+  customerName?: string;
+  /** The confidence the line was matched with — preserved verbatim.
+   *  A `suggested` match stays `suggested` forever; completing the
+   *  accounting action never upgrades it. */
+  confidence: Exclude<MatchConfidence, "none" | "unmatched" | "ambiguous">;
+  /** Identity refs the original match carried, when recorded. */
+  identityRefs?: string[];
+  /** Live-state verification of the applied move:
+   *  - `applied`: payment exists and sits in the account the proposal
+   *    moved it to, at the approved amount/currency.
+   *  - `conflict`: live state contradicts the durable record — deleted,
+   *    moved to an unexpected account, amount/currency changed, or back
+   *    in Undeposited Funds. Reported as `reconciled_state_conflict`.
+   *  - `unverified`: revalidation was unreachable (QBO leg down) — the
+   *    identity is kept (an outage is not evidence) but flagged. */
+  state: "applied" | "conflict" | "unverified";
+  conflictDetail?: string;
 }
 
 export interface BuildPayoutLedgerInput {
@@ -658,6 +695,13 @@ export interface BuildPayoutLedgerInput {
   ollieCandidates: QboUndepositedPayment[];
   /** QBO payment ids already claimed by OTHER payouts' proposals. */
   claimedPaymentIds: ReadonlySet<string>;
+  /** Durable reconciliation evidence keyed by Stripe balance-txn id:
+   *  payments this payout already reclassified through an applied
+   *  move proposal (server-validated at apply, revalidated live by the
+   *  caller). A matched-and-moved payment leaves the UF candidate set
+   *  forever — without this map a rebuild would demote the line to
+   *  `external/unmatched` and forget a confirmed relationship. */
+  reconciledMoves?: ReadonlyMap<string, ReconciledPayment>;
   /** Automation cutover (YYYY-MM-DD) — txns created before it are
    *  classified but never proposed. Null = no cutover. */
   cutover?: string | null;
@@ -714,6 +758,7 @@ export function buildPayoutLedger(
     let qboPaymentRef: string | undefined;
     let customerName: string | undefined;
     let identityRefs: string[] | undefined;
+    let reconciledState: StripePayoutLine["reconciled"];
 
     const foreign = txn.currency !== payoutCurrency;
     if (foreign) {
@@ -790,56 +835,95 @@ export function buildPayoutLedger(
           amountMinor: txn.grossMinor,
         });
       } else if (isChargeBucket(txn.type)) {
-        const available = input.ollieCandidates.filter(
-          (candidate) =>
-            !input.claimedPaymentIds.has(candidate.id) &&
-            !claimed.has(candidate.id)
-        );
-        const match = matchOlliePayment(
-          {
-            amountMinor: txn.grossMinor,
-            currency: txn.currency,
-            createdMs: txn.createdMs,
-          },
-          available,
-          payoutCurrency,
-          enriched?.ollieIdentity
-        );
-        evidence.push(...match.evidence);
-        confidence = match.confidence;
-        if (
-          (match.confidence === "suggested" ||
-            match.confidence === "verified") &&
-          match.payment
-        ) {
+        // Durable reconciliation evidence wins over a fresh candidate
+        // match: a payment already reclassified out of Undeposited Funds
+        // can never reappear in the UF scan, but the relationship it
+        // established is the authoritative classification.
+        const reconciled = input.reconciledMoves?.get(txn.txnId);
+        if (reconciled) {
           lane = "ollie";
-          qboPaymentId = match.payment.id;
-          qboPaymentRef =
-            match.payment.refNumber ?? match.payment.memo ?? undefined;
-          customerName = match.payment.customerName;
-          if (match.identityRefs?.length) identityRefs = match.identityRefs;
-          claimed.add(match.payment.id);
-        } else if (match.confidence === "ambiguous") {
-          lane = "external";
-          exceptions.push({
-            code: "ambiguous_match",
-            ref: txn.txnId,
-            detail: match.evidence.includes("identifier_conflict")
-            ? "Identifier evidence conflicts between the Stripe charge and the candidate payment(s) — no reclassification proposed."
-            : match.evidence.includes("multiple_identity_matches")
-              ? "More than one undeposited QuickBooks payment shares an Ollie identifier with this charge — no reclassification proposed."
-              : `${match.candidateIds.length} undeposited QuickBooks payments match amount and window — no reclassification proposed.`,
-            amountMinor: txn.grossMinor,
-          });
+          confidence = reconciled.confidence;
+          qboPaymentId = reconciled.paymentId;
+          qboPaymentRef = reconciled.paymentRef;
+          customerName = reconciled.customerName;
+          if (reconciled.identityRefs?.length) {
+            identityRefs = reconciled.identityRefs;
+          }
+          reconciledState = reconciled.state;
+          // Claim the bound payment so no other line in this build can
+          // re-match it — relevant when it unexpectedly sits back in
+          // Undeposited Funds (conflict) and would otherwise still be a
+          // candidate for amount/date matching.
+          claimed.add(reconciled.paymentId);
+          evidence.push(
+            reconciled.state === "applied"
+              ? "applied_reconciliation"
+              : reconciled.state === "unverified"
+                ? "applied_reconciliation_unverified"
+                : "applied_reconciliation_conflict"
+          );
+          if (reconciled.state === "conflict") {
+            exceptions.push({
+              code: "reconciled_state_conflict",
+              ref: txn.txnId,
+              detail:
+                reconciled.conflictDetail ??
+                `QBO payment ${reconciled.paymentId} no longer matches the recorded reconciliation — investigate before further accounting.`,
+              amountMinor: txn.grossMinor,
+            });
+          }
         } else {
-          lane = "external";
-          exceptions.push({
-            code: "unmatched_movement",
-            ref: txn.txnId,
-            detail:
-              "No DDB record and no unique undeposited QuickBooks payment match — external or unmatched Stripe activity.",
-            amountMinor: txn.grossMinor,
-          });
+          const available = input.ollieCandidates.filter(
+            (candidate) =>
+              !input.claimedPaymentIds.has(candidate.id) &&
+              !claimed.has(candidate.id)
+          );
+          const match = matchOlliePayment(
+            {
+              amountMinor: txn.grossMinor,
+              currency: txn.currency,
+              createdMs: txn.createdMs,
+            },
+            available,
+            payoutCurrency,
+            enriched?.ollieIdentity
+          );
+          evidence.push(...match.evidence);
+          confidence = match.confidence;
+          if (
+            (match.confidence === "suggested" ||
+              match.confidence === "verified") &&
+            match.payment
+          ) {
+            lane = "ollie";
+            qboPaymentId = match.payment.id;
+            qboPaymentRef =
+              match.payment.refNumber ?? match.payment.memo ?? undefined;
+            customerName = match.payment.customerName;
+            if (match.identityRefs?.length) identityRefs = match.identityRefs;
+            claimed.add(match.payment.id);
+          } else if (match.confidence === "ambiguous") {
+            lane = "external";
+            exceptions.push({
+              code: "ambiguous_match",
+              ref: txn.txnId,
+              detail: match.evidence.includes("identifier_conflict")
+              ? "Identifier evidence conflicts between the Stripe charge and the candidate payment(s) — no reclassification proposed."
+              : match.evidence.includes("multiple_identity_matches")
+                ? "More than one undeposited QuickBooks payment shares an Ollie identifier with this charge — no reclassification proposed."
+                : `${match.candidateIds.length} undeposited QuickBooks payments match amount and window — no reclassification proposed.`,
+              amountMinor: txn.grossMinor,
+            });
+          } else {
+            lane = "external";
+            exceptions.push({
+              code: "unmatched_movement",
+              ref: txn.txnId,
+              detail:
+                "No DDB record and no unique undeposited QuickBooks payment match — external or unmatched Stripe activity.",
+              amountMinor: txn.grossMinor,
+            });
+          }
         }
       } else {
         lane = "account_level";
@@ -874,6 +958,7 @@ export function buildPayoutLedger(
       qboPaymentRef,
       customerName,
       identityRefs,
+      reconciled: reconciledState,
       evidence,
     });
   }
@@ -1137,7 +1222,12 @@ export function buildPayoutProposals(
     if (
       line.lane !== "ollie" ||
       (line.confidence !== "suggested" && line.confidence !== "verified") ||
-      !line.qboPaymentId
+      !line.qboPaymentId ||
+      // A reconciled line's move already happened through an applied
+      // proposal — proposing a second reclassification for the same
+      // payment would be a duplicate, and a `conflict` state needs
+      // investigation, not another executable action.
+      line.reconciled !== undefined
     ) {
       continue;
     }
