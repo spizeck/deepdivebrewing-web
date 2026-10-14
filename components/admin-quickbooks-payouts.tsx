@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatAdminDateTime } from "@/lib/admin-format";
@@ -27,6 +27,14 @@ interface PayoutsResponse {
   summary?: StripePayoutSyncSummary;
   error?: string;
 }
+
+const withKey = (s: ReadonlySet<string>, key: string) =>
+  new Set(s).add(key);
+const withoutKey = (s: ReadonlySet<string>, key: string) => {
+  const next = new Set(s);
+  next.delete(key);
+  return next;
+};
 
 const LANE_LABELS: Record<string, string> = {
   ddb: "DDB",
@@ -162,12 +170,35 @@ function ProposalRow({
   const [note, setNote] = useState("");
   const decision = proposal.decision;
   const execution = proposal.execution;
-  const decidable =
-    decisionsEnabled &&
-    (proposal.status === "proposed" || proposal.status === "approved");
+  // A live claim lease means an apply may be posting right now; an
+  // expired one means the attempt stalled and a retry is safe. The
+  // effect schedules the single re-render that flips the row from
+  // executing to retryable the moment the lease lapses.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const until = execution?.leaseUntilMs;
+    if (execution?.state !== "in_progress" || typeof until !== "number") {
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setNowMs(Date.now()),
+      Math.max(0, until - Date.now() + 250)
+    );
+    return () => window.clearTimeout(timer);
+  }, [execution?.state, execution?.leaseUntilMs]);
+  const leaseLive = (execution?.leaseUntilMs ?? 0) > nowMs;
+  const inFlight = execution?.state === "in_progress" && leaseLive;
   const approvable = decisionsEnabled && proposal.status === "proposed";
+  // Rejection is also the "do not post" marker — the server allows it
+  // on any live, undecided status, so blocked entries can be dismissed
+  // before their mapping lands.
+  const rejectable =
+    decisionsEnabled &&
+    !inFlight &&
+    (proposal.status === "proposed" ||
+      proposal.status === "approved" ||
+      proposal.status === "blocked");
   const applicable = decisionsEnabled && proposal.status === "approved";
-  const inFlight = execution?.state === "in_progress";
   return (
     <li className="rounded-md border border-stone px-3 py-2 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -185,7 +216,9 @@ function ProposalRow({
               }
             >
               {execution.state === "in_progress"
-                ? "executing…"
+                ? leaseLive
+                  ? "executing…"
+                  : "execution stalled — safe to retry"
                 : `execution ${execution.state}`}
             </Badge>
           )}{" "}
@@ -231,7 +264,7 @@ function ProposalRow({
             : ""}
         </p>
       )}
-      {(decidable || applicable) && (
+      {(approvable || rejectable || applicable) && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {approvable && (
             <Button
@@ -245,11 +278,11 @@ function ProposalRow({
               Approve
             </Button>
           )}
-          {decidable && (
+          {rejectable && (
             <Button
               variant="outline"
               size="sm"
-              disabled={busy || inFlight}
+              disabled={busy}
               onClick={() =>
                 onDecide(proposal, "reject", note || undefined)
               }
@@ -266,12 +299,13 @@ function ProposalRow({
             >
               {execution?.state === "failed" ||
               execution?.state === "uncertain" ||
-              execution?.state === "refused"
+              execution?.state === "refused" ||
+              (execution?.state === "in_progress" && !leaseLive)
                 ? "Retry apply"
                 : "Apply to QuickBooks"}
             </Button>
           )}
-          {decidable && (
+          {(approvable || rejectable) && (
             <input
               type="text"
               value={note}
@@ -300,7 +334,7 @@ function PayoutCard({
   payout: StripePayoutView;
   proposals: QboAccountingProposal[];
   decisionsEnabled: boolean;
-  decisionBusy: string | null;
+  decisionBusy: ReadonlySet<string>;
   onDecide: (
     proposal: QboAccountingProposal,
     action: "approve" | "reject",
@@ -463,7 +497,7 @@ function PayoutCard({
                     key={proposal.proposalId}
                     proposal={proposal}
                     decisionsEnabled={decisionsEnabled}
-                    busy={decisionBusy === proposal.proposalId}
+                    busy={decisionBusy.has(proposal.proposalId)}
                     onDecide={onDecide}
                     onApply={onApply}
                   />
@@ -495,14 +529,27 @@ export function AdminQuickbooksPayouts({
 }) {
   const [view, setView] = useState<StripePayoutAutomationView | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
+  // Busy state is per-key: overlapping actions on different targets must
+  // not clear each other's disabled state when one finishes first.
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [syncing, setSyncing] = useState<"recent" | "single" | null>(null);
   const [payoutIdInput, setPayoutIdInput] = useState("");
   const [syncSummary, setSyncSummary] =
     useState<StripePayoutSyncSummary | null>(null);
-  const [decisionBusy, setDecisionBusy] = useState<string | null>(null);
+  const [decisionBusy, setDecisionBusy] = useState<ReadonlySet<string>>(
+    new Set()
+  );
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  // View responses can return out of order — only the most recently
+  // issued request may replace rendered state.
+  const viewSeqRef = useRef(0);
+  const applyView = useCallback(
+    (seq: number, next: StripePayoutAutomationView | null) => {
+      if (seq === viewSeqRef.current) setView(next);
+    },
+    []
+  );
 
   const apiFetch = useCallback(
     async (path: string, init?: RequestInit): Promise<PayoutsResponse> => {
@@ -524,12 +571,13 @@ export function AdminQuickbooksPayouts({
   );
 
   const load = useCallback(async (): Promise<void> => {
+    const seq = ++viewSeqRef.current;
     try {
       const data = await apiFetch("/api/admin/quickbooks/payouts");
-      setView(data.view ?? null);
+      applyView(seq, data.view ?? null);
       setErrorMessage("");
     } catch (error) {
-      setView(null);
+      applyView(seq, null);
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -538,14 +586,15 @@ export function AdminQuickbooksPayouts({
     } finally {
       setInitialLoading(false);
     }
-  }, [apiFetch]);
+  }, [apiFetch, applyView]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function handleReprocess(payoutId: string) {
-    setBusy(payoutId);
+    const seq = ++viewSeqRef.current;
+    setBusy((s) => withKey(s, payoutId));
     setErrorMessage("");
     setStatusMessage("");
     setSyncSummary(null);
@@ -554,14 +603,14 @@ export function AdminQuickbooksPayouts({
         method: "POST",
         body: JSON.stringify({ payoutId }),
       });
-      setView(data.view ?? null);
+      applyView(seq, data.view ?? null);
       setStatusMessage(`Payout ${payoutId} reprocessed.`);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Reprocess failed."
       );
     } finally {
-      setBusy(null);
+      setBusy((s) => withoutKey(s, payoutId));
     }
   }
 
@@ -569,6 +618,7 @@ export function AdminQuickbooksPayouts({
   // from the (optional) payoutId, applies the shared lease, and returns
   // the summary plus a refreshed view.
   async function runSync(scope: "recent" | "single", payoutId?: string) {
+    const seq = ++viewSeqRef.current;
     setSyncing(scope);
     setErrorMessage("");
     setStatusMessage("");
@@ -578,7 +628,7 @@ export function AdminQuickbooksPayouts({
         method: "POST",
         body: JSON.stringify(payoutId ? { payoutId } : {}),
       });
-      setView(data.view ?? null);
+      applyView(seq, data.view ?? null);
       setSyncSummary(data.summary ?? null);
       if (scope === "single") setPayoutIdInput("");
       setStatusMessage(
@@ -611,7 +661,8 @@ export function AdminQuickbooksPayouts({
     action: "approve" | "reject",
     note?: string
   ) {
-    setDecisionBusy(proposal.proposalId);
+    const seq = ++viewSeqRef.current;
+    setDecisionBusy((s) => withKey(s, proposal.proposalId));
     setErrorMessage("");
     setStatusMessage("");
     try {
@@ -631,7 +682,7 @@ export function AdminQuickbooksPayouts({
           }),
         }
       );
-      setView(data.view ?? null);
+      applyView(seq, data.view ?? null);
       setStatusMessage(
         `Proposal ${action === "approve" ? "approved" : "rejected"}.`
       );
@@ -640,12 +691,13 @@ export function AdminQuickbooksPayouts({
         error instanceof Error ? error.message : "The decision failed."
       );
     } finally {
-      setDecisionBusy(null);
+      setDecisionBusy((s) => withoutKey(s, proposal.proposalId));
     }
   }
 
   async function handleApply(proposalId: string) {
-    setDecisionBusy(proposalId);
+    const seq = ++viewSeqRef.current;
+    setDecisionBusy((s) => withKey(s, proposalId));
     setErrorMessage("");
     setStatusMessage("");
     try {
@@ -656,7 +708,7 @@ export function AdminQuickbooksPayouts({
           body: JSON.stringify({ proposalId }),
         }
       );
-      setView(data.view ?? null);
+      applyView(seq, data.view ?? null);
       const apply = (
         data as { result?: { apply?: { outcome?: string } } }
       ).result?.apply;
@@ -672,7 +724,7 @@ export function AdminQuickbooksPayouts({
         error instanceof Error ? error.message : "The apply failed."
       );
     } finally {
-      setDecisionBusy(null);
+      setDecisionBusy((s) => withoutKey(s, proposalId));
     }
   }
 
@@ -711,9 +763,11 @@ export function AdminQuickbooksPayouts({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Payout ledgers and proposed QuickBooks entries.{" "}
-            {view?.mode === "observe" || !view
+            {!view || view.mode === "observe"
               ? "Automation runs in observe mode — nothing is posted to QuickBooks."
-              : "Approval mode — apply posts approved entries to QuickBooks."}
+              : view.mode === "automatic"
+                ? "Automatic mode — verified entries post to QuickBooks without individual approval; the rest stay review-required."
+                : "Approval mode — apply posts approved entries to QuickBooks."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -726,7 +780,7 @@ export function AdminQuickbooksPayouts({
           <Button
             variant="outline"
             size="sm"
-            disabled={syncing !== null || busy !== null}
+            disabled={syncing !== null || busy.size > 0}
             onClick={() => void runSync("recent")}
           >
             {syncing === "recent" ? "Syncing…" : "Sync recent payouts"}
@@ -750,7 +804,7 @@ export function AdminQuickbooksPayouts({
         <Button
           variant="outline"
           size="sm"
-          disabled={syncing !== null || busy !== null || !payoutIdInput.trim()}
+          disabled={syncing !== null || busy.size > 0 || !payoutIdInput.trim()}
           onClick={handleSyncById}
         >
           {syncing === "single" ? "Syncing…" : "Sync payout by ID"}
@@ -895,7 +949,7 @@ export function AdminQuickbooksPayouts({
                   }
                   onApply={(id) => void handleApply(id)}
                   onReprocess={handleReprocess}
-                  busy={busy === payout.payoutId}
+                  busy={busy.has(payout.payoutId)}
                 />
               ))}
             </ul>
