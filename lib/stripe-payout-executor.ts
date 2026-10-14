@@ -228,6 +228,7 @@ async function claimProposal(
             const autoDecision = {
               action: "approve" as const,
               actorUid: "automation",
+              auto: true,
               at: nowIso,
               note: "auto-approved — automatic mode, verified evidence",
               fingerprint: data.materialFingerprint ?? "",

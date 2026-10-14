@@ -938,6 +938,11 @@ export interface QboProposalDecision {
   /** The fingerprint the decision was recorded against — a proposal
    *  whose recomputed fingerprint differs is no longer decided. */
   fingerprint: string;
+  /** True when the system granted this approval under automatic mode.
+   *  An automation approval only stands while the proposal still
+   *  qualifies for unattended execution — the fingerprint binds the
+   *  material facts, not the eligibility that let it skip review. */
+  auto?: boolean;
 }
 
 export interface QboAccountingProposal {
@@ -1080,6 +1085,10 @@ export interface BuildProposalsInput {
    *  recorded as the move proposal's credit leg so an account change
    *  invalidates approvals like any other material fact. */
   undepositedFundsId?: string;
+  /** False when the caller's balance-transaction fetch was truncated —
+   *  the ledger is a partial picture of the payout and aggregate
+   *  proposals must never run unattended on it. */
+  ledgerComplete?: boolean;
 }
 
 // Builds the proposal set for one ledger. Only `eligible`-scope lines can
@@ -1174,15 +1183,26 @@ export function buildPayoutProposals(
     ? ["partial_scope_eligible_lines_only"]
     : [];
 
-  // Aggregate proposals can run unattended only when every eligible
-  // movement in the payout is positively identified (DDB-confirmed or
-  // verified-Ollie) and the whole payout is in scope — an unidentified
-  // or pre-cutover line means a human still has to look at the payout,
-  // so its fee/transfer postings stay manual too.
+  // Aggregate proposals can run unattended only when the ledger is a
+  // complete, internally consistent picture of the payout — untruncated
+  // fetch, balanced totals, single currency — and every charge-side
+  // eligible movement is positively identified (DDB-confirmed or
+  // verified-Ollie). The payout's own debit (`type === "payout"`) is an
+  // account-level line with no match confidence — it is expected on
+  // every paid payout and is never weighed. Any other account-level
+  // movement (adjustment, dispute, unclassified) keeps the aggregates
+  // manual, as does an unidentified or pre-cutover line: a human still
+  // has to look at the payout, so its fee/transfer postings stay manual
+  // too.
+  const autoIdentityLines = eligibleLines.filter(
+    (line) => line.type !== "payout"
+  );
   const aggregateAutoEligible =
-    eligibleLines.length > 0 &&
+    input.ledgerComplete !== false &&
+    ledger.totals.balanced &&
+    autoIdentityLines.length > 0 &&
     !partialScope &&
-    eligibleLines.every(
+    autoIdentityLines.every(
       (line) =>
         line.confidence === "confirmed" || line.confidence === "verified"
     );

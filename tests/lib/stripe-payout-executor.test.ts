@@ -695,6 +695,10 @@ describe("applyPayoutProposal — automatic mode", () => {
       (doc.decision as FakeDoc).actorUid,
       "automation"
     );
+    // The `auto` marker lets a rebuild distinguish system-granted
+    // approvals from human ones — only the former lapse when the
+    // proposal stops qualifying for unattended execution.
+    assert.equal((doc.decision as FakeDoc).auto, true);
     assert.equal((doc.decision as FakeDoc).fingerprint, FP);
   });
 

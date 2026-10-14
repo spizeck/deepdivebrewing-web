@@ -528,12 +528,20 @@ far that pipeline may go:
   the material fingerprint) and run through the same guarded executor.
   `autoEligible` is narrow by construction: a `move_payment_to_clearing`
   qualifies only on a `verified` identifier chain; the fee/transfer
-  aggregates qualify only when every eligible line is `confirmed` or
-  `verified` and no pre-cutover share exists. Suggested/ambiguous
-  matches, blocked mappings, and anything else stay review-required. The
-  manual decision/apply surface works the same in this mode. Enable only
-  after the controlled pilot signs off — production stays `observe`
-  until then.
+  aggregates qualify only when the ledger is complete and internally
+  consistent (untruncated fetch, balanced totals, single currency) and
+  every charge-side eligible line is `confirmed` or `verified` — the
+  payout's own debit is expected and ignored, while any other
+  account-level movement or a pre-cutover share keeps them manual.
+  Suggested/ambiguous matches, blocked mappings, and anything else stay
+  review-required. An `automation`-recorded approval lapses when a
+  rebuild stops qualifying the proposal — it cannot carry forward to
+  manual execution without fresh review. If an unattended apply fails
+  transiently, the payout record keeps `pendingAutoApply: true` so the
+  sweep and manual sync retry it; `refused` outcomes need a human and
+  are not auto-retried. The manual decision/apply surface works the
+  same in this mode. Enable only after the controlled pilot signs off —
+  production stays `observe` until then.
 
 - **Lanes**: each movement is `ddb` (positive application identity — a
   stored charge/PaymentIntent/refund id or `metadata.paymentId`),

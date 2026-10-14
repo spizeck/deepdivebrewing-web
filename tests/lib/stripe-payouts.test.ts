@@ -301,6 +301,7 @@ mock.module("@/lib/qbo-api", {
 
 let stripePayout: FakeDoc | null = null;
 let payoutTxns: FakeDoc[] = [];
+let payoutTxnsTruncated = false;
 const chargeFacts = new Map<string, FakeDoc>();
 // Per-id payout facts for multi-payout sync tests — falls back to
 // `stripePayout` so the single-payout describes keep working.
@@ -327,7 +328,7 @@ mock.module("@/lib/stripe-balance", {
     },
     listStripePayoutTransactions: async () => ({
       txns: payoutTxns,
-      truncated: false,
+      truncated: payoutTxnsTruncated,
     }),
     listRecentStripePayouts: async (input: {
       createdGteSec: number;
@@ -340,6 +341,28 @@ mock.module("@/lib/stripe-balance", {
     },
     fetchStripeChargeFacts: async (id: string) => chargeFacts.get(id) ?? {},
     fetchStripeRefundFacts: async () => ({}),
+  },
+});
+
+// The guarded executor is exercised in its own suite — here it is a
+// stub so the orchestration's automatic-mode pass can be driven to any
+// outcome, including throws.
+const applyCalls: { proposalId: string; auto: boolean }[] = [];
+let applyOutcome = "applied";
+let applyError: Error | null = null;
+mock.module("@/lib/stripe-payout-executor", {
+  namedExports: {
+    applyPayoutProposal: async (input: {
+      proposalId: string;
+      auto?: boolean;
+    }) => {
+      applyCalls.push({
+        proposalId: input.proposalId,
+        auto: input.auto === true,
+      });
+      if (applyError) throw applyError;
+      return { apply: { outcome: applyOutcome } };
+    },
   },
 });
 
@@ -415,6 +438,10 @@ beforeEach(() => {
   loggedErrors.length = 0;
   stripePayout = { ...PAID_PAYOUT };
   payoutTxns = [{ ...CHARGE }];
+  payoutTxnsTruncated = false;
+  applyCalls.length = 0;
+  applyOutcome = "applied";
+  applyError = null;
   chargeFacts.clear();
   payoutFactsById.clear();
   payoutFetchErrors.clear();
@@ -928,6 +955,172 @@ describe("processStripePayoutLedger", () => {
       0
     );
     for (const p of proposals) assert.equal(p.status, "blocked");
+  });
+});
+
+describe("processStripePayoutLedger — automatic mode", () => {
+  function confirmCharge(): void {
+    // DDB identity: the charge source resolves to a `payments` record.
+    collectionStore("payments").set("pay_1", {
+      stripeChargeId: "ch_ollie",
+    });
+  }
+
+  function feeProposal(): [string, FakeDoc] {
+    const entry = [
+      ...collectionStore("qboAccountingProposals").entries(),
+    ].find(([, data]) => data.kind === "stripe_fee_expense");
+    assert.ok(entry, "expected a stripe_fee_expense proposal");
+    return entry as [string, FakeDoc];
+  }
+
+  it("applies auto-eligible aggregates — the payout's own debit does not count against identity", async () => {
+    confirmCharge();
+    accountingMode = "automatic";
+    payoutTxns = [
+      { ...CHARGE },
+      {
+        txnId: "txn_po",
+        type: "payout",
+        grossMinor: -9680,
+        feeMinor: 0,
+        netMinor: -9680,
+        currency: "USD",
+        createdMs: Date.parse("2026-10-15T00:00:00.000Z"),
+      },
+    ];
+    const { processStripePayoutLedger } = await import(
+      "@/lib/stripe-payouts"
+    );
+    await processStripePayoutLedger("po_abc");
+    // Fee and transfer aggregates both qualified for unattended apply.
+    const [, fee] = feeProposal();
+    assert.equal(fee.autoEligible, true);
+    assert.ok(
+      applyCalls.some((c) => c.proposalId === fee.proposalId && c.auto)
+    );
+    const stored = collectionStore("stripePayouts").get("po_abc")!;
+    assert.equal(stored.pendingAutoApply, false);
+  });
+
+  it("persists a retry signal when an automatic apply fails, and a later sync revisits", async () => {
+    confirmCharge();
+    accountingMode = "automatic";
+    applyOutcome = "failed";
+    const { processStripePayoutLedger, syncStripePayouts } = await import(
+      "@/lib/stripe-payouts"
+    );
+    await processStripePayoutLedger("po_abc");
+    const callsAfterFirst = applyCalls.length;
+    assert.ok(callsAfterFirst > 0);
+    const stored = collectionStore("stripePayouts").get("po_abc")!;
+    // The failure is durable — the ledger was stored as fully processed,
+    // so only this flag keeps the payout in the recovery path.
+    assert.equal(stored.pendingAutoApply, true);
+
+    // A subsequent sync sees the payout as not-current and retries the
+    // automatic applies.
+    recentPayouts = [{ ...PAID_PAYOUT }];
+    applyOutcome = "applied";
+    const summary = await syncStripePayouts();
+    assert.equal(summary.alreadyCurrent, 0);
+    assert.equal(summary.processed, 1);
+    assert.ok(applyCalls.length > callsAfterFirst);
+    assert.equal(
+      collectionStore("stripePayouts").get("po_abc")!.pendingAutoApply,
+      false
+    );
+  });
+
+  it("a thrown apply error also persists the retry signal", async () => {
+    confirmCharge();
+    accountingMode = "automatic";
+    applyError = new Error("firestore unavailable");
+    const { processStripePayoutLedger } = await import(
+      "@/lib/stripe-payouts"
+    );
+    await processStripePayoutLedger("po_abc");
+    assert.ok(applyCalls.length > 0);
+    assert.equal(
+      collectionStore("stripePayouts").get("po_abc")!.pendingAutoApply,
+      true
+    );
+  });
+
+  it("does not retry a refused apply — it needs a human", async () => {
+    confirmCharge();
+    accountingMode = "automatic";
+    applyOutcome = "refused";
+    const { processStripePayoutLedger } = await import(
+      "@/lib/stripe-payouts"
+    );
+    await processStripePayoutLedger("po_abc");
+    assert.ok(applyCalls.length > 0);
+    assert.equal(
+      collectionStore("stripePayouts").get("po_abc")!.pendingAutoApply,
+      false
+    );
+  });
+
+  it("invalidates an automation approval when unattended eligibility regresses", async () => {
+    confirmCharge();
+    const { processStripePayoutLedger } = await import(
+      "@/lib/stripe-payouts"
+    );
+    await processStripePayoutLedger("po_abc");
+    const [feeId, fee] = feeProposal();
+    assert.equal(fee.autoEligible, true);
+    // Simulate the decision the executor records when it auto-approves.
+    collectionStore("qboAccountingProposals").set(feeId, {
+      ...fee,
+      status: "approved",
+      decision: {
+        action: "approve",
+        actorUid: "automation",
+        auto: true,
+        at: new Date().toISOString(),
+        fingerprint: fee.materialFingerprint,
+      },
+    });
+    // Rebuild over a truncated ledger: same fee amount and fingerprint,
+    // but the proposal no longer qualifies for unattended execution.
+    payoutTxnsTruncated = true;
+    await processStripePayoutLedger("po_abc");
+    const after = collectionStore("qboAccountingProposals").get(feeId)!;
+    assert.equal(after.autoEligible, false);
+    assert.equal(after.status, "proposed");
+    assert.equal(after.decision, undefined);
+    assert.ok(
+      (after.auditTrail as FakeDoc[]).some((e) =>
+        (e.note as string).includes("no longer qualifies")
+      )
+    );
+  });
+
+  it("keeps a human approval binding the same material facts when eligibility regresses", async () => {
+    confirmCharge();
+    const { processStripePayoutLedger } = await import(
+      "@/lib/stripe-payouts"
+    );
+    await processStripePayoutLedger("po_abc");
+    const [feeId, fee] = feeProposal();
+    collectionStore("qboAccountingProposals").set(feeId, {
+      ...fee,
+      status: "approved",
+      decision: {
+        action: "approve",
+        actorUid: "admin-1",
+        at: new Date().toISOString(),
+        fingerprint: fee.materialFingerprint,
+      },
+    });
+    payoutTxnsTruncated = true;
+    await processStripePayoutLedger("po_abc");
+    const after = collectionStore("qboAccountingProposals").get(feeId)!;
+    // The material facts the human reviewed did not change — the
+    // approval stands; only unattended eligibility is gone.
+    assert.equal(after.status, "approved");
+    assert.equal(after.autoEligible, false);
   });
 });
 

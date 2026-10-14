@@ -641,6 +641,7 @@ export async function processStripePayoutLedger(
     accountNames: mappingView?.entityNames ?? {},
     existingCover,
     undepositedFundsId: ollie.undepositedFundsId,
+    ledgerComplete: !truncated,
   });
 
   // Proposal persistence: deterministic ids make every rewrite idempotent
@@ -744,6 +745,10 @@ export async function processStripePayoutLedger(
       payoutType: payout.type,
       createdMs: payout.createdMs,
       pendingLedger: false,
+      // A full rebuild resolves any outstanding automatic-apply retry —
+      // the post-build apply pass sets this back to true if unattended
+      // work remains.
+      pendingAutoApply: false,
       automationMode: mode,
       totals: ledger.totals,
       laneCounts,
@@ -831,7 +836,22 @@ export async function processStripePayoutLedger(
           typeof liveDecision === "object" && liveDecision !== null
             ? (liveDecision as { fingerprint?: string }).fingerprint
             : undefined;
-        if (approvedFingerprint === proposal.materialFingerprint) {
+        // An automation-granted approval only stands while the proposal
+        // still qualifies for unattended execution. The fingerprint
+        // binds material facts — amount, accounts, references — but not
+        // the evidence tier that let the system approve without review;
+        // a rebuild that loses that eligibility (same fee amount, weaker
+        // identification) must not leave the system approval executable.
+        const automationGranted =
+          typeof liveDecision === "object" &&
+          liveDecision !== null &&
+          ((liveDecision as { auto?: boolean }).auto === true ||
+            (liveDecision as { actorUid?: string }).actorUid ===
+              "automation");
+        if (
+          approvedFingerprint === proposal.materialFingerprint &&
+          (!automationGranted || proposal.autoEligible === true)
+        ) {
           status = "approved";
         } else {
           // The recorded approval no longer binds these material facts —
@@ -842,9 +862,12 @@ export async function processStripePayoutLedger(
           trail.push({
             at: now,
             actor: "system",
-            note: approvedFingerprint
-              ? "material facts changed since approval — approval invalidated, proposal requires a fresh decision"
-              : "approval predates fingerprint binding — proposal requires a fresh decision",
+            note:
+              approvedFingerprint === proposal.materialFingerprint
+                ? "proposal no longer qualifies for unattended execution — automation approval invalidated, requires a fresh decision"
+                : approvedFingerprint
+                  ? "material facts changed since approval — approval invalidated, proposal requires a fresh decision"
+                  : "approval predates fingerprint binding — proposal requires a fresh decision",
           });
         }
       }
@@ -884,6 +907,11 @@ export async function processStripePayoutLedger(
   if (mode === "automatic") {
     let applied = 0;
     let pending = 0;
+    // Outcomes a later pass can still complete: transient executor
+    // failures, uncertain provider results, and claims held by a
+    // still-live lease. `refused` is a gate rejection needing a human —
+    // retrying it automatically would just burn the next sweep.
+    let retryable = 0;
     for (const target of autoTargets) {
       if (
         !target.autoEligible ||
@@ -904,16 +932,39 @@ export async function processStripePayoutLedger(
           applied++;
         } else {
           pending++;
+          if (
+            res.apply.outcome === "failed" ||
+            res.apply.outcome === "uncertain" ||
+            res.apply.outcome === "in_progress"
+          ) {
+            retryable++;
+          }
         }
-      } catch {
+      } catch (error) {
         pending++;
+        retryable++;
+        logError("stripe.payout.auto_apply_failed", error, {
+          payoutId: payout.id,
+          proposalId: target.proposalId,
+        });
       }
+    }
+    // Durable retry signal: a transient failure must not disappear with
+    // the build result. The payout doc carries `pendingAutoApply` so the
+    // sweep and manual sync revisit the payout instead of treating it
+    // as fully processed.
+    if (retryable > 0) {
+      await payoutRef(payout.id).set(
+        { pendingAutoApply: true },
+        { merge: true }
+      );
     }
     if (applied || pending) {
       logInfo("stripe.payout.auto_apply", {
         payoutId: payout.id,
         applied,
         pending,
+        retryable,
       });
     }
   }
@@ -1198,6 +1249,7 @@ function storedPayoutUpToDate(
     stored &&
       stored.status === payout.status &&
       stored.pendingLedger !== true &&
+      stored.pendingAutoApply !== true &&
       typeof stored.lastProcessedAt === "object"
   );
 }
@@ -1223,6 +1275,9 @@ async function persistStripePayoutStatus(
       payoutType: payout.type,
       createdMs: payout.createdMs,
       pendingLedger: false,
+      // A payout that fell out of `paid` has no executable proposals —
+      // clear any outstanding automatic-apply retry flag with it.
+      pendingAutoApply: false,
       lastProcessedAt: FieldValue.serverTimestamp(),
       lastProcessedIso: new Date().toISOString(),
     }),
