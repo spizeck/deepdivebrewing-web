@@ -723,7 +723,11 @@ test("payout accounting panel shows observe mode and expandable detail", async (
 
   // Expand the payout — lines, proposals, and the reprocess action.
   await section.getByRole("button", { name: /po_fixture1/ }).click();
-  await expect(section.getByText("txn_fixture1")).toBeVisible();
+  // The ledger line renders the txn id; proposal rows also cite it as a
+  // source reference, so scope to the line's full text.
+  await expect(
+    section.getByText(/txn_fixture1 · Ollie Payment #1626166/)
+  ).toBeVisible();
   await expect(
     section.getByText("Ollie Payment #1626166").first()
   ).toBeVisible();
