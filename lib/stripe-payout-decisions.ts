@@ -96,6 +96,7 @@ export async function decidePayoutProposal(
       decision?: { action?: string; fingerprint?: string };
       decisions?: Record<string, unknown>[];
       auditTrail?: { at: string; actor: string; note: string }[];
+      execution?: { state?: string; leaseUntilMs?: number };
     };
     if (data.environment !== environment) {
       throw new QboError("Proposal not found.", "validation", 404);
@@ -154,7 +155,23 @@ export async function decidePayoutProposal(
       }
     } else {
       // Rejection is the terminal "do not post" decision — allowed from
-      // any live status so an approved entry can be withdrawn.
+      // any live status so an approved entry can be withdrawn. Except
+      // while an apply holds a live claim lease: the executor is past
+      // its decision checkpoint, so a withdrawal now would let the
+      // entry post and then read as withdrawn. The admin retries once
+      // the attempt finishes or the lease lapses.
+      const execution = data.execution;
+      if (
+        execution?.state === "in_progress" &&
+        typeof execution.leaseUntilMs === "number" &&
+        execution.leaseUntilMs > Date.now()
+      ) {
+        throw new QboError(
+          "An apply is in progress — wait for it to finish before withdrawing the approval.",
+          "validation",
+          409
+        );
+      }
       if (status === "rejected" || status === "applied") {
         throw new QboError(
           `The proposal is already ${status}.`,

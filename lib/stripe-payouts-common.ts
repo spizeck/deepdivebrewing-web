@@ -977,6 +977,10 @@ export interface QboAccountingProposal {
   execution?: {
     state: "in_progress" | "applied" | "failed" | "refused" | "uncertain";
     attempts: number;
+    /** Epoch ms the in-progress claim lease runs to. Lets a reader
+     *  distinguish a genuinely in-flight apply from an interrupted one
+     *  whose lease already lapsed — the latter is safe to retry. */
+    leaseUntilMs?: number;
     startedAt?: string;
     updatedAt?: string;
     errorCode?: string;
