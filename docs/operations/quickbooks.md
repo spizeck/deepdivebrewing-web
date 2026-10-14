@@ -553,8 +553,8 @@ far that pipeline may go:
     `PaymentRefNum`; Stripe `Invoice #N` ↔ `DocNumber`. Extraction is
     namespace-strict — only labeled refs or namespaced metadata keys
     count; a bare `#1234` never cross-matches order/invoice/payment
-    spaces. `verified` is the tier a future execution path may act on
-    (still requires apply-time revalidation — not implemented).
+    spaces. `verified` is the only tier the executor's `autoEligible`
+    path may act on — and still only after apply-time revalidation.
   - `suggested` — amount/currency/window/uniqueness evidence only, or
     an identity hit whose customer name disagrees. **Review-only,
     forever** — circumstantial evidence is never execution-grade.
@@ -602,7 +602,7 @@ far that pipeline may go:
   resolved Undeposited Funds account), Stripe/QBO refs, verified
   identity refs, and evidence. The request must carry
   `expectedFingerprint` — the fingerprint the reviewer saw; a rebuild
-  between render and click returns 409 instead of deciding on unseen
+  between render and click returns 409 instead of approving unseen
   facts, and a proposal without a fingerprint (predating the binding)
   refuses decisions until a rebuild stamps one. A rebuild that changes
   any material fact drops an `approved` proposal back to its freshly

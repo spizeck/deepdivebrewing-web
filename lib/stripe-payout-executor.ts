@@ -224,16 +224,23 @@ async function claimProposal(
 
     tx.update(ref, {
       ...(autoApproved
-        ? {
-            status: "approved",
-            decision: {
-              action: "approve",
+        ? (() => {
+            const autoDecision = {
+              action: "approve" as const,
               actorUid: "automation",
               at: nowIso,
               note: "auto-approved — automatic mode, verified evidence",
-              fingerprint: data.materialFingerprint,
-            },
-          }
+              fingerprint: data.materialFingerprint ?? "",
+            };
+            return {
+              status: "approved",
+              decision: autoDecision,
+              decisions: [
+                ...(Array.isArray(data.decisions) ? data.decisions : []),
+                autoDecision,
+              ].slice(-20),
+            };
+          })()
         : {}),
       execution: {
         state: "in_progress",
