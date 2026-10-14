@@ -34,6 +34,41 @@ const LANE_LABELS: Record<string, string> = {
   account_level: "Account-level",
 };
 
+const CONFIDENCE_VARIANT: Record<
+  string,
+  "default" | "secondary" | "outline" | "destructive"
+> = {
+  confirmed: "default",
+  verified: "default",
+  suggested: "secondary",
+  ambiguous: "destructive",
+  unmatched: "outline",
+};
+
+// Human-readable labels for the matcher's short evidence codes — the
+// codes are the stored vocabulary; the labels explain why a line is
+// verified, suggested (review-only), or excluded.
+const EVIDENCE_LABELS: Record<string, string> = {
+  exact_amount: "exact amount",
+  currency_match: "currency match",
+  currency_unverified: "currency unverified",
+  date_in_window: "date in window",
+  date_unverified: "date unverified",
+  application_identity: "application identity",
+  identity_match: "shared identifier",
+  identity_disambiguated: "identifier disambiguated",
+  identifier_conflict: "identifier conflict",
+  multiple_identity_matches: "multiple identity matches",
+  customer_consistent: "customer name consistent",
+  customer_mismatch: "customer name differs",
+  identifier_unverified: "Stripe identifier unmatched",
+  no_identifier_evidence: "no identifier evidence",
+  ollie_reference_only: "Ollie ref only — review-only",
+  refund_not_reclassifiable: "refund — not reclassifiable",
+  foreign_currency: "foreign currency",
+  multiple_candidates: "multiple candidates",
+};
+
 const PROPOSAL_LABELS: Record<QboAccountingProposal["kind"], string> = {
   move_payment_to_clearing: "Move payment to Stripe Clearing",
   stripe_fee_expense: "Record Stripe fees",
@@ -169,6 +204,9 @@ function PayoutCard({
         <span className="text-xs text-muted-foreground">
           {payout.matchedPayments} matched · {payout.unmatchedMovements}{" "}
           unmatched · {payout.proposalCount} proposals
+          {payout.staleCount > 0
+            ? ` (${payout.proposalCount - payout.staleCount} live · ${payout.staleCount} stale)`
+            : ""}
           {payout.exceptionsCount > 0
             ? ` · ${payout.exceptionsCount} exceptions`
             : ""}
@@ -228,6 +266,15 @@ function PayoutCard({
                     <Badge variant="secondary">
                       {LANE_LABELS[line.lane] ?? line.lane}
                     </Badge>{" "}
+                    {line.confidence !== "none" && (
+                      <Badge
+                        variant={
+                          CONFIDENCE_VARIANT[line.confidence] ?? "outline"
+                        }
+                      >
+                        {line.confidence}
+                      </Badge>
+                    )}{" "}
                     <span className="text-muted-foreground">
                       {line.txnId}
                       {line.scope === "pre_cutover" ? " · pre-cutover" : ""}
@@ -236,7 +283,17 @@ function PayoutCard({
                         : ""}
                       {line.qboPaymentRef ? ` · ${line.qboPaymentRef}` : ""}
                       {line.customerName ? ` · ${line.customerName}` : ""}
+                      {line.identityRefs?.length
+                        ? ` · id ${line.identityRefs.join(", ")}`
+                        : ""}
                     </span>
+                    {line.evidence.length > 0 && (
+                      <span className="block text-muted-foreground/80">
+                        {line.evidence
+                          .map((code) => EVIDENCE_LABELS[code] ?? code)
+                          .join(" · ")}
+                      </span>
+                    )}
                   </span>
                   <span className="font-medium">
                     {money({ amountMinor: line.netMinor, currency: line.currency })}

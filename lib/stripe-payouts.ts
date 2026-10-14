@@ -14,6 +14,7 @@ import { getQuickBooksAccessToken } from "@/lib/qbo-tokens";
 import { getQboMappingView } from "@/lib/qbo-mapping";
 import {
   findQboUndepositedFundsAccount,
+  queryQboInvoices,
   queryQboPayments,
   queryQboReconActivity,
 } from "@/lib/qbo-api";
@@ -34,10 +35,12 @@ import {
   buildDdbPaymentIndex,
   buildPayoutLedger,
   buildPayoutProposals,
+  ollieIdentityFromChargeFacts,
   STRIPE_PAYOUT_LEDGER_TRIGGERS,
   STRIPE_PAYOUTS_COLLECTION,
   QBO_ACCOUNTING_PROPOSALS_COLLECTION,
   type BuiltPayoutLedger,
+  type OllieStripeIdentity,
   type PayoutException,
   type QboAccountingProposal,
   type QboUndepositedPayment,
@@ -95,6 +98,10 @@ export const PAYOUT_SWEEP_MAX_PROCESS = 5;
 // record a payment days before or after the Stripe charge settles.
 const OLLIE_SCAN_LEAD_DAYS = 45;
 const OLLIE_SCAN_LAG_DAYS = 7;
+// Invoice DocNumber resolution for Ollie matching is bounded: at most
+// this many linked invoice ids per payout, in IN-clause chunks.
+const INVOICE_LOOKUP_MAX_IDS = 150;
+const INVOICE_ID_CHUNK = 50;
 
 // Cross-payout claim lookup: `in` queries cap at 30 values (Firestore).
 const CLAIMS_IN_CHUNK = 30;
@@ -284,7 +291,11 @@ async function enrichChargeSources(
   const knownPaymentIds = new Set(records.map((record) => record.paymentId));
   const resolved = new Map<
     string,
-    { paymentIntentId?: string; paymentId?: string }
+    {
+      paymentIntentId?: string;
+      paymentId?: string;
+      ollieIdentity?: OllieStripeIdentity;
+    }
   >();
   let budget = CHARGE_ENRICHMENT_BUDGET;
   for (const txn of txns) {
@@ -303,6 +314,7 @@ async function enrichChargeSources(
       resolved.set(source, {
         paymentIntentId: facts.paymentIntentId,
         paymentId: facts.paymentId,
+        ollieIdentity: ollieIdentityFromChargeFacts(facts),
       });
       // The app writes `metadata.paymentId` at session creation — when it
       // resolves to a stored payments doc that record joins the identity
@@ -398,6 +410,42 @@ async function fetchOllieLeg(
         memo: payment.memo,
         linkedTxnIds: payment.linkedTxnIds,
       }));
+
+    // Resolve the DocNumber of every invoice the candidates link to —
+    // the invoice number equals the Ollie order number, which is the
+    // Stripe-side identifier that can verify a match. Bounded: the
+    // lookup scans at most INVOICE_LOOKUP_MAX_IDS ids in IN-clause
+    // chunks, and a lookup failure degrades to suggested-only matching
+    // rather than failing the leg.
+    const linkedIds = [
+      ...new Set(candidates.flatMap((payment) => payment.linkedTxnIds)),
+    ].slice(0, INVOICE_LOOKUP_MAX_IDS);
+    try {
+      const docByInvoiceId = new Map<string, string>();
+      for (let i = 0; i < linkedIds.length; i += INVOICE_ID_CHUNK) {
+        const invoices = await queryQboInvoices({
+          ...token,
+          environment,
+          ids: linkedIds.slice(i, i + INVOICE_ID_CHUNK),
+        });
+        for (const invoice of invoices) {
+          if (invoice.docNumber) docByInvoiceId.set(invoice.id, invoice.docNumber);
+        }
+      }
+      for (const payment of candidates) {
+        const docNumbers = payment.linkedTxnIds
+          .map((id) => docByInvoiceId.get(id))
+          .filter((doc): doc is string => Boolean(doc));
+        if (docNumbers.length) payment.linkedDocNumbers = docNumbers;
+      }
+    } catch (error) {
+      // Supplementary evidence only — matching continues on
+      // amount/date/refNumber, just without the invoice-order chain.
+      logWarn("stripe.payout.invoice_lookup_failed", {
+        environment,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     // Payments another payout's live proposals already claim — a payment
     // must never appear on two payouts' proposal sets. Query claims by the
@@ -815,6 +863,9 @@ function toPayoutView(
     ).length,
     blockedCount: proposalsArr.filter(
       (p) => (p as { status?: string }).status === "blocked"
+    ).length,
+    staleCount: proposalsArr.filter(
+      (p) => (p as { status?: string }).status === "stale"
     ).length,
     lastProcessedAt:
       typeof data.lastProcessedIso === "string"

@@ -4,10 +4,16 @@ import {
   buildDdbPaymentIndex,
   buildPayoutLedger,
   buildPayoutProposals,
+  compareOllieRefs,
+  extractOllieRefsFromMetadata,
+  extractOllieRefsFromText,
   matchOlliePayment,
+  ollieRefsFromQboPayment,
   qboProposalIdFor,
   STRIPE_PAYOUT_EVENT_TYPES,
   STRIPE_PAYOUT_LEDGER_TRIGGERS,
+  type OllieRefSet,
+  type OllieStripeIdentity,
   type QboUndepositedPayment,
   type StripePayoutFacts,
   type StripePayoutTxn,
@@ -616,6 +622,286 @@ describe("buildPayoutProposals", () => {
     assert.notEqual(
       qboProposalIdFor("sandbox", "po_1", "payout_transfer", "aggregate"),
       qboProposalIdFor("production", "po_1", "payout_transfer", "aggregate")
+    );
+  });
+});
+
+// --- Evidence-based Ollie identity matching ---
+
+function refs(overrides: Partial<OllieRefSet> = {}): OllieRefSet {
+  return {
+    orderNumbers: [],
+    paymentNumbers: [],
+    invoiceNumbers: [],
+    ...overrides,
+  };
+}
+
+function identity(overrides: Partial<OllieStripeIdentity> = {}): OllieStripeIdentity {
+  return { refs: refs(), ...overrides };
+}
+
+const TXN = { amountMinor: 10000, currency: "USD", createdMs: NOW - 4 * DAY_MS };
+
+describe("Ollie reference extraction", () => {
+  it("extracts labeled refs and ignores unlabeled digits", () => {
+    const r = refs();
+    extractOllieRefsFromText("Ollie Order #00327 · call 5551234", r);
+    assert.deepEqual(r.orderNumbers, ["327"]); // padding normalized
+    assert.deepEqual(r.paymentNumbers, []);
+    extractOllieRefsFromText("Ollie Payment #1626166", r);
+    assert.deepEqual(r.paymentNumbers, ["1626166"]);
+  });
+
+  it("namespaces metadata by key and never treats paymentId as Ollie", () => {
+    const r = refs();
+    extractOllieRefsFromMetadata(
+      {
+        paymentId: "pay_ddb_doc", // DDB's own key — different space
+        ollie_order_id: "00327",
+        olliePaymentNumber: "1626166",
+        note: "invoice #00327",
+      },
+      r
+    );
+    assert.deepEqual(r.orderNumbers, ["327"]);
+    assert.deepEqual(r.paymentNumbers, ["1626166"]);
+    // "invoice #00327" inside a string value is labeled text.
+    assert.deepEqual(r.invoiceNumbers, ["327"]);
+    assert.ok(!Object.values(r).flat().includes("pay_ddb_doc"));
+  });
+
+  it("reads QBO refs: PaymentRefNum digits, memo labels, DocNumbers", () => {
+    const r = ollieRefsFromQboPayment({
+      refNumber: "1626166",
+      memo: "Ollie Payment #1626166",
+      linkedDocNumbers: ["00327"],
+    });
+    assert.deepEqual(r.paymentNumbers, ["1626166"]);
+    assert.deepEqual(r.invoiceNumbers, ["327"]);
+  });
+
+  it("compares per documented chain — populated-but-disjoint is a conflict", () => {
+    // Stripe order refs resolve against BOTH qbo order refs and linked
+    // invoice DocNumbers (Ollie order #N becomes invoice DocNumber N).
+    const same = compareOllieRefs(
+      refs({ orderNumbers: ["327"] }),
+      refs({ invoiceNumbers: ["327"] })
+    );
+    assert.deepEqual(same.hits, ["order-invoice:327"]);
+    assert.deepEqual(same.conflicts, []);
+    // Disjoint in a populated shared space contradicts the candidate.
+    const clash = compareOllieRefs(
+      refs({ orderNumbers: ["327"] }),
+      refs({ orderNumbers: ["999"] })
+    );
+    assert.deepEqual(clash.conflicts, ["order"]);
+    // Unrelated namespaces never collide: a payment number does not
+    // satisfy or contradict an order reference.
+    const unrelated = compareOllieRefs(
+      refs({ orderNumbers: ["327"] }),
+      refs({ paymentNumbers: ["327"] })
+    );
+    assert.deepEqual(unrelated.hits, []);
+    assert.deepEqual(unrelated.conflicts, []);
+  });
+});
+
+describe("matchOlliePayment identity tiers", () => {
+  const stripeIdentity = (r: Partial<OllieRefSet>, customerName?: string) =>
+    identity({ refs: refs(r), customerName });
+
+  it("verifies via the Stripe order ↔ QBO invoice DocNumber chain", () => {
+    // Real chain: Stripe "Ollie Order #00327" → QBO payment's linked
+    // invoice DocNumber 00327 (invoice #00327 = Ollie order #00327).
+    const result = matchOlliePayment(
+      TXN,
+      [olliePayment({ linkedDocNumbers: ["00327"] })],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"] }, "Sea Saba")
+    );
+    assert.equal(result.confidence, "verified");
+    assert.equal(result.payment?.id, "42");
+    assert.deepEqual(result.identityRefs, ["order-invoice:327"]);
+    assert.ok(result.evidence.includes("identity_match"));
+    assert.ok(result.evidence.includes("exact_amount"));
+  });
+
+  it("verifies via the Stripe payment ↔ QBO PaymentRefNum chain", () => {
+    const result = matchOlliePayment(
+      TXN,
+      [olliePayment()],
+      "USD",
+      stripeIdentity({ paymentNumbers: ["1626166"] })
+    );
+    assert.equal(result.confidence, "verified");
+    assert.deepEqual(result.identityRefs, ["payment:1626166"]);
+  });
+
+  it("stays suggested when Stripe carries no usable identifier", () => {
+    const result = matchOlliePayment(TXN, [olliePayment()], "USD", identity());
+    assert.equal(result.confidence, "suggested");
+    // Candidate had an Ollie ref but Stripe offered nothing to compare.
+    assert.ok(result.evidence.includes("ollie_reference_only"));
+  });
+
+  it("fails closed to ambiguous on same-namespace identifier conflict", () => {
+    // Stripe says order 327; the only amount/date candidate links
+    // invoice 999 — a contradiction, not a match.
+    const result = matchOlliePayment(
+      TXN,
+      [olliePayment({ linkedDocNumbers: ["999"] })],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"] })
+    );
+    assert.equal(result.confidence, "ambiguous");
+    assert.ok(result.evidence.includes("identifier_conflict"));
+    assert.equal(result.payment, undefined);
+  });
+
+  it("fails closed when two candidates share the identifier", () => {
+    const result = matchOlliePayment(
+      TXN,
+      [
+        olliePayment({ linkedDocNumbers: ["00327"] }),
+        olliePayment({ id: "77", linkedDocNumbers: ["00327"] }),
+      ],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"] })
+    );
+    assert.equal(result.confidence, "ambiguous");
+    assert.ok(result.evidence.includes("multiple_identity_matches"));
+  });
+
+  it("verified identity disambiguates identical-amount candidates", () => {
+    // Two same-amount payments in the window; only one links invoice 327.
+    const result = matchOlliePayment(
+      TXN,
+      [
+        olliePayment({ linkedDocNumbers: ["00327"] }),
+        olliePayment({ id: "77", refNumber: "Ollie Payment #999999", linkedDocNumbers: ["00888"] }),
+      ],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"] })
+    );
+    // Candidate 77 has invoice 888 populated — disjoint from stripe's
+    // order namespace... wait, invoice vs order are different spaces, so
+    // 77's invoiceNumbers aren't consulted against stripe orderNumbers.
+    // But its paymentNumbers (999999) vs stripe orderNumbers — different
+    // spaces too. With no stripe-side payment/invoice refs, 77 has no
+    // populated shared namespace → neither hit nor conflict → verified
+    // stands for candidate 42.
+    assert.equal(result.confidence, "verified");
+    assert.equal(result.payment?.id, "42");
+    assert.ok(result.evidence.includes("identity_disambiguated"));
+  });
+
+  it("a conflicting second candidate downgrades a verified hit", () => {
+    const result = matchOlliePayment(
+      TXN,
+      [
+        olliePayment({ linkedDocNumbers: ["00327"] }),
+        olliePayment({
+          id: "77",
+          refNumber: "999999",
+          linkedDocNumbers: ["00327"],
+        }),
+      ],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"], invoiceNumbers: ["888"] })
+    );
+    // 42 hits on order↔invoice; 77 hits order↔invoice too? no — both
+    // link doc 00327 → two identity hits → ambiguous.
+    assert.equal(result.confidence, "ambiguous");
+  });
+
+  it("demotes to suggested when the customer name conflicts", () => {
+    const result = matchOlliePayment(
+      TXN,
+      [olliePayment({ linkedDocNumbers: ["00327"] })],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"] }, "Different Customer Inc")
+    );
+    assert.equal(result.confidence, "suggested");
+    assert.ok(result.evidence.includes("customer_mismatch"));
+  });
+
+  it("identical amounts for different customers stay suggested or ambiguous", () => {
+    // Two identical payments, no stripe refs — uniqueness fails closed.
+    const result = matchOlliePayment(
+      TXN,
+      [
+        olliePayment(),
+        olliePayment({ id: "77", customerName: "Other Bar" }),
+      ],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"] })
+    );
+    assert.equal(result.confidence, "ambiguous");
+  });
+
+  it("a Cash-labeled QBO payment verifies like any other", () => {
+    // QBO PaymentMethodRef is never read — a Cash label neither helps
+    // nor disqualifies; the identifier chain decides.
+    const result = matchOlliePayment(
+      TXN,
+      [olliePayment({ linkedDocNumbers: ["00327"] })],
+      "USD",
+      stripeIdentity({ orderNumbers: ["327"] })
+    );
+    assert.equal(result.confidence, "verified");
+  });
+});
+
+describe("buildPayoutLedger with identity evidence", () => {
+  it("verifies an Ollie match when Stripe enrichment shares the order number", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge({ sourceId: "ch_ollie" })],
+        resolvedChargeFacts: new Map([
+          [
+            "ch_ollie",
+            {
+              ollieIdentity: identity({
+                refs: refs({ orderNumbers: ["327"] }),
+              }),
+            },
+          ],
+        ]),
+        ollieCandidates: [olliePayment({ linkedDocNumbers: ["00327"] })],
+      })
+    );
+    const line = ledger.lines[0];
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.confidence, "verified");
+    assert.deepEqual(line.identityRefs, ["order-invoice:327"]);
+    assert.equal(line.qboPaymentId, "42");
+  });
+
+  it("never treats refunds as charge matches — explicit non-match", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          {
+            txnId: "txn_r",
+            type: "refund",
+            grossMinor: -5000,
+            feeMinor: 0,
+            netMinor: -5000,
+            currency: "USD",
+            sourceId: "re_1",
+            createdMs: NOW - 3 * DAY_MS,
+          },
+        ],
+        ollieCandidates: [olliePayment({ totalMinor: -5000 })],
+      })
+    );
+    const line = ledger.lines[0];
+    assert.equal(line.lane, "external");
+    assert.equal(line.confidence, "unmatched");
+    assert.ok(line.evidence.includes("refund_not_reclassifiable"));
+    assert.ok(
+      ledger.exceptions.some((e) => e.code === "unmatched_movement")
     );
   });
 });

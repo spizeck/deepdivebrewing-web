@@ -19,6 +19,8 @@ import {
   qboQueryRowCount,
   qboReconActivityQuery,
   qboUndepositedFundsQuery,
+  canonicalizeQboInvoices,
+  qboInvoicesByIdsQuery,
   qboSalesReceiptCorrelationQuery,
   qboSalesReceiptRowCount,
   QBO_QUERY_MAX_PAGES,
@@ -26,6 +28,7 @@ import {
   QBO_REQUEST_TIMEOUT_MS,
   toQboError,
   type QboAccountBalance,
+  type QboInvoiceFacts,
   type QboPaymentFacts,
   type QboReconActivityEntity,
   type QboReconActivityEntry,
@@ -406,6 +409,54 @@ export async function queryQboPayments(input: {
     correlationId,
   });
   return { rows, truncated };
+}
+
+// Bounded Invoice read by id for the payout-matching engine: resolves
+// the DocNumber of each invoice a candidate payment links to, which is
+// the invoice number — equal to the Ollie order number. Read-only.
+export async function queryQboInvoices(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  ids: string[];
+}): Promise<QboInvoiceFacts[]> {
+  if (input.ids.length === 0) return [];
+  const rows: QboInvoiceFacts[] = [];
+  let correlationId: string | undefined;
+  for (let page = 0; page < QBO_QUERY_MAX_PAGES; page++) {
+    const result = await qboApiFetch({
+      environment: input.environment,
+      realmId: input.realmId,
+      accessToken: input.accessToken,
+      url: buildQboQueryUrl(
+        input.environment,
+        input.realmId,
+        qboInvoicesByIdsQuery(
+          input.ids,
+          page * QBO_QUERY_PAGE_SIZE + 1,
+          QBO_QUERY_PAGE_SIZE
+        )
+      ),
+    });
+    correlationId ??= result.correlationId;
+    rows.push(...canonicalizeQboInvoices(result.payload));
+    const response =
+      typeof result.payload === "object" && result.payload !== null
+        ? (result.payload as Record<string, unknown>).QueryResponse
+        : undefined;
+    const rowCount =
+      typeof response === "object" && response !== null
+        ? ((response as Record<string, unknown>).Invoice as unknown[] | undefined)?.length ?? 0
+        : 0;
+    if (rowCount < QBO_QUERY_PAGE_SIZE) break;
+  }
+  logInfo("qbo.api.invoices", {
+    environment: input.environment,
+    ids: input.ids.length,
+    rows: rows.length,
+    correlationId,
+  });
+  return rows;
 }
 
 // Discovers the company's Undeposited Funds account (Ollie's global
