@@ -809,6 +809,7 @@ export async function processStripePayoutLedger(
         computedEntry,
       ];
       let status = proposal.status;
+      let clearDecision = false;
       const liveStatus = live.status;
       if (liveStatus === "rejected" || liveStatus === "applied") {
         status = liveStatus;
@@ -821,6 +822,11 @@ export async function processStripePayoutLedger(
         if (approvedFingerprint === proposal.materialFingerprint) {
           status = "approved";
         } else {
+          // The recorded approval no longer binds these material facts —
+          // clear the current `decision` so the doc can't read as
+          // "proposed but approved". `decisions[]` still keeps the
+          // superseded record.
+          clearDecision = true;
           trail.push({
             at: now,
             actor: "system",
@@ -837,6 +843,7 @@ export async function processStripePayoutLedger(
           status,
           computedAt: FieldValue.serverTimestamp(),
           auditTrail: trail.slice(-20),
+          ...(clearDecision ? { decision: FieldValue.delete() } : {}),
         }),
         { merge: true }
       );

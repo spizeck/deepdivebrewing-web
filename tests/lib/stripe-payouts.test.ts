@@ -27,10 +27,15 @@ class FakeTimestamp {
   }
 }
 
+const DELETE_FIELD = Symbol("firestore.deleteField");
+
 mock.module("firebase-admin/firestore", {
   namedExports: {
     FieldPath: { documentId: () => "__name__" },
-    FieldValue: { serverTimestamp: () => SERVER_TS },
+    FieldValue: {
+      serverTimestamp: () => SERVER_TS,
+      delete: () => DELETE_FIELD,
+    },
     Timestamp: FakeTimestamp,
   },
 });
@@ -130,6 +135,17 @@ interface FakeDocRef {
   __id?: string;
 }
 
+// Merge writes honoring the FieldValue.delete() sentinel — a shallow
+// spread would store the marker instead of removing the key.
+function mergeInto(coll: Map<string, FakeDoc>, id: string, data: FakeDoc) {
+  const next: FakeDoc = { ...coll.get(id) };
+  for (const [key, value] of Object.entries(data)) {
+    if (value === DELETE_FIELD) delete next[key];
+    else next[key] = value;
+  }
+  coll.set(id, next);
+}
+
 const fakeDb = {
   collection: makeCollection,
   batch: () => ({
@@ -140,8 +156,7 @@ const fakeDb = {
         data,
       });
       if (opts?.merge && ref.__coll && ref.__id) {
-        const coll = collectionStore(ref.__coll);
-        coll.set(ref.__id, { ...coll.get(ref.__id), ...data });
+        mergeInto(collectionStore(ref.__coll), ref.__id, data);
       } else if (ref.__coll && ref.__id) {
         collectionStore(ref.__coll).set(ref.__id, data);
       }
@@ -173,14 +188,14 @@ const fakeDb = {
       },
       set: (ref: FakeDocRef, data: FakeDoc, opts?: { merge?: boolean }) => {
         const coll = collectionStore(ref.__coll ?? "");
-        coll.set(
-          ref.__id ?? "",
-          opts?.merge ? { ...coll.get(ref.__id ?? ""), ...data } : data
-        );
+        if (opts?.merge) {
+          mergeInto(coll, ref.__id ?? "", data);
+        } else {
+          coll.set(ref.__id ?? "", data);
+        }
       },
       update: (ref: FakeDocRef, data: FakeDoc) => {
-        const coll = collectionStore(ref.__coll ?? "");
-        coll.set(ref.__id ?? "", { ...coll.get(ref.__id ?? ""), ...data });
+        mergeInto(collectionStore(ref.__coll ?? ""), ref.__id ?? "", data);
       },
       create: (ref: FakeDocRef, data: FakeDoc) => {
         collectionStore(ref.__coll ?? "").set(ref.__id ?? "", data);
@@ -658,7 +673,7 @@ describe("processStripePayoutLedger", () => {
     const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
     const stored = collectionStore("qboAccountingProposals").get(moveId)!;
     stored.status = "approved";
-    stored.decision = {
+    const approval = {
       action: "approve",
       actorUid: "admin-1",
       at: "2026-10-15T00:00:00.000Z",
@@ -666,6 +681,8 @@ describe("processStripePayoutLedger", () => {
         stored as Parameters<typeof proposalMaterialFingerprint>[0]
       ),
     };
+    stored.decision = approval;
+    stored.decisions = [approval];
     // The clearing account mapping changes between builds — the debit
     // leg is materially different, so the prior approval cannot stand.
     mappingView = {
@@ -685,12 +702,11 @@ describe("processStripePayoutLedger", () => {
         (t.note as string).includes("approval invalidated")
       )
     );
-    // The decision record is preserved as history — it documents who
-    // approved which fingerprint even though the status reverted.
-    assert.equal(
-      (proposal.decision as FakeDoc).actorUid,
-      "admin-1"
-    );
+    // The current decision is cleared — a reverted proposal must not
+    // carry a stale approve binding — while `decisions` keeps the
+    // superseded record durably.
+    assert.equal(proposal.decision, undefined);
+    assert.deepEqual(proposal.decisions, [approval]);
   });
 
   it("downgrades a legacy approved proposal with no fingerprint", async () => {
