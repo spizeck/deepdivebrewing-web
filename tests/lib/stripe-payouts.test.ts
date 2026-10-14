@@ -250,6 +250,8 @@ mock.module("@/lib/qbo-mapping", {
 });
 
 let qboPayments: FakeDoc[] = [];
+let qboInvoices: FakeDoc[] = [];
+let qboInvoiceError: Error | null = null;
 let reconActivity: FakeDoc[] = [];
 let ufAccount: { id: string; name: string } | null = {
   id: "uf-1",
@@ -263,6 +265,10 @@ mock.module("@/lib/qbo-api", {
       rows: qboPayments,
       truncated: false,
     }),
+    queryQboInvoices: async ({ ids }: { ids: string[] }) => {
+      if (qboInvoiceError) throw qboInvoiceError;
+      return qboInvoices.filter((inv) => ids.includes(inv.id as string));
+    },
     queryQboReconActivity: async ({ entity }: { entity: string }) => ({
       rows: reconActivity.filter((r) => r.entityType === entity),
       truncated: false,
@@ -398,6 +404,8 @@ beforeEach(() => {
   stripeConfigured = true;
   stripeTestMode = true;
   qboPayments = [{ ...OLLIE_PAYMENT }];
+  qboInvoices = [{ id: "inv-1", docNumber: "00327" }];
+  qboInvoiceError = null;
   reconActivity = [];
   ufAccount = { id: "uf-1", name: "Undeposited Funds" };
   accountingMode = "observe";
@@ -526,6 +534,86 @@ describe("processStripePayoutLedger", () => {
     assert.equal(line.confidence, "ambiguous");
     const exceptions = doc.exceptions as FakeDoc[];
     assert.ok(exceptions.some((e) => e.code === "ambiguous_match"));
+  });
+
+  it("verifies via Stripe order ref ↔ linked invoice DocNumber", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // Ollie's Stripe charge description names the order; the QBO
+    // payment's linked invoice DocNumber carries the same number —
+    // the documented #00327 → #00327 chain.
+    chargeFacts.set("ch_ollie", {
+      description: "Ollie Order #00327",
+      billingName: "Sea Saba",
+    });
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const line = (doc.lines as FakeDoc[])[0];
+    assert.equal(line.confidence, "verified");
+    assert.deepEqual(line.identityRefs, ["order-invoice:327"]);
+    assert.equal(line.qboPaymentId, "42");
+    // Verified lines still generate proposals — observe-only, but now
+    // backed by identity evidence, not just amount+date.
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.ok(
+      proposals.some((p) => p.kind === "move_payment_to_clearing")
+    );
+  });
+
+  it("verifies via Stripe metadata payment number ↔ PaymentRefNum", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    chargeFacts.set("ch_ollie", {
+      metadata: { olliePaymentNumber: "1626166" },
+    });
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const line = (doc.lines as FakeDoc[])[0];
+    assert.equal(line.confidence, "verified");
+    assert.deepEqual(line.identityRefs, ["payment:1626166"]);
+  });
+
+  it("fails closed when the Stripe ref contradicts the QBO payment", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // Stripe says order #00399; the only amount/date candidate links
+    // invoice #00327 — contradictory identifiers, never a match.
+    chargeFacts.set("ch_ollie", { description: "Ollie Order #00399" });
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const line = (doc.lines as FakeDoc[])[0];
+    assert.equal(line.confidence, "ambiguous");
+    assert.ok(
+      (doc.exceptions as FakeDoc[]).some((e) => e.code === "ambiguous_match")
+    );
+    // And no executable artifact is produced for the line.
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.equal(
+      proposals.some((p) => p.kind === "move_payment_to_clearing"),
+      false
+    );
+  });
+
+  it("stays suggested when Stripe carries no Ollie identifiers", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    chargeFacts.set("ch_ollie", { description: "Card payment" });
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const line = (doc.lines as FakeDoc[])[0];
+    assert.equal(line.confidence, "suggested");
+    assert.equal(line.qboPaymentId, "42");
+  });
+
+  it("survives a linked-invoice lookup failure — suggests, never crashes", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    chargeFacts.set("ch_ollie", {
+      description: "Ollie Order #00327",
+    });
+    qboInvoiceError = new Error("qbo invoice query failed");
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const line = (doc.lines as FakeDoc[])[0];
+    // Without DocNumbers the order↔invoice chain cannot be evaluated —
+    // the match degrades to circumstantial, not verified.
+    assert.equal(line.confidence, "suggested");
+    assert.equal(doc.qboAvailable, true);
   });
 
   it("preserves a decided proposal status across rebuilds", async () => {

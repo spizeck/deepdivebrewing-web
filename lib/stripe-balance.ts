@@ -297,12 +297,21 @@ export async function fetchStripeBalanceTotals(
 }
 
 // Charge facts used for enrichment attribution: the PaymentIntent the
-// charge belongs to and the `metadata.paymentId` the payment tool writes
-// at session creation (propagated onto the PaymentIntent; charge-level
-// copies are read defensively when present).
+// charge belongs to, the `metadata.paymentId` the payment tool writes at
+// session creation (propagated onto the PaymentIntent; charge-level
+// copies are read defensively when present), and the descriptive fields
+// Ollie may annotate when it runs the charge — description, statement
+// descriptor, and string-valued metadata — so the matcher can extract
+// namespaced Ollie references (order/payment/invoice numbers). Raw
+// charge objects never leave this module; metadata passes through only
+// as a string map for ref extraction and is never persisted verbatim.
 export async function fetchStripeChargeFacts(chargeId: string): Promise<{
   paymentIntentId?: string;
   paymentId?: string;
+  description?: string;
+  statementDescriptor?: string;
+  billingName?: string;
+  metadata?: Record<string, string>;
 }> {
   let charge: Record<string, unknown>;
   try {
@@ -314,6 +323,18 @@ export async function fetchStripeChargeFacts(chargeId: string): Promise<{
   }
   const pi = charge.payment_intent;
   const metadata = charge.metadata;
+  const billing =
+    typeof charge.billing_details === "object" && charge.billing_details !== null
+      ? (charge.billing_details as Record<string, unknown>)
+      : undefined;
+  const metadataStrings: Record<string, string> = {};
+  if (metadata && typeof metadata === "object") {
+    for (const [key, value] of Object.entries(
+      metadata as Record<string, unknown>
+    )) {
+      if (typeof value === "string") metadataStrings[key] = value;
+    }
+  }
   return {
     paymentIntentId:
       typeof pi === "string"
@@ -322,11 +343,20 @@ export async function fetchStripeChargeFacts(chargeId: string): Promise<{
           ? (pi as { id: string }).id
           : undefined,
     paymentId:
-      metadata &&
-      typeof metadata === "object" &&
-      typeof (metadata as Record<string, unknown>).paymentId === "string"
-        ? ((metadata as Record<string, unknown>).paymentId as string)
+      typeof metadataStrings.paymentId === "string"
+        ? metadataStrings.paymentId
         : undefined,
+    description:
+      typeof charge.description === "string" ? charge.description : undefined,
+    statementDescriptor:
+      typeof charge.statement_descriptor === "string"
+        ? charge.statement_descriptor
+        : undefined,
+    billingName:
+      typeof billing?.name === "string" ? billing.name : undefined,
+    metadata: Object.keys(metadataStrings).length
+      ? metadataStrings
+      : undefined,
   };
 }
 

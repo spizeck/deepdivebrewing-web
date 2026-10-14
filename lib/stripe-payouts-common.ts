@@ -15,11 +15,14 @@
 //   - A Stripe movement is DDB-owned when an application-issued
 //     identifier (charge id, PaymentIntent id, refund id, or the
 //     `metadata.paymentId` the payment tool writes) proves it.
-//   - An Ollie-owned movement is *suggested* only by a unique
-//     Undeposited-Funds QBO payment matching exact amount (+currency when
-//     QBO reports one) inside a bounded date window. Amount+date alone
-//     can never auto-post — it yields a proposal for review, nothing
-//     more. Multiple candidates or none at all become exceptions.
+//   - An Ollie-owned movement is *verified* when a namespaced identifier
+//     chain proves identity — e.g. a Stripe-side "Ollie Order #00327"
+//     matching the linked QBO invoice's DocNumber, or an Ollie payment
+//     number matching the QBO PaymentRefNum — inside the amount/currency/
+//     window gates. *Suggested* is a unique amount+date candidate with no
+//     identifier evidence — review-grade, never execution-grade.
+//     Conflicting identifiers or several plausible payments fail closed
+//     to `ambiguous`; nothing unmatched is ever proposed.
 //   - Everything else is external/unmatched and never proposed.
 
 import type { QboEnvironment } from "@/lib/qbo-common";
@@ -117,6 +120,10 @@ export interface QboUndepositedPayment {
   memo?: string;
   /** Invoice/txn ids the payment applies to. */
   linkedTxnIds: string[];
+  /** DocNumbers of the linked invoices, resolved by a follow-up Invoice
+   *  read — the invoice number equals the Ollie order number (verified
+   *  against real records: Ollie order #00327 → QBO invoice #00327). */
+  linkedDocNumbers?: string[];
 }
 
 // --- Matching ---
@@ -131,8 +138,11 @@ export type PayoutLane = "ddb" | "ollie" | "external" | "account_level";
 
 export type MatchConfidence =
   | "confirmed" // id-linked (DDB payments record)
+  | "verified" // Ollie path + shared namespaced identifier (order↔invoice
+  //            DocNumber, payment↔PaymentRefNum, invoice↔DocNumber) —
+  //            the only tier that can ever qualify for unattended posting
   | "suggested" // unique amount/date Ollie candidate — review-grade, never auto-posts
-  | "ambiguous" // multiple candidates — exception
+  | "ambiguous" // multiple candidates or conflicting identifiers — exception
   | "unmatched" // no candidate — exception
   | "none"; // account-level movement — matching does not apply
 
@@ -147,10 +157,14 @@ export interface StripePayoutLine extends StripePayoutTxn {
   scope: LineScope;
   /** DDB `payments` document id when positively identified. */
   paymentId?: string;
-  /** Matched Ollie payment (confidence "suggested" only). */
+  /** Matched Ollie payment (confidence "suggested"/"verified" only). */
   qboPaymentId?: string;
   qboPaymentRef?: string;
   customerName?: string;
+  /** Namespaced identifiers that proved a verified match, e.g.
+   *  "order:327" — namespace plus normalized digits, stable across
+   *  padding differences. */
+  identityRefs?: string[];
   /** Short evidence codes explaining the classification. */
   evidence: string[];
 }
@@ -215,20 +229,232 @@ function qboDateMs(txnDate: string | undefined): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
+// --- Ollie reference extraction ---
+//
+// Shared identifiers that can corroborate a Stripe⇄Ollie identity. Every
+// reference is *namespaced* — an Ollie order number, an Ollie payment
+// number, and a QBO invoice DocNumber are different numbering spaces that
+// must never cross-match. Only *labeled* text counts as a reference:
+// `Ollie Order #00327` yields order "327", but a bare `#00327` yields
+// nothing — the label is what makes the digit string trustworthy.
+export interface OllieRefSet {
+  /** Ollie order numbers (Stripe descriptions/metadata). */
+  orderNumbers: string[];
+  /** Ollie payment numbers (QBO PaymentRefNum, "Ollie Payment #…"). */
+  paymentNumbers: string[];
+  /** Invoice numbers (QBO linked-invoice DocNumbers, Stripe invoice refs). */
+  invoiceNumbers: string[];
+}
+
+export const EMPTY_OLLIE_REFS: OllieRefSet = {
+  orderNumbers: [],
+  paymentNumbers: [],
+  invoiceNumbers: [],
+};
+
+const REF_DIGITS = /^\d{3,12}$/;
+
+// Normalize a digit string for comparison — Ollie zero-pads order numbers
+// ("00327"), so "00327" and "327" are the same reference.
+function normalizeOllieRef(raw: string): string | null {
+  const digits = raw.trim();
+  if (!REF_DIGITS.test(digits)) return null;
+  return String(parseInt(digits, 10));
+}
+
+const LABELED_REF_PATTERNS: {
+  key: keyof OllieRefSet;
+  re: RegExp;
+}[] = [
+  { key: "orderNumbers", re: /\border\s*#?\s*(\d{3,12})\b/gi },
+  { key: "paymentNumbers", re: /\bpayment\s*#?\s*(\d{3,12})\b/gi },
+  { key: "invoiceNumbers", re: /\binvoice\s*#?\s*(\d{3,12})\b/gi },
+];
+
+function addRef(refs: OllieRefSet, key: keyof OllieRefSet, raw: string) {
+  const norm = normalizeOllieRef(raw);
+  if (norm && !refs[key].includes(norm)) refs[key].push(norm);
+}
+
+// Labeled references inside free text (Stripe charge descriptions,
+// statement descriptors, QBO memos). Unlabeled digit runs are ignored —
+// an unlabeled "#1626166" could be an order, a payment, or a phone
+// fragment, and guessing wrong is how false identities happen.
+export function extractOllieRefsFromText(text: string, refs: OllieRefSet) {
+  for (const { key, re } of LABELED_REF_PATTERNS) {
+    re.lastIndex = 0;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      addRef(refs, key, m[1]);
+    }
+  }
+}
+
+// Metadata keys that name a namespace directly (Ollie writes keys like
+// `order_id`/`orderNumber`; our own `paymentId`/`paymentIntent` keys are
+// DDB/Stripe identifiers in a different space and are never Ollie refs).
+const METADATA_KEY_NAMESPACES: Record<string, keyof OllieRefSet> = {
+  order: "orderNumbers",
+  orderid: "orderNumbers",
+  ordernumber: "orderNumbers",
+  ollieorder: "orderNumbers",
+  ollieorderid: "orderNumbers",
+  ollieordernumber: "orderNumbers",
+  invoice: "invoiceNumbers",
+  invoiceid: "invoiceNumbers",
+  invoicenumber: "invoiceNumbers",
+  ollieinvoice: "invoiceNumbers",
+  ollieinvoiceid: "invoiceNumbers",
+  ollieinvoicenumber: "invoiceNumbers",
+  olliepayment: "paymentNumbers",
+  olliepaymentid: "paymentNumbers",
+  olliepaymentnumber: "paymentNumbers",
+  paymentnumber: "paymentNumbers",
+  paymentref: "paymentNumbers",
+  paymentreference: "paymentNumbers",
+};
+
+export function extractOllieRefsFromMetadata(
+  metadata: Record<string, string>,
+  refs: OllieRefSet
+) {
+  for (const [key, value] of Object.entries(metadata)) {
+    // Text inside the value may itself carry labeled refs.
+    extractOllieRefsFromText(value, refs);
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const ns = METADATA_KEY_NAMESPACES[normalizedKey];
+    if (ns) addRef(refs, ns, value);
+  }
+}
+
+// The Stripe side of an Ollie identity attempt — enrichment facts plus
+// the extracted reference set. `billingName` is used for conflict
+// evidence only; it is never authoritative and never persisted on lines.
+export interface OllieStripeIdentity {
+  refs: OllieRefSet;
+  customerName?: string;
+}
+
+// Extracts every namespaced Ollie reference a Stripe charge carries.
+// Only labeled text and namespaced metadata keys count — unlabeled
+// numbers never become identity evidence.
+export function ollieIdentityFromChargeFacts(facts: {
+  description?: string;
+  statementDescriptor?: string;
+  metadata?: Record<string, string>;
+  billingName?: string;
+}): OllieStripeIdentity {
+  const refs: OllieRefSet = {
+    orderNumbers: [],
+    paymentNumbers: [],
+    invoiceNumbers: [],
+  };
+  if (facts.description) extractOllieRefsFromText(facts.description, refs);
+  if (facts.statementDescriptor) {
+    extractOllieRefsFromText(facts.statementDescriptor, refs);
+  }
+  if (facts.metadata) extractOllieRefsFromMetadata(facts.metadata, refs);
+  return { refs, customerName: facts.billingName };
+}
+
+// A QBO payment's namespaced references: PaymentRefNum is the Ollie
+// payment reference (the field's own semantics label it — bare digits
+// count here), the memo carries labeled "Ollie Payment/Order #…" refs,
+// and linkedDocNumbers are invoice numbers by construction.
+export function ollieRefsFromQboPayment(
+  payment: Pick<QboUndepositedPayment, "refNumber" | "memo" | "linkedDocNumbers">
+): OllieRefSet {
+  const refs: OllieRefSet = {
+    orderNumbers: [],
+    paymentNumbers: [],
+    invoiceNumbers: [],
+  };
+  if (payment.refNumber) {
+    extractOllieRefsFromText(payment.refNumber, refs);
+    if (
+      refs.paymentNumbers.length === 0 &&
+      refs.orderNumbers.length === 0 &&
+      refs.invoiceNumbers.length === 0
+    ) {
+      // Bare digits in PaymentRefNum are still the Ollie payment number.
+      addRef(refs, "paymentNumbers", payment.refNumber);
+    }
+  }
+  if (payment.memo) extractOllieRefsFromText(payment.memo, refs);
+  for (const doc of payment.linkedDocNumbers ?? []) {
+    // DocNumber can be padded ("00327") or prefixed ("INV-00327") — the
+    // trailing digit run is the invoice number.
+    const runs = doc.match(/\d{3,12}/g);
+    if (runs) addRef(refs, "invoiceNumbers", runs[runs.length - 1]);
+  }
+  return refs;
+}
+
+// Namespaced comparison across the documented identity chains. Ollie
+// order #N becomes QBO invoice DocNumber N, so Stripe `order` refs are
+// compared against BOTH the payment's order refs and its linked-invoice
+// DocNumbers; `invoice` ↔ DocNumber and `payment` ↔ PaymentRefNum are
+// direct. A chain populated on BOTH sides must intersect (hit) or it
+// contradicts the candidate (conflict); empty on either side contributes
+// nothing — absence is not a conflict.
+export function compareOllieRefs(
+  stripe: OllieRefSet,
+  qbo: OllieRefSet
+): { hits: string[]; conflicts: string[] } {
+  const hits: string[] = [];
+  const conflicts: string[] = [];
+  const chains: [keyof OllieRefSet, keyof OllieRefSet, string][] = [
+    ["orderNumbers", "orderNumbers", "order"],
+    ["orderNumbers", "invoiceNumbers", "order-invoice"],
+    ["invoiceNumbers", "invoiceNumbers", "invoice"],
+    ["paymentNumbers", "paymentNumbers", "payment"],
+  ];
+  const conflicted = new Set<string>();
+  for (const [stripeKey, qboKey, label] of chains) {
+    const s = stripe[stripeKey];
+    const q = qbo[qboKey];
+    if (!s.length || !q.length) continue;
+    const shared = s.filter((v) => q.includes(v));
+    if (shared.length) {
+      hits.push(...shared.map((v) => `${label}:${v}`));
+    } else {
+      conflicted.add(label);
+    }
+  }
+  // A hit on one leg of a chain namespace pairing does not excuse a
+  // disjoint counterpart — report each distinct conflicted chain once.
+  conflicts.push(...conflicted);
+  return { hits, conflicts };
+}
+
+function hasAnyRef(refs: OllieRefSet): boolean {
+  return (
+    refs.orderNumbers.length > 0 ||
+    refs.paymentNumbers.length > 0 ||
+    refs.invoiceNumbers.length > 0
+  );
+}
+
 // Matches ONE charge-shaped balance transaction against the QBO payments
 // still sitting in Undeposited Funds. The candidate set must already be
 // UF-filtered and must exclude payments claimed by other payouts. Amount
 // and date are evidence, never identity — a unique hit is "suggested",
-// proposed for review only.
+// proposed for review only. A namespaced shared identifier (order↔
+// invoice DocNumber, payment↔PaymentRefNum, invoice↔DocNumber) on a
+// single conflict-free candidate upgrades it to "verified" — the tier an
+// execution path may eventually act on. Conflicting identifiers or
+// multiple identity hits fail closed to "ambiguous".
 export function matchOlliePayment(
   txn: { amountMinor: number; currency: string; createdMs?: number },
   candidates: QboUndepositedPayment[],
-  payoutCurrency: string
+  payoutCurrency: string,
+  identity?: OllieStripeIdentity
 ): {
-  confidence: Exclude<MatchConfidence, "confirmed">;
+  confidence: Exclude<MatchConfidence, "confirmed" | "none">;
   payment?: QboUndepositedPayment;
   candidateIds: string[];
   evidence: string[];
+  /** Namespaced identifier hits (`order:327`) for verified matches. */
+  identityRefs?: string[];
 } {
   if (txn.currency !== payoutCurrency) {
     return {
@@ -258,19 +484,114 @@ export function matchOlliePayment(
     // disqualify — uniqueness still gates the suggestion.
     return true;
   });
+  const baseEvidence = (payment: QboUndepositedPayment): string[] => [
+    "exact_amount",
+    payment.currency ? "currency_match" : "currency_unverified",
+    chargeMs !== null && qboDateMs(payment.txnDate) !== null
+      ? "date_in_window"
+      : "date_unverified",
+  ];
+
+  // Identity pass — namespaced references can upgrade a candidate to
+  // `verified` or veto it to `ambiguous`, but never soften the
+  // amount/currency/window gates above.
+  if (identity && hasAnyRef(identity.refs) && matching.length > 0) {
+    const hits: {
+      payment: QboUndepositedPayment;
+      identityRefs: string[];
+    }[] = [];
+    let conflicts = 0;
+    for (const candidate of matching) {
+      const cmp = compareOllieRefs(
+        identity.refs,
+        ollieRefsFromQboPayment(candidate)
+      );
+      if (cmp.hits.length > 0 && cmp.conflicts.length === 0) {
+        hits.push({ payment: candidate, identityRefs: cmp.hits });
+      } else if (cmp.conflicts.length > 0) {
+        conflicts += 1;
+      }
+    }
+    // Two+ identity hits means the identifier cannot distinguish them —
+    // fail closed. A conflict on a NON-hit candidate merely excludes a
+    // look-alike (another order's same-amount payment); it does not veto
+    // a clean hit. But when NOTHING hits and at least one candidate
+    // actively contradicts, identity evidence exists and disagrees —
+    // that is ambiguous, not "suggested".
+    if (hits.length > 1 || (hits.length === 0 && conflicts > 0)) {
+      return {
+        confidence: "ambiguous",
+        candidateIds: matching.map((candidate) => candidate.id),
+        evidence: [
+          hits.length > 1
+            ? "multiple_identity_matches"
+            : "identifier_conflict",
+        ],
+      };
+    }
+    if (hits.length === 1) {
+      const hit = hits[0];
+      const evidence = [...baseEvidence(hit.payment), "identity_match"];
+      // Customer agreement corroborates; a mismatch demotes the hit —
+      // identifiers proved which payment this is, but a different
+      // customer on it warrants human eyes before it counts as verified.
+      const stripeName = identity.customerName?.trim().toLowerCase();
+      const qboName = hit.payment.customerName?.trim().toLowerCase();
+      const customerConflict = Boolean(stripeName && qboName && stripeName !== qboName);
+      if (customerConflict) {
+        evidence.push("customer_mismatch");
+        return {
+          confidence: "suggested",
+          payment: hit.payment,
+          candidateIds: [hit.payment.id],
+          evidence,
+          identityRefs: hit.identityRefs,
+        };
+      }
+      if (stripeName && qboName) evidence.push("customer_consistent");
+      if (matching.length > 1) evidence.push("identity_disambiguated");
+      return {
+        confidence: "verified",
+        payment: hit.payment,
+        candidateIds: [hit.payment.id],
+        evidence,
+        identityRefs: hit.identityRefs,
+      };
+    }
+    // Stripe carried references but no candidate shares or contradicts
+    // them — fall through to circumstantial matching, flagged.
+    if (matching.length === 1) {
+      const payment = matching[0];
+      const qboRefs = ollieRefsFromQboPayment(payment);
+      return {
+        confidence: "suggested",
+        payment,
+        candidateIds: [payment.id],
+        evidence: [
+          ...baseEvidence(payment),
+          hasAnyRef(qboRefs)
+            ? "identifier_unverified"
+            : "no_identifier_evidence",
+        ],
+      };
+    }
+    return {
+      confidence: "ambiguous",
+      candidateIds: matching.map((candidate) => candidate.id),
+      evidence: ["multiple_candidates"],
+    };
+  }
+
   if (matching.length === 1) {
     const payment = matching[0];
+    const evidence = baseEvidence(payment);
+    const qboRefs = ollieRefsFromQboPayment(payment);
+    if (hasAnyRef(qboRefs)) evidence.push("ollie_reference_only");
     return {
       confidence: "suggested",
       payment,
       candidateIds: [payment.id],
-      evidence: [
-        "exact_amount",
-        ...(payment.currency ? ["currency_match"] : ["currency_unverified"]),
-        ...(chargeMs !== null && qboDateMs(payment.txnDate) !== null
-          ? ["date_in_window"]
-          : ["date_unverified"]),
-      ],
+      evidence,
     };
   }
   if (matching.length > 1) {
@@ -323,10 +644,15 @@ export interface BuildPayoutLedgerInput {
   txns: StripePayoutTxn[];
   ddbIndex: DdbPaymentIndex;
   /** Enrichment results for unresolved charge sources: sourceId →
-   *  owning PaymentIntent / application payment id. */
+   *  owning PaymentIntent / application payment id plus the extracted
+   *  Ollie-side identity references for the matcher. */
   resolvedChargeFacts: ReadonlyMap<
     string,
-    { paymentIntentId?: string; paymentId?: string }
+    {
+      paymentIntentId?: string;
+      paymentId?: string;
+      ollieIdentity?: OllieStripeIdentity;
+    }
   >;
   /** UF-filtered QBO payments not claimed by another payout. */
   ollieCandidates: QboUndepositedPayment[];
@@ -387,6 +713,7 @@ export function buildPayoutLedger(
     let qboPaymentId: string | undefined;
     let qboPaymentRef: string | undefined;
     let customerName: string | undefined;
+    let identityRefs: string[] | undefined;
 
     const foreign = txn.currency !== payoutCurrency;
     if (foreign) {
@@ -447,7 +774,22 @@ export function buildPayoutLedger(
         confidence = "confirmed";
         paymentId = ddbHit;
         evidence.push("application_identity");
-      } else if (isChargeBucket(txn.type) || isRefundBucket(txn.type)) {
+      } else if (isRefundBucket(txn.type)) {
+        // Refunds are never reclassified through an Undeposited-Funds
+        // payment — a negative movement can never equal a positive QBO
+        // payment, and splitting or netting them is not attempted. They
+        // are reported as exceptions so the payout review is complete.
+        lane = "external";
+        confidence = "unmatched";
+        evidence.push("refund_not_reclassifiable");
+        exceptions.push({
+          code: "unmatched_movement",
+          ref: txn.txnId,
+          detail:
+            "Refund — Stripe refunds are never reclassified through Ollie payments; review manually.",
+          amountMinor: txn.grossMinor,
+        });
+      } else if (isChargeBucket(txn.type)) {
         const available = input.ollieCandidates.filter(
           (candidate) =>
             !input.claimedPaymentIds.has(candidate.id) &&
@@ -460,23 +802,33 @@ export function buildPayoutLedger(
             createdMs: txn.createdMs,
           },
           available,
-          payoutCurrency
+          payoutCurrency,
+          enriched?.ollieIdentity
         );
         evidence.push(...match.evidence);
         confidence = match.confidence;
-        if (match.confidence === "suggested" && match.payment) {
+        if (
+          (match.confidence === "suggested" ||
+            match.confidence === "verified") &&
+          match.payment
+        ) {
           lane = "ollie";
           qboPaymentId = match.payment.id;
           qboPaymentRef =
             match.payment.refNumber ?? match.payment.memo ?? undefined;
           customerName = match.payment.customerName;
+          if (match.identityRefs?.length) identityRefs = match.identityRefs;
           claimed.add(match.payment.id);
         } else if (match.confidence === "ambiguous") {
           lane = "external";
           exceptions.push({
             code: "ambiguous_match",
             ref: txn.txnId,
-            detail: `${match.candidateIds.length} undeposited QuickBooks payments match amount and window — no reclassification proposed.`,
+            detail: match.evidence.includes("identifier_conflict")
+            ? "Identifier evidence conflicts between the Stripe charge and the candidate payment(s) — no reclassification proposed."
+            : match.evidence.includes("multiple_identity_matches")
+              ? "More than one undeposited QuickBooks payment shares an Ollie identifier with this charge — no reclassification proposed."
+              : `${match.candidateIds.length} undeposited QuickBooks payments match amount and window — no reclassification proposed.`,
             amountMinor: txn.grossMinor,
           });
         } else {
@@ -521,6 +873,7 @@ export function buildPayoutLedger(
       qboPaymentId,
       qboPaymentRef,
       customerName,
+      identityRefs,
       evidence,
     });
   }
@@ -655,7 +1008,7 @@ export function buildPayoutProposals(
   for (const line of ledger.lines) {
     if (
       line.lane !== "ollie" ||
-      line.confidence !== "suggested" ||
+      (line.confidence !== "suggested" && line.confidence !== "verified") ||
       !line.qboPaymentId
     ) {
       continue;
@@ -814,6 +1167,9 @@ export interface StripePayoutView {
   proposalCount: number;
   proposedCount: number;
   blockedCount: number;
+  /** Proposals a rebuild no longer produces — review history, never
+   *  executable. */
+  staleCount: number;
   lastProcessedAt?: string;
   linesTruncated: boolean;
   /** Stored balance-transaction lines (cap 200) for the expandable

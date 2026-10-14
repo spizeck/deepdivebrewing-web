@@ -520,10 +520,38 @@ classifies every movement, and persists deterministic QuickBooks
 
 - **Lanes**: each movement is `ddb` (positive application identity — a
   stored charge/PaymentIntent/refund id or `metadata.paymentId`),
-  `ollie` (a *unique* Undeposited-Funds QBO payment matching exact
-  amount + currency within ±14 days — evidence only, never identity),
-  `external` (no match — Stripe activity outside DDB/Ollie), or
-  `account_level` (fees, adjustments — never matched).
+  `ollie` (matched to an Undeposited-Funds QBO payment — see the
+  confidence tiers below), `external` (no match — Stripe activity
+  outside DDB/Ollie, including refunds which are never reclassified
+  through payments), or `account_level` (fees, adjustments, the
+  payout's own debit — never matched).
+- **Match confidence** on Ollie lanes — an explicit evidence
+  hierarchy, displayed per line in the admin panel:
+  - `verified` — a namespaced identifier chain corroborates the match
+    *and* the usual gates hold (exact amount in minor units, currency,
+    ±14-day window, UF-only, unique, unclaimed). Chains: Stripe
+    `Ollie Order #N` (description/metadata) ↔ the candidate's linked
+    QBO invoice `DocNumber` (Ollie order *N* becomes invoice *N*);
+    Stripe `Ollie Payment #N`/`olliePaymentNumber` ↔ QBO
+    `PaymentRefNum`; Stripe `Invoice #N` ↔ `DocNumber`. Extraction is
+    namespace-strict — only labeled refs or namespaced metadata keys
+    count; a bare `#1234` never cross-matches order/invoice/payment
+    spaces. `verified` is the tier a future execution path may act on
+    (still requires apply-time revalidation — not implemented).
+  - `suggested` — amount/currency/window/uniqueness evidence only, or
+    an identity hit whose customer name disagrees. **Review-only,
+    forever** — circumstantial evidence is never execution-grade.
+  - `ambiguous` — multiple candidates share the amount/window, or
+    identifier evidence conflicts (Stripe says order *N*, the sole
+    candidate links invoice *M*), or two candidates share an
+    identifier. Fails closed: no proposal is generated for the line.
+    A conflicting *non-hit* candidate (another order's same-amount
+    payment) does not veto a clean single hit — it is simply excluded.
+  - `unmatched` — no plausible candidate.
+  - QBO `PaymentMethodRef` is never read — Ollie labels everything
+    `Cash` regardless of the real rail, so it is evidence of nothing.
+    Customer-name similarity corroborates but never proves identity; a
+    mismatch demotes a would-be `verified` hit to `suggested`.
 - **Computed net / balanced**: Stripe's payout transaction list also
   returns the payout's *own debit* (`type: "payout"`) — it stays visible
   as an account-level line but is excluded from the net sum, or every

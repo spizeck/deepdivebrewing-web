@@ -1136,6 +1136,54 @@ export function canonicalizeQboPayments(
   return out;
 }
 
+// Bounded Invoice read by id — resolves the DocNumber of each invoice a
+// candidate payment links to. The DocNumber is the invoice number, which
+// equals the Ollie order number (verified against real records), giving
+// the matcher its Stripe-order↔QBO-invoice identity chain. Read-only.
+export interface QboInvoiceFacts {
+  id: string;
+  docNumber?: string;
+}
+
+export function qboInvoicesByIdsQuery(
+  ids: string[],
+  startPosition?: number,
+  maxResults?: number
+): string {
+  const safe = ids
+    .map((id) => `'${id.replace(/[^0-9A-Za-z-]/g, "")}'`)
+    .join(",");
+  return `select Id, DocNumber from Invoice where Id in (${safe}) orderby Id startposition ${startPosition ?? 1} maxresults ${maxResults ?? QBO_QUERY_PAGE_SIZE}`;
+}
+
+export function canonicalizeQboInvoices(payload: unknown): QboInvoiceFacts[] {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>).Invoice
+      : undefined;
+  if (!Array.isArray(rows)) return [];
+  const out: QboInvoiceFacts[] = [];
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const r = row as Record<string, unknown>;
+    const id =
+      typeof r.Id === "string" || typeof r.Id === "number"
+        ? String(r.Id)
+        : "";
+    if (!id) continue;
+    out.push({
+      id,
+      docNumber:
+        typeof r.DocNumber === "string" ? r.DocNumber : undefined,
+    });
+  }
+  return out;
+}
+
 // Locates the company's Undeposited Funds account — Ollie's global
 // deposit target and the account payments move *out of* when they are
 // reclassified to Stripe Clearing. Fail-closed: zero or several hits
