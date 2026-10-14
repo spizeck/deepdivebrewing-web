@@ -565,8 +565,9 @@ classifies every movement, and persists deterministic QuickBooks
   account), and *payout transfer* (clearing → the mapped payout
   account). Missing mappings produce `blocked` proposals; a manually
   entered fee journal or transfer covering the exact amount suppresses
-  the proposal. Proposals the accountant has approved/rejected keep
-  their decision while they still recompute. Proposals a rebuild stops
+  the proposal. A stored decision carries forward only while the
+  proposal's material fingerprint still matches (see **Decisions**
+  below). Proposals a rebuild stops
   producing (a line went pre-cutover, a match resolved elsewhere) are
   marked `stale` — kept as review history, never live: that includes
   previously `approved` ones (the prior status is retained in the audit

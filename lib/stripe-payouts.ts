@@ -667,7 +667,6 @@ export async function processStripePayoutLedger(
   const writes: { ref: DocumentReference; data: Record<string, unknown> }[] =
     [];
   const now = new Date().toISOString();
-  const existingIds = new Set(existingDocs.map((doc) => doc.id));
 
   // Proposals that no longer recompute (e.g. a line went pre-cutover, a
   // match resolved elsewhere) are stale — not deleted, which would erase
@@ -694,31 +693,16 @@ export async function processStripePayoutLedger(
     }
     staleTargets.push(doc.id);
   }
-  // Proposals that already have a stored doc are updated in per-document
-  // transactions instead of batch writes: a decision committed after the
-  // `existingDocs` snapshot must not be overwritten by a rebuild working
-  // from stale state. Fresh proposals cannot have a decision in flight
-  // (the decision endpoint requires the doc to exist), so they batch.
-  const existingProposals: QboAccountingProposal[] = [];
+  // Every proposal write runs in a per-document transaction that re-reads
+  // live state: a decision committed after the `existingDocs` snapshot — or
+  // a doc created and decided by a concurrent build — must not be
+  // overwritten by a rebuild working from stale state.
+  const mergeProposals: QboAccountingProposal[] = [...proposals];
   const computedEntry = {
     at: now,
     actor: "system",
     note: `computed in ${mode} mode`,
   };
-  for (const proposal of proposals) {
-    if (existingIds.has(proposal.proposalId)) {
-      existingProposals.push(proposal);
-      continue;
-    }
-    writes.push({
-      ref: proposalsCollection().doc(proposal.proposalId),
-      data: deepOmitUndefined({
-        ...proposal,
-        computedAt: FieldValue.serverTimestamp(),
-        auditTrail: [computedEntry],
-      }),
-    });
-  }
 
   const lines = ledger.lines.slice(0, STORED_LINE_LIMIT);
   const laneCounts = { ddb: 0, ollie: 0, external: 0, accountLevel: 0 };
@@ -813,7 +797,7 @@ export async function processStripePayoutLedger(
   // its computed status (`proposed`, or `blocked` when the rebuild's
   // mapping no longer resolves) and needs a fresh approval. Terminal
   // statuses (`rejected`, `applied`) are never touched.
-  for (const proposal of existingProposals) {
+  for (const proposal of mergeProposals) {
     const ref = proposalsCollection().doc(proposal.proposalId);
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);

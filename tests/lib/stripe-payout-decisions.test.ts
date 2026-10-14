@@ -138,6 +138,7 @@ describe("decidePayoutProposal", () => {
     const { decidePayoutProposal } = await import(
       "@/lib/stripe-payout-decisions"
     );
+    const before = JSON.stringify(store.get(PROPOSAL_ID));
     const result = await decidePayoutProposal({
       proposalId: PROPOSAL_ID,
       action: "approve",
@@ -146,6 +147,8 @@ describe("decidePayoutProposal", () => {
     });
     assert.equal(result.changed, false);
     assert.equal(result.status, "approved");
+    // An exact replay must not touch the stored decision or audit trail.
+    assert.equal(JSON.stringify(store.get(PROPOSAL_ID)), before);
   });
 
   it("requires the fingerprint that was actually reviewed", async () => {
