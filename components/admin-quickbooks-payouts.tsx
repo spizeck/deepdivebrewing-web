@@ -152,7 +152,11 @@ function ProposalRow({
   /** Server still gates every action — this only controls visibility. */
   decisionsEnabled: boolean;
   busy: boolean;
-  onDecide: (proposalId: string, action: "approve" | "reject", note?: string) => void;
+  onDecide: (
+    proposal: QboAccountingProposal,
+    action: "approve" | "reject",
+    note?: string
+  ) => void;
   onApply: (proposalId: string) => void;
 }) {
   const [note, setNote] = useState("");
@@ -235,7 +239,7 @@ function ProposalRow({
               size="sm"
               disabled={busy || inFlight}
               onClick={() =>
-                onDecide(proposal.proposalId, "approve", note || undefined)
+                onDecide(proposal, "approve", note || undefined)
               }
             >
               Approve
@@ -247,7 +251,7 @@ function ProposalRow({
               size="sm"
               disabled={busy || inFlight}
               onClick={() =>
-                onDecide(proposal.proposalId, "reject", note || undefined)
+                onDecide(proposal, "reject", note || undefined)
               }
             >
               {proposal.status === "approved" ? "Withdraw" : "Reject"}
@@ -297,7 +301,11 @@ function PayoutCard({
   proposals: QboAccountingProposal[];
   decisionsEnabled: boolean;
   decisionBusy: string | null;
-  onDecide: (proposalId: string, action: "approve" | "reject", note?: string) => void;
+  onDecide: (
+    proposal: QboAccountingProposal,
+    action: "approve" | "reject",
+    note?: string
+  ) => void;
   onApply: (proposalId: string) => void;
   onReprocess: (payoutId: string) => void;
   busy: boolean;
@@ -599,11 +607,11 @@ export function AdminQuickbooksPayouts({
   // Decisions + apply both return a refreshed view — the server remains
   // the authority on every state transition.
   async function handleDecide(
-    proposalId: string,
+    proposal: QboAccountingProposal,
     action: "approve" | "reject",
     note?: string
   ) {
-    setDecisionBusy(proposalId);
+    setDecisionBusy(proposal.proposalId);
     setErrorMessage("");
     setStatusMessage("");
     try {
@@ -611,7 +619,16 @@ export function AdminQuickbooksPayouts({
         "/api/admin/quickbooks/payouts/proposals",
         {
           method: "POST",
-          body: JSON.stringify({ proposalId, action, note }),
+          // The fingerprint the reviewer saw — the server compares it
+          // against the live proposal so a rebuild between render and
+          // click cannot turn the decision into an approval of unseen
+          // facts.
+          body: JSON.stringify({
+            proposalId: proposal.proposalId,
+            action,
+            note,
+            expectedFingerprint: proposal.materialFingerprint ?? "",
+          }),
         }
       );
       setView(data.view ?? null);
