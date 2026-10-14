@@ -18,7 +18,10 @@ import {
   queryQboPayments,
   queryQboReconActivity,
 } from "@/lib/qbo-api";
-import { QBO_RECON_ACTIVITY_ENTITIES } from "@/lib/qbo-protocol";
+import {
+  QBO_RECON_ACTIVITY_ENTITIES,
+  qboFeeEntryMarker,
+} from "@/lib/qbo-protocol";
 import {
   fetchStripePayout,
   fetchStripeChargeFacts,
@@ -554,6 +557,12 @@ async function detectExistingCover(
     const coveredHistoricalFeeAmounts = new Set(
       [ledger.totals.feesMinor, preCutoverFeesMinor].filter((n) => n > 0)
     );
+    // On a straddling payout the two shares post under disjoint marker
+    // namespaces — an entry stamped with one share's marker must not
+    // read as coverage for the other share, even when the amounts
+    // coincide. Unmarked (manual) entries count for either.
+    const eligibleFeeMarker = qboFeeEntryMarker(payout.id);
+    const historicalFeeMarker = qboFeeEntryMarker(payout.id, true);
     let hasFeeEntry = false;
     let hasTransferEntry = false;
     let hasHistoricalFeeEntry = false;
@@ -566,8 +575,16 @@ async function detectExistingCover(
         );
         if (feeLeg) {
           const feeAmount = Math.abs(feeLeg.amountMinor);
-          if (coveredFeeAmounts.has(feeAmount)) hasFeeEntry = true;
-          if (coveredHistoricalFeeAmounts.has(feeAmount)) {
+          const memo = entry.memo ?? "";
+          const markedEligible = memo.includes(eligibleFeeMarker);
+          const markedHistorical = memo.includes(historicalFeeMarker);
+          if (!markedHistorical && coveredFeeAmounts.has(feeAmount)) {
+            hasFeeEntry = true;
+          }
+          if (
+            !markedEligible &&
+            coveredHistoricalFeeAmounts.has(feeAmount)
+          ) {
             hasHistoricalFeeEntry = true;
           }
         }

@@ -925,6 +925,65 @@ describe("processStripePayoutLedger", () => {
     );
   });
 
+  it("never lets one share's marker-stamped entry suppress the other share's proposal", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // Straddling payout: the CHARGE movement (Oct 11) is on/after the
+    // cutover → eligible (fee 320); txn_old (Oct 10) predates it →
+    // pre-cutover (fee 200). The eligible JE already posted for the
+    // eligible share carries the DDB-PAYOUT-FEE: marker — even though
+    // its amount happens to equal the pre-cutover fee sum, it must not
+    // suppress the historical proposal.
+    cutover = "2026-10-11";
+    payoutTxns = [
+      { ...CHARGE },
+      {
+        ...CHARGE,
+        txnId: "txn_old",
+        sourceId: "ch_old",
+        grossMinor: 5000,
+        feeMinor: 200,
+        netMinor: 4800,
+        createdMs: Date.parse("2026-10-10T00:00:00.000Z"),
+      },
+    ];
+    reconActivity = [
+      {
+        entityType: "JournalEntry",
+        id: "je-eligible",
+        memo: "DDB-PAYOUT-FEE:po_abc",
+        legs: [
+          { accountId: "86", amountMinor: 200 },
+          { accountId: "34", amountMinor: -200 },
+        ],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const proposals = collectionStore("qboAccountingProposals");
+    assert.ok(
+      proposals.has("sandbox:po_abc:stripe_fee_expense:historical"),
+      "historical fee proposal survives an eligible-marker entry"
+    );
+
+    // Mirror image: a -HIST entry matching the eligible fee sum must
+    // not suppress the eligible proposal.
+    reconActivity = [
+      {
+        entityType: "JournalEntry",
+        id: "je-hist",
+        memo: "DDB-PAYOUT-FEE-HIST:po_abc",
+        legs: [
+          { accountId: "86", amountMinor: 320 },
+          { accountId: "34", amountMinor: -320 },
+        ],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    assert.ok(
+      proposals.has("sandbox:po_abc:stripe_fee_expense:aggregate"),
+      "eligible fee proposal survives a historical-marker entry"
+    );
+  });
+
   it("blocks proposals when required mappings are unset", async () => {
     const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
     mappingView = { mapping: {} };
