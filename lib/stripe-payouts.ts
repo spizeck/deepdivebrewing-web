@@ -661,6 +661,11 @@ export async function processStripePayoutLedger(
     string,
     { at: string; actor: string; note: string }[]
   >();
+  // Stored decision records — an `approved` status only survives a
+  // rebuild when the decision's fingerprint still matches the freshly
+  // computed material facts. A materially changed proposal drops back
+  // to `proposed` and needs a fresh approval.
+  const priorDecisions = new Map<string, { fingerprint?: string }>();
   for (const doc of existingDocs) {
     const data = doc.data();
     const status = data.status;
@@ -671,6 +676,13 @@ export async function processStripePayoutLedger(
       priorAudit.set(
         doc.id,
         data.auditTrail as { at: string; actor: string; note: string }[]
+      );
+    }
+    const decision = data.decision;
+    if (typeof decision === "object" && decision !== null) {
+      priorDecisions.set(
+        doc.id,
+        decision as { fingerprint?: string }
       );
     }
   }
@@ -721,14 +733,39 @@ export async function processStripePayoutLedger(
     const trail = [
       ...(priorAudit.get(proposal.proposalId) ?? []),
       { at: now, actor: "system", note: `computed in ${mode} mode` },
-    ].slice(-20);
+    ];
+    // A stored `approved` decision only carries forward while the
+    // fingerprint it was recorded against still matches — a rebuild
+    // that changed material facts (amount, accounts, payment identity,
+    // evidence/scope) invalidates the approval and returns the proposal
+    // to `proposed` for a fresh decision.
+    let status = proposal.status;
+    const storedStatus = decided.get(proposal.proposalId);
+    if (storedStatus === "rejected" || storedStatus === "applied") {
+      status = storedStatus; // terminal — never touched by a rebuild
+    } else if (storedStatus === "approved") {
+      const approvedFingerprint =
+        priorDecisions.get(proposal.proposalId)?.fingerprint;
+      if (approvedFingerprint === proposal.materialFingerprint) {
+        status = "approved";
+      } else {
+        status = "proposed";
+        trail.push({
+          at: now,
+          actor: "system",
+          note: approvedFingerprint
+            ? "material facts changed since approval — approval invalidated, proposal requires a fresh decision"
+            : "approval predates fingerprint binding — proposal requires a fresh decision",
+        });
+      }
+    }
     writes.push({
       ref: proposalsCollection().doc(proposal.proposalId),
       data: deepOmitUndefined({
         ...proposal,
-        status: decided.get(proposal.proposalId) ?? proposal.status,
+        status,
         computedAt: FieldValue.serverTimestamp(),
-        auditTrail: trail,
+        auditTrail: trail.slice(-20),
       }),
     });
   }

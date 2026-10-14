@@ -618,14 +618,85 @@ describe("processStripePayoutLedger", () => {
 
   it("preserves a decided proposal status across rebuilds", async () => {
     const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    const { proposalMaterialFingerprint } = await import(
+      "@/lib/stripe-payouts-common"
+    );
     await processStripePayoutLedger("po_abc");
     const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
-    collectionStore("qboAccountingProposals").get(moveId)!.status = "approved";
+    const stored = collectionStore("qboAccountingProposals").get(moveId)!;
+    // An approval binds to the proposal's material fingerprint.
+    stored.status = "approved";
+    stored.decision = {
+      action: "approve",
+      actorUid: "admin-1",
+      at: "2026-10-15T00:00:00.000Z",
+      fingerprint: proposalMaterialFingerprint(
+        stored as Parameters<typeof proposalMaterialFingerprint>[0]
+      ),
+    };
     await processStripePayoutLedger("po_abc");
     const proposal = collectionStore("qboAccountingProposals").get(moveId)!;
     assert.equal(proposal.status, "approved");
     const trail = proposal.auditTrail as FakeDoc[];
     assert.equal(trail.length, 2);
+  });
+
+  it("invalidates an approval when material facts change on rebuild", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    const { proposalMaterialFingerprint } = await import(
+      "@/lib/stripe-payouts-common"
+    );
+    await processStripePayoutLedger("po_abc");
+    const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
+    const stored = collectionStore("qboAccountingProposals").get(moveId)!;
+    stored.status = "approved";
+    stored.decision = {
+      action: "approve",
+      actorUid: "admin-1",
+      at: "2026-10-15T00:00:00.000Z",
+      fingerprint: proposalMaterialFingerprint(
+        stored as Parameters<typeof proposalMaterialFingerprint>[0]
+      ),
+    };
+    // The clearing account mapping changes between builds — the debit
+    // leg is materially different, so the prior approval cannot stand.
+    mappingView = {
+      mapping: {
+        stripeClearingAccountId: "55",
+        stripeFeeExpenseAccountId: "86",
+        stripePayoutAccountId: "99",
+      },
+      entityNames: { "55": "Stripe Clearing" },
+    };
+    await processStripePayoutLedger("po_abc");
+    const proposal = collectionStore("qboAccountingProposals").get(moveId)!;
+    assert.equal(proposal.status, "proposed");
+    const trail = proposal.auditTrail as FakeDoc[];
+    assert.ok(
+      trail.some((t) =>
+        (t.note as string).includes("approval invalidated")
+      )
+    );
+    // The decision record is preserved as history — it documents who
+    // approved which fingerprint even though the status reverted.
+    assert.equal(
+      (proposal.decision as FakeDoc).actorUid,
+      "admin-1"
+    );
+  });
+
+  it("downgrades a legacy approved proposal with no fingerprint", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    await processStripePayoutLedger("po_abc");
+    const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
+    // Pre-fingerprint approval — no decision record at all.
+    collectionStore("qboAccountingProposals").get(moveId)!.status =
+      "approved";
+    await processStripePayoutLedger("po_abc");
+    assert.equal(
+      collectionStore("qboAccountingProposals").get(moveId)!.status,
+      "proposed"
+    );
   });
 
   it("marks live proposals stale when the rebuild stops producing them", async () => {

@@ -576,6 +576,16 @@ classifies every movement, and persists deterministic QuickBooks
   `move_payment_to_clearing` proposal is never marked stale while the
   QBO leg is unavailable — an outage produces no candidates, so absence
   is not evidence.
+- **Decisions** (`approval`/`automatic` modes only — observe refuses):
+  `POST /api/admin/quickbooks/payouts/proposals` records an authorized
+  admin's `approve`/`reject` plus an optional note, bound to the
+  proposal's *material fingerprint* — a canonical digest of kind,
+  amount, currency, accounting date, both legs' accounts, Stripe/QBO
+  refs, and evidence. A rebuild that changes any material fact drops an
+  `approved` proposal back to `proposed` (audit-noted); the stored
+  `decision` records who decided, when, and against which fingerprint.
+  `approved` → `rejected` withdraws an approval; `rejected`/`applied`
+  are terminal; `blocked` cannot be approved until its mapping lands.
 - **Payout destination account**: the `stripePayoutAccountId` mapping
   decides whether the eventual transfer debits the bank account
   directly or a "Payouts in Transit" account — the accountant's choice;
