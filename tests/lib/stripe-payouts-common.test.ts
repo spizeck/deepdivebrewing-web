@@ -625,6 +625,179 @@ describe("buildPayoutProposals", () => {
       qboProposalIdFor("production", "po_1", "payout_transfer", "aggregate")
     );
   });
+
+  it("marks only verified moves and fully-identified aggregates autoEligible", () => {
+    // Suggested Ollie match (no identity evidence): nothing may run
+    // unattended.
+    const suggested = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: proposedLedger(),
+      mode: "observe",
+      mapping,
+    });
+    assert.ok(suggested.every((p) => p.autoEligible === false));
+
+    // Fully identified payout: DDB-confirmed line — the aggregates are
+    // auto-eligible even though no move proposal exists for the line.
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    const ddbLedger = buildPayoutLedger(
+      emptyInput({ txns: [charge()], ddbIndex: index })
+    );
+    const ddbProposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: ddbLedger,
+      mode: "observe",
+      mapping,
+    });
+    assert.ok(
+      ddbProposals.every(
+        (p) =>
+          p.kind !== "move_payment_to_clearing" && p.autoEligible === true
+      )
+    );
+
+    // A cutover-straddling payout keeps aggregates manual even when the
+    // eligible lines are identified.
+    const mixedLedger = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          charge({ txnId: "t_new", sourceId: "ch_1" }),
+          charge({
+            txnId: "t_old",
+            sourceId: "ch_old",
+            createdMs: NOW - 30 * DAY_MS,
+          }),
+        ],
+        ddbIndex: index,
+        cutover: "2026-10-10",
+      })
+    );
+    const mixed = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: mixedLedger,
+      mode: "observe",
+      mapping,
+    });
+    assert.ok(mixed.every((p) => p.autoEligible === false));
+  });
+
+  it("excludes the payout's own debit from aggregate identity but still gates on other account-level lines", () => {
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    // A normal paid payout's transaction list includes the payout debit
+    // itself — account-level, confidence "none". It must not weigh in
+    // the identity requirement or no real payout could ever qualify.
+    const debitTxn = {
+      txnId: "txn_payout",
+      type: "payout",
+      grossMinor: -9680,
+      feeMinor: 0,
+      netMinor: -9680,
+      currency: "USD",
+      createdMs: NOW - DAY_MS,
+    };
+    const ledger = buildPayoutLedger(
+      emptyInput({ txns: [charge(), debitTxn], ddbIndex: index })
+    );
+    assert.ok(
+      ledger.lines.some(
+        (l) => l.type === "payout" && l.confidence === "none"
+      )
+    );
+    const proposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger,
+      mode: "observe",
+      mapping,
+    });
+    const aggregates = proposals.filter(
+      (p) => p.kind !== "move_payment_to_clearing"
+    );
+    assert.ok(aggregates.length > 0);
+    assert.ok(aggregates.every((p) => p.autoEligible === true));
+
+    // Any *other* account-level movement is an unidentified movement of
+    // the payout's money — it still keeps aggregates manual.
+    const withAdjustment = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          charge(),
+          debitTxn,
+          {
+            txnId: "txn_adj",
+            type: "adjustment",
+            grossMinor: 0,
+            feeMinor: 0,
+            netMinor: 0,
+            currency: "USD",
+            createdMs: NOW - DAY_MS,
+          },
+        ],
+        ddbIndex: index,
+      })
+    );
+    const adjusted = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: withAdjustment,
+      mode: "observe",
+      mapping,
+    });
+    assert.ok(
+      adjusted
+        .filter((p) => p.kind !== "move_payment_to_clearing")
+        .every((p) => p.autoEligible === false)
+    );
+  });
+
+  it("requires a complete, balanced ledger for aggregate auto-eligibility", () => {
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    const aggregatesOf = (
+      ledger: ReturnType<typeof buildPayoutLedger>,
+      ledgerComplete?: boolean
+    ) =>
+      buildPayoutProposals({
+        environment: "sandbox",
+        payout: payout(),
+        ledger,
+        mode: "observe",
+        mapping,
+        ...(ledgerComplete === undefined ? {} : { ledgerComplete }),
+      }).filter((p) => p.kind !== "move_payment_to_clearing");
+
+    // Unbalanced: the computed net does not reach the paid amount — a
+    // transfer posting the full payout amount would be unexplained.
+    const unbalanced = buildPayoutLedger(
+      emptyInput({
+        payout: payout({ amountMinor: 9000 }),
+        txns: [charge()],
+        ddbIndex: index,
+      })
+    );
+    assert.equal(unbalanced.totals.balanced, false);
+    assert.ok(
+      aggregatesOf(unbalanced).every((p) => p.autoEligible === false)
+    );
+
+    // Truncated transaction fetch: the identified lines may be complete
+    // and balanced on their own, but the ledger is a partial picture.
+    const complete = buildPayoutLedger(
+      emptyInput({ txns: [charge()], ddbIndex: index })
+    );
+    assert.ok(aggregatesOf(complete).every((p) => p.autoEligible === true));
+    assert.ok(
+      aggregatesOf(complete, false).every((p) => p.autoEligible === false)
+    );
+  });
 });
 
 // --- Evidence-based Ollie identity matching ---

@@ -938,6 +938,11 @@ export interface QboProposalDecision {
   /** The fingerprint the decision was recorded against — a proposal
    *  whose recomputed fingerprint differs is no longer decided. */
   fingerprint: string;
+  /** True when the system granted this approval under automatic mode.
+   *  An automation approval only stands while the proposal still
+   *  qualifies for unattended execution — the fingerprint binds the
+   *  material facts, not the eligibility that let it skip review. */
+  auto?: boolean;
 }
 
 export interface QboAccountingProposal {
@@ -989,6 +994,12 @@ export interface QboAccountingProposal {
     qboEntityId?: string;
     adopted?: boolean;
   };
+  /** True when the proposal's evidence tier qualifies for unattended
+   *  execution in `automatic` mode — verified-identifier moves, and
+   *  aggregates whose payout is fully identified and fully in-scope.
+   *  Never sufficient alone: the executor still requires the mode flag,
+   *  a live proposal, and apply-time revalidation. */
+  autoEligible?: boolean;
 }
 
 export type StripeAccountingMode = "observe" | "approval" | "automatic";
@@ -1074,6 +1085,10 @@ export interface BuildProposalsInput {
    *  recorded as the move proposal's credit leg so an account change
    *  invalidates approvals like any other material fact. */
   undepositedFundsId?: string;
+  /** False when the caller's balance-transaction fetch was truncated —
+   *  the ledger is a partial picture of the payout and aggregate
+   *  proposals must never run unattended on it. */
+  ledgerComplete?: boolean;
 }
 
 // Builds the proposal set for one ledger. Only `eligible`-scope lines can
@@ -1113,6 +1128,10 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "move_payment_to_clearing",
       status: clearingId ? "proposed" : "blocked",
+      // Only a verified identifier chain can ever run unattended;
+      // suggested matches stay review-only forever, even in automatic
+      // mode.
+      autoEligible: line.confidence === "verified",
       amountMinor: line.grossMinor,
       currency: line.currency,
       accountingDate,
@@ -1164,6 +1183,30 @@ export function buildPayoutProposals(
     ? ["partial_scope_eligible_lines_only"]
     : [];
 
+  // Aggregate proposals can run unattended only when the ledger is a
+  // complete, internally consistent picture of the payout — untruncated
+  // fetch, balanced totals, single currency — and every charge-side
+  // eligible movement is positively identified (DDB-confirmed or
+  // verified-Ollie). The payout's own debit (`type === "payout"`) is an
+  // account-level line with no match confidence — it is expected on
+  // every paid payout and is never weighed. Any other account-level
+  // movement (adjustment, dispute, unclassified) keeps the aggregates
+  // manual, as does an unidentified or pre-cutover line: a human still
+  // has to look at the payout, so its fee/transfer postings stay manual
+  // too.
+  const autoIdentityLines = eligibleLines.filter(
+    (line) => line.type !== "payout"
+  );
+  const aggregateAutoEligible =
+    input.ledgerComplete !== false &&
+    ledger.totals.balanced &&
+    autoIdentityLines.length > 0 &&
+    !partialScope &&
+    autoIdentityLines.every(
+      (line) =>
+        line.confidence === "confirmed" || line.confidence === "verified"
+    );
+
   if (
     eligibleFeesMinor > 0 &&
     !input.existingCover?.hasFeeEntry
@@ -1179,6 +1222,7 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "stripe_fee_expense",
       status: clearingId && feeId ? "proposed" : "blocked",
+      autoEligible: aggregateAutoEligible,
       amountMinor: eligibleFeesMinor,
       currency: payout.currency,
       accountingDate,
@@ -1219,6 +1263,7 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "payout_transfer",
       status: clearingId && payoutAccountId ? "proposed" : "blocked",
+      autoEligible: aggregateAutoEligible,
       amountMinor: payout.amountMinor,
       currency: payout.currency,
       accountingDate,

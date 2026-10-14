@@ -665,3 +665,97 @@ describe("applyPayoutProposal — failure semantics", () => {
     );
   });
 });
+
+describe("applyPayoutProposal — automatic mode", () => {
+  it("self-approves and applies an autoEligible proposal", async () => {
+    seedProposal(MOVE_ID, {
+      status: "proposed",
+      autoEligible: true,
+      decision: undefined,
+    });
+    payments.set("900", {
+      id: "900",
+      syncToken: "3",
+      totalMinor: 29401,
+      depositToAccountId: "uf-1",
+    });
+    accountingMode = "automatic";
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: { uid: "stripe-payout-automation" },
+      auto: true,
+    });
+    assert.equal(res.apply.outcome, "applied");
+    const doc = collectionDocs(PROPOSALS).get(MOVE_ID)!;
+    assert.equal(doc.status, "applied");
+    assert.equal(
+      (doc.decision as FakeDoc).actorUid,
+      "automation"
+    );
+    // The `auto` marker lets a rebuild distinguish system-granted
+    // approvals from human ones — only the former lapse when the
+    // proposal stops qualifying for unattended execution.
+    assert.equal((doc.decision as FakeDoc).auto, true);
+    assert.equal((doc.decision as FakeDoc).fingerprint, FP);
+  });
+
+  it("refuses auto-apply for suggested-tier (non-autoEligible) proposals", async () => {
+    seedProposal(MOVE_ID, { status: "proposed", autoEligible: false });
+    payments.set("900", {
+      id: "900",
+      syncToken: "3",
+      totalMinor: 29401,
+      depositToAccountId: "uf-1",
+    });
+    accountingMode = "automatic";
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: { uid: "stripe-payout-automation" },
+      auto: true,
+    });
+    assert.equal(res.apply.outcome, "refused");
+    assert.equal(collectionDocs(PROPOSALS).get(MOVE_ID)!.status, "proposed");
+    assert.equal(writeCalls.length, 0);
+  });
+
+  it("ignores the auto grant outside automatic mode", async () => {
+    seedProposal(MOVE_ID, { status: "proposed", autoEligible: true });
+    accountingMode = "approval";
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: { uid: "stripe-payout-automation" },
+      auto: true,
+    });
+    assert.equal(res.apply.outcome, "refused");
+    assert.equal(collectionDocs(PROPOSALS).get(MOVE_ID)!.status, "proposed");
+  });
+
+  it("still applies an already-approved proposal in automatic mode", async () => {
+    seedProposal(MOVE_ID);
+    payments.set("900", {
+      id: "900",
+      syncToken: "3",
+      totalMinor: 29401,
+      depositToAccountId: "uf-1",
+    });
+    accountingMode = "automatic";
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: { uid: "stripe-payout-automation" },
+      auto: true,
+    });
+    assert.equal(res.apply.outcome, "applied");
+  });
+});
