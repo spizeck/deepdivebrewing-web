@@ -9,6 +9,7 @@ import {
   extractOllieRefsFromText,
   matchOlliePayment,
   ollieRefsFromQboPayment,
+  proposalMaterialFingerprint,
   qboProposalIdFor,
   STRIPE_PAYOUT_EVENT_TYPES,
   STRIPE_PAYOUT_LEDGER_TRIGGERS,
@@ -909,5 +910,132 @@ describe("buildPayoutLedger with identity evidence", () => {
     assert.ok(
       ledger.exceptions.some((e) => e.code === "unmatched_movement")
     );
+  });
+});
+
+describe("proposalMaterialFingerprint", () => {
+  const fpMapping = {
+    stripeClearingAccountId: "clearing-1",
+    stripeFeeExpenseAccountId: "fee-1",
+    stripePayoutAccountId: "bank-1",
+  };
+
+  function verifiedLedger(order: string, doc: string) {
+    return buildPayoutLedger(
+      emptyInput({
+        txns: [charge({ sourceId: "ch_ollie" })],
+        resolvedChargeFacts: new Map([
+          [
+            "ch_ollie",
+            {
+              ollieIdentity: identity({
+                refs: refs({ orderNumbers: [order] }),
+              }),
+            },
+          ],
+        ]),
+        ollieCandidates: [olliePayment({ linkedDocNumbers: [doc] })],
+      })
+    );
+  }
+
+  function moveProposal(undepositedFundsId = "uf-1", order = "327") {
+    const doc = order.padStart(5, "0");
+    return buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: verifiedLedger(order, doc),
+      mode: "observe",
+      mapping: fpMapping,
+      undepositedFundsId,
+    }).find((p) => p.kind === "move_payment_to_clearing")!;
+  }
+
+  it("stamps every proposal with a stable, non-empty fingerprint", () => {
+    const a = moveProposal();
+    const b = moveProposal();
+    assert.ok(a.materialFingerprint);
+    assert.equal(a.materialFingerprint, b.materialFingerprint);
+  });
+
+  it("changes when any material fact changes", () => {
+    const base = moveProposal();
+    // A different matched payment id — different qboRefs.
+    const other = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger: buildPayoutLedger(
+        emptyInput({
+          txns: [charge({ sourceId: "ch_ollie" })],
+          resolvedChargeFacts: new Map([
+            [
+              "ch_ollie",
+              {
+                ollieIdentity: identity({
+                  refs: refs({ orderNumbers: ["327"] }),
+                }),
+              },
+            ],
+          ]),
+          ollieCandidates: [
+            olliePayment({ id: "99", linkedDocNumbers: ["00327"] }),
+          ],
+        })
+      ),
+      mode: "observe",
+      mapping: fpMapping,
+      undepositedFundsId: "uf-1",
+    }).find((p) => p.kind === "move_payment_to_clearing")!;
+    assert.notEqual(base.materialFingerprint, other.materialFingerprint);
+    // A different Undeposited Funds account — the credit leg moved.
+    const uf2 = moveProposal("uf-2");
+    assert.equal(uf2.credit.accountId, "uf-2");
+    assert.notEqual(base.materialFingerprint, uf2.materialFingerprint);
+    // A different verified identity — the refs that carried the match
+    // changed even though the payment id stayed the same.
+    const otherIdentity = moveProposal("uf-1", "328");
+    assert.ok(
+      otherIdentity.stripeRefs.identity?.includes("order-invoice:328")
+    );
+    assert.notEqual(
+      base.materialFingerprint,
+      otherIdentity.materialFingerprint
+    );
+  });
+
+  it("cannot collide across delimiters — values are structurally encoded", () => {
+    const proposal = {
+      kind: "payout_transfer" as const,
+      amountMinor: 100,
+      currency: "USD",
+      accountingDate: "2026-10-15",
+      debit: { accountId: "a", label: "x" },
+      credit: { accountId: "b", label: "y" },
+      stripeRefs: {},
+      qboRefs: {},
+      evidence: ["a|b"],
+    };
+    // "a|b" as one value must not collide with "a" + "b" as two.
+    const split = { ...proposal, evidence: ["a", "b"] };
+    assert.notEqual(
+      proposalMaterialFingerprint(proposal),
+      proposalMaterialFingerprint(split)
+    );
+    // Ref keys/values are canonicalized — insertion order cannot change
+    // the fingerprint, but a different key for the same value must.
+    const refsA = proposalMaterialFingerprint({
+      ...proposal,
+      qboRefs: { paymentId: "42", paymentRef: "7" },
+    });
+    const refsB = proposalMaterialFingerprint({
+      ...proposal,
+      qboRefs: { paymentRef: "7", paymentId: "42" },
+    });
+    const refsC = proposalMaterialFingerprint({
+      ...proposal,
+      qboRefs: { otherId: "42", paymentRef: "7" },
+    });
+    assert.equal(refsA, refsB);
+    assert.notEqual(refsA, refsC);
   });
 });

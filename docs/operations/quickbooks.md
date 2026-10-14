@@ -565,8 +565,9 @@ classifies every movement, and persists deterministic QuickBooks
   account), and *payout transfer* (clearing → the mapped payout
   account). Missing mappings produce `blocked` proposals; a manually
   entered fee journal or transfer covering the exact amount suppresses
-  the proposal. Proposals the accountant has approved/rejected keep
-  their decision while they still recompute. Proposals a rebuild stops
+  the proposal. A stored decision carries forward only while the
+  proposal's material fingerprint still matches (see **Decisions**
+  below). Proposals a rebuild stops
   producing (a line went pre-cutover, a match resolved elsewhere) are
   marked `stale` — kept as review history, never live: that includes
   previously `approved` ones (the prior status is retained in the audit
@@ -576,6 +577,25 @@ classifies every movement, and persists deterministic QuickBooks
   `move_payment_to_clearing` proposal is never marked stale while the
   QBO leg is unavailable — an outage produces no candidates, so absence
   is not evidence.
+- **Decisions** (`approval`/`automatic` modes only — observe refuses):
+  `POST /api/admin/quickbooks/payouts/proposals` records an authorized
+  admin's `approve`/`reject` plus an optional note, bound to the
+  proposal's *material fingerprint* — a canonical digest of kind,
+  amount, currency, accounting date, both legs' accounts (including the
+  resolved Undeposited Funds account), Stripe/QBO refs, verified
+  identity refs, and evidence. The request must carry
+  `expectedFingerprint` — the fingerprint the reviewer saw; a rebuild
+  between render and click returns 409 instead of deciding on unseen
+  facts, and a proposal without a fingerprint (predating the binding)
+  refuses decisions until a rebuild stamps one. A rebuild that changes
+  any material fact drops an `approved` proposal back to its freshly
+  computed status (audit-noted); proposal writes for existing docs run
+  as per-document transactions so a rebuild can never overwrite a
+  decision committed mid-build. `decision` holds the latest record;
+  `decisions[]` preserves every prior decision's action, actor, and
+  fingerprint. `approved` → `rejected` withdraws an approval;
+  `rejected`/`applied` are terminal; `blocked` cannot be approved until
+  its mapping lands.
 - **Payout destination account**: the `stripePayoutAccountId` mapping
   decides whether the eventual transfer debits the bank account
   directly or a "Payouts in Transit" account — the accountant's choice;
@@ -584,9 +604,10 @@ classifies every movement, and persists deterministic QuickBooks
 - **Cutover**: `STRIPE_AUTOMATION_CUTOVER=YYYY-MM-DD` marks movements
   created earlier as `pre_cutover` — reported, never proposed. Leave
   unset to treat everything as eligible.
-- **Mode**: `STRIPE_ACCOUNTING_MODE` defaults to `observe`;
-  `approval`/`automatic` are reserved labels for a future execution PR
-  and change nothing today.
+- **Mode**: `STRIPE_ACCOUNTING_MODE` defaults to `observe`. `approval`
+  unlocks the decision route for authorized admins (execution lands with
+  the guarded executor in a follow-up); `automatic` is reserved for the
+  post-pilot unattended sweep.
 - **Recovery**: the daily `qbo-sweep` cron also rescans the last 35 days
   of Stripe payouts and rebuilds any ledger that is missing, pending, or
   behind the payout's canonical status — a missed webhook cannot leave

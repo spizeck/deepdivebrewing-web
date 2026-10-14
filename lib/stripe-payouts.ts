@@ -356,6 +356,7 @@ async function fetchOllieLeg(
   candidates: QboUndepositedPayment[];
   claimedByOthers: Set<string>;
   available: boolean;
+  undepositedFundsId?: string;
 }> {
   const empty = {
     candidates: [],
@@ -473,7 +474,12 @@ async function fetchOllieLeg(
         claimedByOthers.add(data.qboRefs.paymentId);
       }
     }
-    return { candidates, claimedByOthers, available: true };
+    return {
+      candidates,
+      claimedByOthers,
+      available: true,
+      undepositedFundsId: uf.id,
+    };
   } catch (error) {
     const quiet =
       error instanceof QboError &&
@@ -565,7 +571,6 @@ async function detectExistingCover(
 // silently overwritten back to "proposed" by a ledger rebuild — the
 // execution surface (follow-up PR) flips these and a recompute must
 // respect them.
-const DECIDED_PROPOSAL_STATUSES = new Set(["approved", "rejected", "applied"]);
 
 // What one canonical build produced — returned so the manual sync can
 // report ingestion vs proposal eligibility honestly (a fully pre-cutover
@@ -634,6 +639,7 @@ export async function processStripePayoutLedger(
     mapping,
     accountNames: mappingView?.entityNames ?? {},
     existingCover,
+    undepositedFundsId: ollie.undepositedFundsId,
   });
 
   // Proposal persistence: deterministic ids make every rewrite idempotent
@@ -656,24 +662,6 @@ export async function processStripePayoutLedger(
     if (snap.size < PROPOSAL_SCAN_PAGE_SIZE) break;
     cursor = snap.docs[snap.docs.length - 1];
   }
-  const decided = new Map<string, string>();
-  const priorAudit = new Map<
-    string,
-    { at: string; actor: string; note: string }[]
-  >();
-  for (const doc of existingDocs) {
-    const data = doc.data();
-    const status = data.status;
-    if (typeof status === "string" && DECIDED_PROPOSAL_STATUSES.has(status)) {
-      decided.set(doc.id, status);
-    }
-    if (Array.isArray(data.auditTrail)) {
-      priorAudit.set(
-        doc.id,
-        data.auditTrail as { at: string; actor: string; note: string }[]
-      );
-    }
-  }
   // Writes collect into bounded batches — a pathological payout could
   // hold hundreds of proposals, and a batch caps at 500 operations.
   const writes: { ref: DocumentReference; data: Record<string, unknown> }[] =
@@ -690,6 +678,7 @@ export async function processStripePayoutLedger(
   // actually ran: with QBO unavailable there were no candidates to match,
   // so a missing proposal is an outage artifact, not evidence.
   const recomputedIds = new Set(proposals.map((p) => p.proposalId));
+  const staleTargets: string[] = [];
   for (const doc of existingDocs) {
     const data = doc.data();
     const status = data.status;
@@ -702,36 +691,18 @@ export async function processStripePayoutLedger(
     if (!ollie.available && data.kind === "move_payment_to_clearing") {
       continue;
     }
-    writes.push({
-      ref: proposalsCollection().doc(doc.id),
-      data: {
-        status: "stale",
-        auditTrail: [
-          ...(priorAudit.get(doc.id) ?? []),
-          {
-            at: now,
-            actor: "system",
-            note: `no longer produced by the latest build — marked stale (was ${status})`,
-          },
-        ].slice(-20),
-      },
-    });
+    staleTargets.push(doc.id);
   }
-  for (const proposal of proposals) {
-    const trail = [
-      ...(priorAudit.get(proposal.proposalId) ?? []),
-      { at: now, actor: "system", note: `computed in ${mode} mode` },
-    ].slice(-20);
-    writes.push({
-      ref: proposalsCollection().doc(proposal.proposalId),
-      data: deepOmitUndefined({
-        ...proposal,
-        status: decided.get(proposal.proposalId) ?? proposal.status,
-        computedAt: FieldValue.serverTimestamp(),
-        auditTrail: trail,
-      }),
-    });
-  }
+  // Every proposal write runs in a per-document transaction that re-reads
+  // live state: a decision committed after the `existingDocs` snapshot — or
+  // a doc created and decided by a concurrent build — must not be
+  // overwritten by a rebuild working from stale state.
+  const mergeProposals: QboAccountingProposal[] = [...proposals];
+  const computedEntry = {
+    at: now,
+    actor: "system",
+    note: `computed in ${mode} mode`,
+  };
 
   const lines = ledger.lines.slice(0, STORED_LINE_LIMIT);
   const laneCounts = { ddb: 0, ollie: 0, external: 0, accountLevel: 0 };
@@ -781,6 +752,104 @@ export async function processStripePayoutLedger(
     }
     await batch.commit();
   }
+
+  // Stale marks on existing docs run as per-document transactions so a
+  // decision committed after the snapshot is seen — a doc whose status
+  // moved to a decided state since the scan is left alone rather than
+  // force-marked stale from the stale snapshot.
+  const db = getFirebaseAdminDb();
+  for (const proposalId of staleTargets) {
+    const ref = proposalsCollection().doc(proposalId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return;
+      const live = snap.data() ?? {};
+      const liveStatus = live.status;
+      if (
+        liveStatus !== "proposed" &&
+        liveStatus !== "blocked" &&
+        liveStatus !== "approved"
+      ) {
+        return;
+      }
+      const trail = [
+        ...(Array.isArray(live.auditTrail)
+          ? (live.auditTrail as { at: string; actor: string; note: string }[])
+          : []),
+        {
+          at: now,
+          actor: "system",
+          note: `no longer produced by the latest build — marked stale (was ${liveStatus})`,
+        },
+      ];
+      tx.set(
+        ref,
+        { status: "stale", auditTrail: trail.slice(-20) },
+        { merge: true }
+      );
+    });
+  }
+
+  // Recomputed proposals merge against the live doc inside a
+  // transaction: a stored `approved` decision only carries forward while
+  // the fingerprint it was recorded against still matches the freshly
+  // computed material facts. A materially changed proposal drops back to
+  // its computed status (`proposed`, or `blocked` when the rebuild's
+  // mapping no longer resolves) and needs a fresh approval. Terminal
+  // statuses (`rejected`, `applied`) are never touched.
+  for (const proposal of mergeProposals) {
+    const ref = proposalsCollection().doc(proposal.proposalId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const live = snap.exists ? (snap.data() ?? {}) : {};
+      const trail = [
+        ...(Array.isArray(live.auditTrail)
+          ? (live.auditTrail as { at: string; actor: string; note: string }[])
+          : []),
+        computedEntry,
+      ];
+      let status = proposal.status;
+      let clearDecision = false;
+      const liveStatus = live.status;
+      if (liveStatus === "rejected" || liveStatus === "applied") {
+        status = liveStatus;
+      } else if (liveStatus === "approved") {
+        const liveDecision = live.decision;
+        const approvedFingerprint =
+          typeof liveDecision === "object" && liveDecision !== null
+            ? (liveDecision as { fingerprint?: string }).fingerprint
+            : undefined;
+        if (approvedFingerprint === proposal.materialFingerprint) {
+          status = "approved";
+        } else {
+          // The recorded approval no longer binds these material facts —
+          // clear the current `decision` so the doc can't read as
+          // "proposed but approved". `decisions[]` still keeps the
+          // superseded record.
+          clearDecision = true;
+          trail.push({
+            at: now,
+            actor: "system",
+            note: approvedFingerprint
+              ? "material facts changed since approval — approval invalidated, proposal requires a fresh decision"
+              : "approval predates fingerprint binding — proposal requires a fresh decision",
+          });
+        }
+      }
+      tx.set(
+        ref,
+        deepOmitUndefined({
+          ...proposal,
+          status,
+          computedAt: FieldValue.serverTimestamp(),
+          auditTrail: trail.slice(-20),
+          ...(clearDecision ? { decision: FieldValue.delete() } : {}),
+        }),
+        { merge: true }
+      );
+    });
+  }
+
   logInfo("stripe.payout.ledger_built", {
     payoutId: payout.id,
     lines: ledger.lines.length,

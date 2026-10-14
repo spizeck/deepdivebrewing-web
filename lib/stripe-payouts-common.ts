@@ -926,6 +926,19 @@ export interface QboProposalParty {
   label: string;
 }
 
+export interface QboProposalDecision {
+  /** The admin decision recorded against a material fingerprint. */
+  action: "approve" | "reject";
+  actorUid: string;
+  actorEmail?: string;
+  /** ISO timestamp of the decision. */
+  at: string;
+  note?: string;
+  /** The fingerprint the decision was recorded against — a proposal
+   *  whose recomputed fingerprint differs is no longer decided. */
+  fingerprint: string;
+}
+
 export interface QboAccountingProposal {
   /** Deterministic id — also the idempotency key for any future
    *  execution. `${environment}:${payoutId}:${kind}:${key}` */
@@ -934,8 +947,6 @@ export interface QboAccountingProposal {
   payoutId: string;
   kind: QboProposalKind;
   status: QboProposalStatus;
-  /** Present but not yet executable — approval is recorded by a
-   *  follow-up surface; observe mode never produces it. */
   amountMinor: number;
   currency: string;
   /** The accounting date the eventual posting would carry. */
@@ -947,6 +958,18 @@ export interface QboAccountingProposal {
   evidence: string[];
   /** Automation mode the proposal was computed under. */
   mode: StripeAccountingMode;
+  /** Fingerprint of the material facts an approval binds to — amount,
+   *  currency, source/destination accounts, payment identity, evidence,
+   *  and the scope that made it eligible. Recomputed by every build; a
+   *  stored decision whose fingerprint no longer matches is invalid. */
+  materialFingerprint?: string;
+  /** Latest recorded admin decision (if any). History lives in
+   *  `decisions` — this is the current decision only. */
+  decision?: QboProposalDecision;
+  /** Durable decision history — every recorded decision with its
+   *  fingerprint binding, newest last. `decision` alone loses the prior
+   *  record when a second decision lands. */
+  decisions?: QboProposalDecision[];
 }
 
 export type StripeAccountingMode = "observe" | "approval" | "automatic";
@@ -965,6 +988,48 @@ export function qboProposalIdFor(
   key: string
 ): string {
   return `${environment}:${payoutId}:${kind}:${key}`.slice(0, 200);
+}
+
+// Material fingerprint: a stable digest of every fact an approver signs
+// off on — the entry kind, amount/currency, accounting date, both legs'
+// resolved accounts, the Stripe/QBO entity identity, and the evidence
+// that justified the proposal (which encodes cutover scope, e.g.
+// `partial_scope_eligible_lines_only`). An approval binds to this exact
+// fingerprint; a rebuild that changes any material fact must require a
+// fresh decision rather than silently carrying the old one forward.
+export function proposalMaterialFingerprint(
+  proposal: Pick<
+    QboAccountingProposal,
+    | "kind"
+    | "amountMinor"
+    | "currency"
+    | "accountingDate"
+    | "debit"
+    | "credit"
+    | "stripeRefs"
+    | "qboRefs"
+    | "evidence"
+  >
+): string {
+  // JSON serialization per section: values can contain any delimiter,
+  // so structured encoding keeps distinct material facts distinct.
+  const refs = (record: Record<string, string>) =>
+    JSON.stringify(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, record[key]])
+    );
+  return [
+    proposal.kind,
+    String(proposal.amountMinor),
+    proposal.currency,
+    proposal.accountingDate,
+    `dr=${proposal.debit.accountId ?? ""}`,
+    `cr=${proposal.credit.accountId ?? ""}`,
+    `stripe=${refs(proposal.stripeRefs)}`,
+    `qbo=${refs(proposal.qboRefs)}`,
+    `ev=${JSON.stringify([...proposal.evidence].sort())}`,
+  ].join("|");
 }
 
 export interface BuildProposalsInput {
@@ -986,6 +1051,10 @@ export interface BuildProposalsInput {
    *  suppresses the corresponding proposal (double-posting protection
    *  against the owner's historical manual habit). */
   existingCover?: { hasFeeEntry: boolean; hasTransferEntry: boolean };
+  /** The company's Undeposited Funds account id, when resolvable —
+   *  recorded as the move proposal's credit leg so an account change
+   *  invalidates approvals like any other material fact. */
+  undepositedFundsId?: string;
 }
 
 // Builds the proposal set for one ledger. Only `eligible`-scope lines can
@@ -1033,12 +1102,19 @@ export function buildPayoutProposals(
         label: name(clearingId, "Stripe clearing account"),
       },
       credit: {
+        accountId: input.undepositedFundsId,
         label: "Undeposited Funds",
       },
       stripeRefs: {
         payoutId: payout.id,
         balanceTxnId: line.txnId,
         ...(line.sourceId ? { chargeId: line.sourceId } : {}),
+        // The namespaced refs that carried the match — a rebuild that
+        // resolves different identifiers is a material change even when
+        // the matched payment stays the same.
+        ...(line.identityRefs?.length
+          ? { identity: [...line.identityRefs].sort().join(",") }
+          : {}),
       },
       qboRefs: {
         paymentId: line.qboPaymentId,
@@ -1144,6 +1220,13 @@ export function buildPayoutProposals(
       ],
       mode,
     });
+  }
+
+  // Every emitted proposal is fingerprinted — approvals bind to these
+  // exact material facts, and a rebuild that changes any of them must
+  // require a fresh decision.
+  for (const proposal of proposals) {
+    proposal.materialFingerprint = proposalMaterialFingerprint(proposal);
   }
 
   return proposals;

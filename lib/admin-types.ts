@@ -58,7 +58,13 @@ export interface AdminAuditRecord {
     // Stripe payout accounting: an admin-triggered payout sync (recent
     // scan or single-payout recovery). Metadata carries result counts
     // only — never provider payloads.
-    | "stripe_payout_sync_triggered";
+    | "stripe_payout_sync_triggered"
+    // Stripe payout accounting: proposal decisions (approve/reject) and
+    // the authorized apply action. Metadata carries the proposal id,
+    // resulting status/outcome, and applied entity references only.
+    | "stripe_payout_proposal_approved"
+    | "stripe_payout_proposal_rejected"
+    | "stripe_payout_proposal_apply";
   targetUid?: string;
   targetEmail?: string;
   oldRole?: AdminRole | null;
