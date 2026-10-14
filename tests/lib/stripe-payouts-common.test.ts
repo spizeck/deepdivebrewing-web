@@ -259,6 +259,66 @@ describe("buildPayoutLedger", () => {
     assert.equal(ledger.totals.balanced, true);
   });
 
+  it("excludes the payout's own debit from the net sum — holds and releases still reconcile", () => {
+    // Live `balanceTransactions.list({payout})` returns the payout's own
+    // debit transaction alongside the constituents (observed on
+    // po_1UPu2kC2zsUcVaNLpowu61JK). Counting it in computedNetMinor
+    // reports $0 and a false imbalance; hold/release movements stay in —
+    // they legitimately explain the paid amount.
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        payout: payout({ amountMinor: 28518 }),
+        txns: [
+          charge({
+            txnId: "txn_charge",
+            grossMinor: 29401,
+            feeMinor: 883,
+            netMinor: 28518,
+            sourceId: "ch_ollie",
+          }),
+          {
+            txnId: "txn_payout_debit",
+            type: "payout",
+            grossMinor: -28518,
+            feeMinor: 0,
+            netMinor: -28518,
+            currency: "USD",
+            sourceId: "po_self",
+            createdMs: NOW,
+          },
+          {
+            txnId: "txn_hold",
+            type: "payout_minimum_balance_hold",
+            grossMinor: -5000,
+            feeMinor: 0,
+            netMinor: -5000,
+            currency: "USD",
+            createdMs: NOW,
+          },
+          {
+            txnId: "txn_release",
+            type: "payout_minimum_balance_release",
+            grossMinor: 5000,
+            feeMinor: 0,
+            netMinor: 5000,
+            currency: "USD",
+            createdMs: NOW,
+          },
+        ],
+      })
+    );
+    assert.equal(ledger.totals.computedNetMinor, 28518);
+    assert.equal(ledger.totals.balanced, true);
+    // The self-debit line stays visible in the ledger — it is a real
+    // movement, just not a constituent of the paid amount.
+    assert.equal(
+      ledger.lines.find((line) => line.type === "payout")?.lane,
+      "account_level"
+    );
+    assert.equal(ledger.totals.grossChargesMinor, 29401);
+    assert.equal(ledger.totals.feesMinor, 883);
+  });
+
   it("marks the ledger unbalanced when lines do not sum to the payout", () => {
     const ledger = buildPayoutLedger(
       emptyInput({

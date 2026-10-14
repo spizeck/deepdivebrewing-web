@@ -524,6 +524,13 @@ classifies every movement, and persists deterministic QuickBooks
   amount + currency within ±14 days — evidence only, never identity),
   `external` (no match — Stripe activity outside DDB/Ollie), or
   `account_level` (fees, adjustments — never matched).
+- **Computed net / balanced**: Stripe's payout transaction list also
+  returns the payout's *own debit* (`type: "payout"`) — it stays visible
+  as an account-level line but is excluded from the net sum, or every
+  ledger would read as short by exactly the payout amount.
+  Minimum-balance `payout_minimum_balance_hold`/`release` movements stay
+  in the sum: they legitimately explain why the paid amount differs
+  from the charge nets. `balanced` still fails on a real shortfall.
 - **Proposals** (three kinds): *move payment to Stripe Clearing*
   (reclassify the matched Ollie payment out of Undeposited Funds),
   *record Stripe fees* (actual payout fees to the mapped expense
