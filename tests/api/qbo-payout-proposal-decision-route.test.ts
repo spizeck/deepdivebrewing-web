@@ -169,6 +169,39 @@ describe("POST /api/admin/quickbooks/payouts/proposals", () => {
     );
   });
 
+  it("forwards the confirmed QBO payment id on reclassification approvals", async () => {
+    const { POST } = await import(
+      "@/app/api/admin/quickbooks/payouts/proposals/route"
+    );
+    const res = await POST(
+      authedPost(
+        JSON.stringify({
+          proposalId: "sandbox:po_1:move_payment_to_clearing:1795",
+          action: "approve",
+          expectedFingerprint: "fp-1",
+          confirmQboPaymentId: "1795",
+        })
+      )
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(decideCalls.length, 1);
+    assert.strictEqual(decideCalls[0].confirmQboPaymentId, "1795");
+    // Non-string confirmation values are rejected before the decision
+    // layer — a malformed body can never weaken the identity check.
+    const bad = await POST(
+      authedPost(
+        JSON.stringify({
+          proposalId: "sandbox:po_1:move_payment_to_clearing:1795",
+          action: "approve",
+          expectedFingerprint: "fp-1",
+          confirmQboPaymentId: 1795,
+        })
+      )
+    );
+    assert.strictEqual(bad.status, 400);
+    assert.strictEqual(decideCalls.length, 1);
+  });
+
   it("validates action, proposalId, and expectedFingerprint", async () => {
     const { POST } = await import(
       "@/app/api/admin/quickbooks/payouts/proposals/route"

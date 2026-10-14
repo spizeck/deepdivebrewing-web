@@ -839,19 +839,33 @@ describe("processStripePayoutLedger", () => {
     proposals.get(moveId)!.status = "approved";
     proposals.get(transferId)!.status = "rejected";
 
-    // A cutover that now excludes every movement → nothing recomputes.
+    // A cutover that now excludes every movement → the eligible
+    // aggregates stop recomputing; the move re-emerges as a historical
+    // (manual-only) variant under the same id.
     cutover = "2026-10-14";
     await processStripePayoutLedger("po_abc");
 
     // Live statuses can no longer masquerade as current computation —
-    // an approved proposal that stopped recomputing must not stay
-    // executable; rejected stays terminal.
-    assert.equal(proposals.get(moveId)!.status, "stale");
+    // the move proposal's material facts changed (it is now historical),
+    // so the stale approval is invalidated back to `proposed`; the
+    // eligible aggregates stop recomputing entirely and go stale;
+    // rejected stays terminal.
+    const moveDoc = proposals.get(moveId)!;
+    assert.equal(moveDoc.status, "proposed");
+    assert.equal(moveDoc.historical, true);
+    assert.equal(moveDoc.autoEligible, false);
     assert.equal(proposals.get(feeId)!.status, "stale");
     assert.equal(proposals.get(transferId)!.status, "rejected");
-    const trail = proposals.get(moveId)!.auditTrail as FakeDoc[];
+    // A historical variant of the aggregates now exists for manual
+    // reconciliation — never eligible.
+    const histFee = proposals.get(
+      "sandbox:po_abc:stripe_fee_expense:historical"
+    )!;
+    assert.equal(histFee.historical, true);
+    assert.equal(histFee.autoEligible, false);
+    const trail = proposals.get(feeId)!.auditTrail as FakeDoc[];
     assert.ok(
-      (trail.at(-1)!.note as string).includes("marked stale (was approved)")
+      (trail.at(-1)!.note as string).includes("marked stale")
     );
 
     // Stale is not decided — remove the cutover and the proposals revive.
@@ -920,14 +934,85 @@ describe("processStripePayoutLedger", () => {
     assert.ok(proposals.every((p) => p.status === "blocked"));
   });
 
-  it("classifies but never proposes pre-cutover movements", async () => {
+  it("classifies pre-cutover movements into manual-only historical proposals", async () => {
     const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
     cutover = "2026-10-14"; // payout charges are dated 2026-10-11
     await processStripePayoutLedger("po_abc");
     const doc = collectionStore("stripePayouts").get("po_abc")!;
     const line = (doc.lines as FakeDoc[])[0];
     assert.equal(line.scope, "pre_cutover");
-    assert.equal(collectionStore("qboAccountingProposals").size, 0);
+    // Pre-cutover movements now produce historical proposals — every one
+    // flagged manual-only, never auto-eligible, with the original
+    // classification preserved on the line.
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.ok(proposals.length > 0);
+    for (const p of proposals) {
+      assert.equal(p.historical, true);
+      assert.equal(p.autoEligible, false);
+    }
+    const move = proposals.find(
+      (p) => p.kind === "move_payment_to_clearing"
+    )!;
+    assert.equal(move.lineConfidence, "suggested");
+    assert.equal(
+      (move.qboRefs as { paymentId?: string } | undefined)?.paymentId,
+      "42"
+    );
+  });
+
+  it("preserves a confirmed historical approval across reprocessing", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    const { proposalMaterialFingerprint } = await import(
+      "@/lib/stripe-payouts-common"
+    );
+    cutover = "2026-10-14"; // payout charges are dated 2026-10-11
+    await processStripePayoutLedger("po_abc");
+    const proposals = collectionStore("qboAccountingProposals");
+    const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
+    const stored = proposals.get(moveId)!;
+    // Simulate the admin's confirmed approval — bound to the current
+    // fingerprint and naming the exact QBO payment.
+    stored.status = "approved";
+    stored.decision = {
+      action: "approve",
+      actorUid: "admin-1",
+      at: "2026-10-15T00:00:00.000Z",
+      fingerprint: proposalMaterialFingerprint(
+        stored as Parameters<typeof proposalMaterialFingerprint>[0]
+      ),
+      confirmedQboPaymentId: "42",
+    };
+    // A reprocess recomputes the identical historical proposal — same
+    // id, same fingerprint — so the decision survives untouched.
+    await processStripePayoutLedger("po_abc");
+    const rebuilt = proposals.get(moveId)!;
+    assert.equal(rebuilt.status, "approved");
+    assert.equal(
+      (rebuilt.decision as { confirmedQboPaymentId?: string })
+        .confirmedQboPaymentId,
+      "42"
+    );
+    assert.equal(rebuilt.historical, true);
+    assert.equal(rebuilt.autoEligible, false);
+  });
+
+  it("never auto-applies a historical proposal in automatic mode", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    accountingMode = "automatic";
+    cutover = "2026-10-14"; // every line pre-cutover → all historical
+    await processStripePayoutLedger("po_abc");
+    // The automatic pass runs during processing but historical
+    // proposals are manual-only: nothing is approved or applied, no QBO
+    // writes happen.
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.ok(proposals.length > 0);
+    for (const p of proposals) {
+      assert.equal(p.historical, true);
+      assert.equal(p.autoEligible, false);
+      assert.equal(p.status, "proposed");
+      assert.equal(p.decision, undefined);
+    }
+    assert.equal(applyCalls.length, 0);
   });
 
   it("classifies with no matching UF payment candidates", async () => {
@@ -1251,7 +1336,7 @@ describe("syncStripePayouts", () => {
     assert.equal(summary.failed, 1);
   });
 
-  it("marks a fully pre-cutover payout as ingested with zero proposals", async () => {
+  it("marks a fully pre-cutover payout as ingested with manual-only proposals", async () => {
     const { syncStripePayouts } = await import("@/lib/stripe-payouts");
     cutover = "2026-10-14"; // charge movements are dated 2026-10-11
     const summary = await syncStripePayouts({ payoutId: "po_abc" });
@@ -1259,11 +1344,17 @@ describe("syncStripePayouts", () => {
     assert.equal(item.outcome, "processed");
     assert.equal(item.eligibleLines, 0);
     assert.equal(item.preCutoverLines, 1);
-    assert.equal(item.proposals, 0);
+    // Historical proposals exist for manual reconciliation — move, fee,
+    // transfer — all flagged historical and none auto-eligible.
+    assert.equal(item.proposals, 3);
     assert.equal(summary.cutover, "2026-10-14");
-    // The ledger still persisted — for review — with no proposals.
     assert.equal(collectionStore("stripePayouts").has("po_abc"), true);
-    assert.equal(collectionStore("qboAccountingProposals").size, 0);
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.equal(proposals.length, 3);
+    for (const p of proposals) {
+      assert.equal(p.historical, true);
+      assert.equal(p.autoEligible, false);
+    }
   });
 
   it("records a non-paid payout by id without ledger work", async () => {

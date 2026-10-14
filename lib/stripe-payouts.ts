@@ -507,8 +507,16 @@ async function detectExistingCover(
     stripeClearingAccountId?: string;
     stripeFeeExpenseAccountId?: string;
   }
-): Promise<{ hasFeeEntry: boolean; hasTransferEntry: boolean }> {
-  const none = { hasFeeEntry: false, hasTransferEntry: false };
+): Promise<{
+  hasFeeEntry: boolean;
+  hasTransferEntry: boolean;
+  hasHistoricalFeeEntry: boolean;
+}> {
+  const none = {
+    hasFeeEntry: false,
+    hasTransferEntry: false,
+    hasHistoricalFeeEntry: false,
+  };
   const watched = new Set(
     [
       mapping.stripeClearingAccountId,
@@ -531,15 +539,24 @@ async function detectExistingCover(
       )
     );
     // What a fee proposal would actually carry — on a cutover-straddling
-    // payout that is the eligible-line fee sum, not the ledger total.
+    // payout the eligible proposal covers the eligible-line fee sum and
+    // the historical proposal covers the pre-cutover sum. A manual entry
+    // matching the ledger total covers both shares.
     const eligibleFeesMinor = ledger.lines
       .filter((line) => line.scope === "eligible")
+      .reduce((sum, line) => sum + line.feeMinor, 0);
+    const preCutoverFeesMinor = ledger.lines
+      .filter((line) => line.scope === "pre_cutover")
       .reduce((sum, line) => sum + line.feeMinor, 0);
     const coveredFeeAmounts = new Set(
       [ledger.totals.feesMinor, eligibleFeesMinor].filter((n) => n > 0)
     );
+    const coveredHistoricalFeeAmounts = new Set(
+      [ledger.totals.feesMinor, preCutoverFeesMinor].filter((n) => n > 0)
+    );
     let hasFeeEntry = false;
     let hasTransferEntry = false;
+    let hasHistoricalFeeEntry = false;
     for (const scan of scans) {
       for (const entry of scan.rows) {
         const hits = entry.legs.filter((leg) => watched.has(leg.accountId));
@@ -547,8 +564,12 @@ async function detectExistingCover(
         const feeLeg = hits.find(
           (leg) => leg.accountId === mapping.stripeFeeExpenseAccountId
         );
-        if (feeLeg && coveredFeeAmounts.has(Math.abs(feeLeg.amountMinor))) {
-          hasFeeEntry = true;
+        if (feeLeg) {
+          const feeAmount = Math.abs(feeLeg.amountMinor);
+          if (coveredFeeAmounts.has(feeAmount)) hasFeeEntry = true;
+          if (coveredHistoricalFeeAmounts.has(feeAmount)) {
+            hasHistoricalFeeEntry = true;
+          }
         }
         const transferLeg = hits.find(
           (leg) => leg.accountId === mapping.stripeClearingAccountId
@@ -562,7 +583,7 @@ async function detectExistingCover(
         }
       }
     }
-    return { hasFeeEntry, hasTransferEntry };
+    return { hasFeeEntry, hasTransferEntry, hasHistoricalFeeEntry };
   } catch {
     return none;
   }
