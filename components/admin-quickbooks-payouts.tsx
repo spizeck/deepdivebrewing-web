@@ -14,11 +14,12 @@ import type {
   StripePayoutView,
 } from "@/lib/stripe-payouts-common";
 
-// Stripe payout accounting panel — the Observe-mode review surface.
-// Everything shown is computed proposal state; nothing here posts to
-// QuickBooks (no execution path exists in this build). Admins can
-// reprocess a payout's ledger when a webhook or sweep missed it, or run
-// a bounded sync to recover payouts Stripe never delivered at all.
+// Stripe payout accounting panel — the payout review surface. In
+// observe mode everything shown is computed proposal state and every
+// action is read/reprocess only; in approval mode the panel also exposes
+// approve/reject and the explicit Apply action. Those controls are
+// convenience only — the server enforces the mode and permission on
+// every call.
 
 interface PayoutsResponse {
   ok?: boolean;
@@ -140,7 +141,29 @@ function syncSummaryLine(summary: StripePayoutSyncSummary): string {
   return `Payout sync complete — ${parts.join(", ")}.`;
 }
 
-function ProposalRow({ proposal }: { proposal: QboAccountingProposal }) {
+function ProposalRow({
+  proposal,
+  decisionsEnabled,
+  busy,
+  onDecide,
+  onApply,
+}: {
+  proposal: QboAccountingProposal;
+  /** Server still gates every action — this only controls visibility. */
+  decisionsEnabled: boolean;
+  busy: boolean;
+  onDecide: (proposalId: string, action: "approve" | "reject", note?: string) => void;
+  onApply: (proposalId: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  const decision = proposal.decision;
+  const execution = proposal.execution;
+  const decidable =
+    decisionsEnabled &&
+    (proposal.status === "proposed" || proposal.status === "approved");
+  const approvable = decisionsEnabled && proposal.status === "proposed";
+  const applicable = decisionsEnabled && proposal.status === "approved";
+  const inFlight = execution?.state === "in_progress";
   return (
     <li className="rounded-md border border-stone px-3 py-2 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -148,6 +171,20 @@ function ProposalRow({ proposal }: { proposal: QboAccountingProposal }) {
           <Badge variant={STATUS_VARIANT[proposal.status] ?? "outline"}>
             {proposal.status}
           </Badge>{" "}
+          {execution && execution.state !== "applied" && (
+            <Badge
+              variant={
+                execution.state === "uncertain" ||
+                execution.state === "failed"
+                  ? "destructive"
+                  : "outline"
+              }
+            >
+              {execution.state === "in_progress"
+                ? "executing…"
+                : `execution ${execution.state}`}
+            </Badge>
+          )}{" "}
           <span className="font-medium text-ink">
             {PROPOSAL_LABELS[proposal.kind] ?? proposal.kind}
           </span>{" "}
@@ -168,6 +205,80 @@ function ProposalRow({ proposal }: { proposal: QboAccountingProposal }) {
           Evidence: {proposal.evidence.join(", ")}
         </p>
       )}
+      {decision && (
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {decision.action === "approve" ? "Approved" : "Rejected"} by{" "}
+          {decision.actorEmail ?? decision.actorUid} ·{" "}
+          {formatAdminDateTime(decision.at)}
+          {decision.note ? ` — ${decision.note}` : ""}
+        </p>
+      )}
+      {execution?.qboEntityId && (
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Posted as {execution.qboEntityType} {execution.qboEntityId}
+          {execution.adopted ? " (existing entry adopted)" : ""}
+        </p>
+      )}
+      {execution?.errorMessage && execution.state !== "applied" && (
+        <p className="mt-0.5 text-xs text-ember">
+          {execution.errorCode}: {execution.errorMessage}
+          {execution.state === "uncertain"
+            ? " — the write may have landed; retry reconciles in QuickBooks first."
+            : ""}
+        </p>
+      )}
+      {(decidable || applicable) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {approvable && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || inFlight}
+              onClick={() =>
+                onDecide(proposal.proposalId, "approve", note || undefined)
+              }
+            >
+              Approve
+            </Button>
+          )}
+          {decidable && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || inFlight}
+              onClick={() =>
+                onDecide(proposal.proposalId, "reject", note || undefined)
+              }
+            >
+              {proposal.status === "approved" ? "Withdraw" : "Reject"}
+            </Button>
+          )}
+          {applicable && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || inFlight}
+              onClick={() => onApply(proposal.proposalId)}
+            >
+              {execution?.state === "failed" ||
+              execution?.state === "uncertain" ||
+              execution?.state === "refused"
+                ? "Retry apply"
+                : "Apply to QuickBooks"}
+            </Button>
+          )}
+          {decidable && (
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Decision note (optional)"
+              aria-label={`Decision note for ${proposal.proposalId}`}
+              className="w-52 rounded-md border border-ink/50 px-2 py-1 text-xs"
+            />
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -175,11 +286,19 @@ function ProposalRow({ proposal }: { proposal: QboAccountingProposal }) {
 function PayoutCard({
   payout,
   proposals,
+  decisionsEnabled,
+  decisionBusy,
+  onDecide,
+  onApply,
   onReprocess,
   busy,
 }: {
   payout: StripePayoutView;
   proposals: QboAccountingProposal[];
+  decisionsEnabled: boolean;
+  decisionBusy: string | null;
+  onDecide: (proposalId: string, action: "approve" | "reject", note?: string) => void;
+  onApply: (proposalId: string) => void;
   onReprocess: (payoutId: string) => void;
   busy: boolean;
 }) {
@@ -335,6 +454,10 @@ function PayoutCard({
                   <ProposalRow
                     key={proposal.proposalId}
                     proposal={proposal}
+                    decisionsEnabled={decisionsEnabled}
+                    busy={decisionBusy === proposal.proposalId}
+                    onDecide={onDecide}
+                    onApply={onApply}
                   />
                 ))}
               </ul>
@@ -369,6 +492,7 @@ export function AdminQuickbooksPayouts({
   const [payoutIdInput, setPayoutIdInput] = useState("");
   const [syncSummary, setSyncSummary] =
     useState<StripePayoutSyncSummary | null>(null);
+  const [decisionBusy, setDecisionBusy] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
 
@@ -472,9 +596,88 @@ export function AdminQuickbooksPayouts({
     void runSync("single", payoutId);
   }
 
+  // Decisions + apply both return a refreshed view — the server remains
+  // the authority on every state transition.
+  async function handleDecide(
+    proposalId: string,
+    action: "approve" | "reject",
+    note?: string
+  ) {
+    setDecisionBusy(proposalId);
+    setErrorMessage("");
+    setStatusMessage("");
+    try {
+      const data = await apiFetch(
+        "/api/admin/quickbooks/payouts/proposals",
+        {
+          method: "POST",
+          body: JSON.stringify({ proposalId, action, note }),
+        }
+      );
+      setView(data.view ?? null);
+      setStatusMessage(
+        `Proposal ${action === "approve" ? "approved" : "rejected"}.`
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "The decision failed."
+      );
+    } finally {
+      setDecisionBusy(null);
+    }
+  }
+
+  async function handleApply(proposalId: string) {
+    setDecisionBusy(proposalId);
+    setErrorMessage("");
+    setStatusMessage("");
+    try {
+      const data = await apiFetch(
+        "/api/admin/quickbooks/payouts/proposals/apply",
+        {
+          method: "POST",
+          body: JSON.stringify({ proposalId }),
+        }
+      );
+      setView(data.view ?? null);
+      const apply = (
+        data as { result?: { apply?: { outcome?: string } } }
+      ).result?.apply;
+      setStatusMessage(
+        apply?.outcome === "applied"
+          ? "Proposal applied to QuickBooks."
+          : apply?.outcome === "already_applied"
+            ? "Proposal was already applied."
+            : `Apply finished — ${apply?.outcome ?? "unknown outcome"}.`
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "The apply failed."
+      );
+    } finally {
+      setDecisionBusy(null);
+    }
+  }
+
   const awaiting = view?.payouts.filter((p) => !p.lastProcessedAt) ?? [];
   const blocked =
     view?.proposals.filter((p) => p.status === "blocked") ?? [];
+  const proposals = view?.proposals ?? [];
+  const pendingApproval = proposals.filter(
+    (p) => p.status === "proposed"
+  ).length;
+  const readyToApply = proposals.filter(
+    (p) => p.status === "approved"
+  ).length;
+  const appliedCount = proposals.filter(
+    (p) => p.status === "applied"
+  ).length;
+  const executionAttention = proposals.filter(
+    (p) =>
+      p.execution &&
+      (p.execution.state === "uncertain" || p.execution.state === "failed")
+  ).length;
+  const decisionsEnabled = view?.writesEnabled === true;
 
   return (
     <section
@@ -490,8 +693,10 @@ export function AdminQuickbooksPayouts({
             Stripe payout accounting
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Payout ledgers and proposed QuickBooks entries. Automation runs
-            in observe mode — nothing is posted to QuickBooks.
+            Payout ledgers and proposed QuickBooks entries.{" "}
+            {view?.mode === "observe" || !view
+              ? "Automation runs in observe mode — nothing is posted to QuickBooks."
+              : "Approval mode — apply posts approved entries to QuickBooks."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -605,10 +810,16 @@ export function AdminQuickbooksPayouts({
               </dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Payouts processed</dt>
-              <dd className="font-medium text-ink">
-                {view.payouts.length - awaiting.length}
-              </dd>
+              <dt className="text-muted-foreground">Awaiting approval</dt>
+              <dd className="font-medium text-ink">{pendingApproval}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Ready to apply</dt>
+              <dd className="font-medium text-ink">{readyToApply}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Applied</dt>
+              <dd className="font-medium text-ink">{appliedCount}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Awaiting processing</dt>
@@ -617,6 +828,14 @@ export function AdminQuickbooksPayouts({
             <div>
               <dt className="text-muted-foreground">Blocked proposals</dt>
               <dd className="font-medium text-ink">{blocked.length}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Execution attention</dt>
+              <dd
+                className={`font-medium ${executionAttention > 0 ? "text-ember" : "text-ink"}`}
+              >
+                {executionAttention}
+              </dd>
             </div>
           </dl>
 
@@ -652,6 +871,12 @@ export function AdminQuickbooksPayouts({
                   key={payout.payoutId}
                   payout={payout}
                   proposals={view.proposals}
+                  decisionsEnabled={decisionsEnabled}
+                  decisionBusy={decisionBusy}
+                  onDecide={(id, action, note) =>
+                    void handleDecide(id, action, note)
+                  }
+                  onApply={(id) => void handleApply(id)}
                   onReprocess={handleReprocess}
                   busy={busy === payout.payoutId}
                 />
