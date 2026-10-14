@@ -49,6 +49,7 @@ const STATUS_VARIANT: Record<
   approved: "default",
   rejected: "outline",
   applied: "default",
+  stale: "outline",
 };
 
 function money(line: { amountMinor: number; currency: string }): string {
