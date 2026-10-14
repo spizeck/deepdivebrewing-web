@@ -401,8 +401,16 @@ export function buildPayoutLedger(
       });
     } else {
       // Totals accumulate only for payout-currency lines — the whole
-      // ledger is denominated in one currency and never mixes.
-      totals.computedNetMinor += txn.netMinor;
+      // ledger is denominated in one currency and never mixes. The
+      // `payout`-type balance transaction is the payout's own debit —
+      // Stripe includes it in the `?payout=` constituent list — so it
+      // must stay out of the net sum or every ledger reads as double the
+      // payout short. Minimum-balance hold/release movements stay in:
+      // they legitimately explain why the paid amount differs from the
+      // charge nets.
+      if (txn.type !== "payout") {
+        totals.computedNetMinor += txn.netMinor;
+      }
       totals.feesMinor += txn.feeMinor;
       if (isChargeBucket(txn.type)) {
         totals.chargeCount += 1;
