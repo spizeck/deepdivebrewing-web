@@ -20,7 +20,11 @@ import {
   qboReconActivityQuery,
   qboUndepositedFundsQuery,
   canonicalizeQboInvoices,
+  canonicalizeQboPayment,
+  canonicalizeQboTxnWriteResult,
+  buildQboPaymentDepositUpdate,
   qboInvoicesByIdsQuery,
+  qboPaymentByIdQuery,
   qboSalesReceiptCorrelationQuery,
   qboSalesReceiptRowCount,
   QBO_QUERY_MAX_PAGES,
@@ -30,6 +34,7 @@ import {
   type QboAccountBalance,
   type QboInvoiceFacts,
   type QboPaymentFacts,
+  type QboPaymentRecord,
   type QboReconActivityEntity,
   type QboReconActivityEntry,
 } from "@/lib/qbo-protocol";
@@ -478,4 +483,137 @@ export async function findQboUndepositedFundsAccount(input: {
     ),
   });
   return canonicalizeQboUndepositedFundsAccount(payload);
+}
+
+// --- Payout-executor writes (payout accounting automation) ---
+// The only other write surface besides Sales Receipts. Each function is
+// a thin transport boundary — every accounting decision (which entity,
+// which accounts, whether to write at all) lives in
+// lib/stripe-payout-executor.ts.
+
+// Apply-time revalidation read: the executor re-fetches the Payment
+// immediately before moving it so amount, currency, deposit account,
+// and the SyncToken the sparse update needs are current provider facts.
+export async function fetchQboPaymentById(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  paymentId: string;
+}): Promise<QboPaymentRecord | null> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    url: buildQboQueryUrl(
+      input.environment,
+      input.realmId,
+      qboPaymentByIdQuery(input.paymentId)
+    ),
+  });
+  const payment = canonicalizeQboPayment(payload);
+  logInfo("qbo.api.payment_read", {
+    environment: input.environment,
+    found: Boolean(payment),
+    correlationId,
+  });
+  return payment;
+}
+
+export interface QboTxnWriteResult {
+  id: string;
+  syncToken?: string;
+  correlationId?: string;
+}
+
+// Sparse-updates a Payment's DepositToAccountRef — the Ollie
+// reclassification move (Undeposited Funds → Stripe clearing). The
+// caller supplies the SyncToken from its own fresh read; QBO rejects a
+// stale token, which is itself a material-change signal.
+export async function updateQboPaymentDepositAccount(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  paymentId: string;
+  syncToken: string;
+  depositToAccountId: string;
+}): Promise<QboTxnWriteResult> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    path: "/payment",
+    method: "POST",
+    body: buildQboPaymentDepositUpdate(input),
+  });
+  const result = canonicalizeQboTxnWriteResult("Payment", payload);
+  if (!result) {
+    throw toQboError(new Error("missing Payment in response"), "response parsing", {
+      correlationId,
+    });
+  }
+  logInfo("qbo.api.payment_moved", {
+    environment: input.environment,
+    correlationId,
+  });
+  return { ...result, correlationId };
+}
+
+// Creates a JournalEntry — the Stripe fee posting. The payload must
+// carry the deterministic correlation marker (qboFeeEntryMarker) in
+// PrivateNote; the executor's recovery lookup depends on it.
+export async function createQboJournalEntry(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  payload: Record<string, unknown>;
+}): Promise<QboTxnWriteResult> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    path: "/journalentry",
+    method: "POST",
+    body: input.payload,
+  });
+  const result = canonicalizeQboTxnWriteResult("JournalEntry", payload);
+  if (!result) {
+    throw toQboError(new Error("missing JournalEntry in response"), "response parsing", {
+      correlationId,
+    });
+  }
+  logInfo("qbo.api.journalentry_created", {
+    environment: input.environment,
+    correlationId,
+  });
+  return { ...result, correlationId };
+}
+
+// Creates a Transfer — the payout leg from Stripe clearing to the
+// configured payout/bank account. Same marker contract as the
+// JournalEntry path (qboPayoutTransferMarker).
+export async function createQboTransfer(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  payload: Record<string, unknown>;
+}): Promise<QboTxnWriteResult> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    path: "/transfer",
+    method: "POST",
+    body: input.payload,
+  });
+  const result = canonicalizeQboTxnWriteResult("Transfer", payload);
+  if (!result) {
+    throw toQboError(new Error("missing Transfer in response"), "response parsing", {
+      correlationId,
+    });
+  }
+  logInfo("qbo.api.transfer_created", {
+    environment: input.environment,
+    correlationId,
+  });
+  return { ...result, correlationId };
 }

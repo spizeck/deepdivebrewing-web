@@ -1007,7 +1007,7 @@ export async function getStripePayoutAutomationView(input: {
     configured: true,
     environment,
     mode,
-    writesEnabled: false,
+    writesEnabled: mode !== "observe",
     cutover: cutover ?? undefined,
     lastReconAt: input.lastReconAt,
     payouts,

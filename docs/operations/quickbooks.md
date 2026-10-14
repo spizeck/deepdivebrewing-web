@@ -507,16 +507,24 @@ period vs per-charge entries); then implement any write as a one-off
 reviewed operation — never an automatic backfill, never edits to filed
 periods without accountant approval.
 
-## Stripe payout accounting (observe mode)
+## Stripe payout accounting
 
 `/admin/integrations/quickbooks` → **Stripe payout accounting** is the
-observe-mode automation surface. It ingests Stripe payout webhook events
+payout-automation surface. It ingests Stripe payout webhook events
 (`payout.created/updated/paid/failed/canceled`, and
 `payout.reconciliation_completed` where the account emits it), rebuilds
 each payout's authoritative ledger from Stripe's balance transactions,
 classifies every movement, and persists deterministic QuickBooks
-*proposals* — nothing posts. There is no QBO write path in this build;
-`writesEnabled` is always false.
+*proposals*. `STRIPE_ACCOUNTING_MODE` (default `observe`) controls how
+far that pipeline may go:
+
+- `observe` — read-only end to end. Proposals are computed; decisions
+  and execution refuse. `writesEnabled` reports false.
+- `approval` — admins with the `accounting` permission may approve/
+  reject proposals and explicitly apply an approved one
+  (`POST …/payouts/proposals/apply`). Nothing runs unattended.
+- `automatic` — reserved for the pilot-gated unattended path; same
+  manual surface stays available.
 
 - **Lanes**: each movement is `ddb` (positive application identity — a
   stored charge/PaymentIntent/refund id or `metadata.paymentId`),
@@ -596,6 +604,29 @@ classifies every movement, and persists deterministic QuickBooks
   fingerprint. `approved` → `rejected` withdraws an approval;
   `rejected`/`applied` are terminal; `blocked` cannot be approved until
   its mapping lands.
+- **Execution** (`POST /api/admin/quickbooks/payouts/proposals/apply`,
+  bearer + `accounting` permission, non-observe modes only): the
+  guarded executor in `lib/stripe-payout-executor.ts` is the only code
+  path that mutates QBO. Before writing it re-reads the proposal inside
+  a Firestore transaction (environment, `approved` status, the
+  decision's fingerprint still binding to `materialFingerprint`,
+  accounting date ≥ cutover — no apply without a configured cutover) and
+  claims it with a two-minute owner-token lease. It then re-reads live
+  QBO state: a move verifies the payment is still in Undeposited Funds
+  with the approved amount/currency and applies a sparse
+  `DepositToAccountRef` update (never a full update — invoice links are
+  untouched); fee and transfer proposals first confirm every eligible
+  DDB-originated line in the payout already has a synced QBO
+  sales-receipt record (`ddb_gross_unposted` refusal otherwise), then
+  post a JournalEntry (debit fee expense / credit clearing) or a
+  Transfer (clearing → payout account). Every create carries a
+  deterministic `DDB-PAYOUT-FEE:`/`DDB-PAYOUT-XFER:` PrivateNote marker;
+  each attempt runs a marker+legs recovery scan first, so a write that
+  landed but lost its response is **adopted**, never duplicated. A write
+  whose outcome is unknown parks `execution.state: "uncertain"` — retry
+  is allowed and always reconciles provider-side first. Results live on
+  the proposal's `execution` record plus `auditTrail` (and the admin
+  audit log); `applied` records the resulting QBO entity reference.
 - **Payout destination account**: the `stripePayoutAccountId` mapping
   decides whether the eventual transfer debits the bank account
   directly or a "Payouts in Transit" account — the accountant's choice;
@@ -605,9 +636,11 @@ classifies every movement, and persists deterministic QuickBooks
   created earlier as `pre_cutover` — reported, never proposed. Leave
   unset to treat everything as eligible.
 - **Mode**: `STRIPE_ACCOUNTING_MODE` defaults to `observe`. `approval`
-  unlocks the decision route for authorized admins (execution lands with
-  the guarded executor in a follow-up); `automatic` is reserved for the
-  post-pilot unattended sweep.
+  unlocks the decision + apply routes for authorized admins;
+  `automatic` is reserved for the post-pilot unattended sweep. The flag
+  alone never bypasses prerequisites — the executor still requires an
+  approved, fingerprint-bound, post-cutover proposal and live QBO
+  revalidation.
 - **Recovery**: the daily `qbo-sweep` cron also rescans the last 35 days
   of Stripe payouts and rebuilds any ledger that is missing, pending, or
   behind the payout's canonical status — a missed webhook cannot leave
@@ -657,16 +690,18 @@ classifies every movement, and persists deterministic QuickBooks
   deposit account until someone reverses it by hand in QBO. When staff
   record a cash refund, reverse the matching Sales Receipt (`PrivateNote`
   marker `ddb:<paymentId>`) in QuickBooks the same day.
-- Stripe payout **posting** and fee **posting** — the payout automation
-  observes and proposes only (see [Stripe payout
-  accounting](#stripe-payout-accounting-observe-mode)); execution of
-  proposals (Payment reclassification, fee Purchase, payout Transfer) is
-  a follow-up requiring explicit accountant approval and its own PR.
+- **Unattended** payout posting — the executor exists and is guarded
+  (see [Stripe payout accounting](#stripe-payout-accounting)), but no
+  code path invokes it without an explicit authorized apply call, and
+  production remains `observe`. The automatic-mode sweep lands behind
+  the controlled pilot.
+- Refund/dispute/reversal **posting** — such movements are classified
+  and surfaced as review exceptions; their accounting treatment is not
+  implemented and they can never execute.
 - Tax posting — **prepared but not activated** (#184): the mapping can
   carry an accountant-verified `TaxCodeRef` + price treatment today,
   but stays unset until the answers in
   [Activating tax posting](#activating-tax-posting-184) are recorded
-- Journal entries or any other entity writes
 
 ## Troubleshooting
 
