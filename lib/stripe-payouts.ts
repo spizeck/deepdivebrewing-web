@@ -1,6 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import {
+  FieldPath,
+  FieldValue,
+  Timestamp,
+  type DocumentReference,
+  type QueryDocumentSnapshot,
+} from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "@/lib/firebase-admin-db";
 import { deepOmitUndefined } from "@/lib/firestore-safe";
 import { isQboConfigured, getQboEnvironment } from "@/lib/qbo-config";
@@ -101,6 +107,13 @@ const CLAIMING_STATUSES = new Set([
   "approved",
   "applied",
 ]);
+
+// Stored-proposal scan page size (document-id ordering, no composite
+// index needed) and the per-commit write bound — Firestore batches cap
+// at 500 operations, and the ledger doc + proposals + stale marks for a
+// pathological payout must fit in bounded chunks.
+const PROPOSAL_SCAN_PAGE_SIZE = 200;
+const BATCH_WRITE_LIMIT = 400;
 
 const DAY_MS = 86_400_000;
 
@@ -576,18 +589,31 @@ export async function processStripePayoutLedger(
   });
 
   // Proposal persistence: deterministic ids make every rewrite idempotent
-  // — a replayed event or second trigger converges to the same docs.
-  const existing = await proposalsCollection()
-    .where("payoutId", "==", payoutId)
-    .where("environment", "==", environment)
-    .limit(200)
-    .get();
+  // — a replayed event or second trigger converges to the same docs. The
+  // stored set is paged by document id (equality filters + document-id
+  // ordering need no composite index) so a payout holding more than one
+  // page of proposals is scanned completely — the stale pass must see
+  // every stored doc.
+  const existingDocs: QueryDocumentSnapshot[] = [];
+  let cursor: QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let pageQuery = proposalsCollection()
+      .where("payoutId", "==", payoutId)
+      .where("environment", "==", environment)
+      .orderBy(FieldPath.documentId())
+      .limit(PROPOSAL_SCAN_PAGE_SIZE);
+    if (cursor) pageQuery = pageQuery.startAfter(cursor);
+    const snap = await pageQuery.get();
+    existingDocs.push(...snap.docs);
+    if (snap.size < PROPOSAL_SCAN_PAGE_SIZE) break;
+    cursor = snap.docs[snap.docs.length - 1];
+  }
   const decided = new Map<string, string>();
   const priorAudit = new Map<
     string,
     { at: string; actor: string; note: string }[]
   >();
-  for (const doc of existing.docs) {
+  for (const doc of existingDocs) {
     const data = doc.data();
     const status = data.status;
     if (typeof status === "string" && DECIDED_PROPOSAL_STATUSES.has(status)) {
@@ -600,16 +626,23 @@ export async function processStripePayoutLedger(
       );
     }
   }
+  // Writes collect into bounded batches — a pathological payout could
+  // hold hundreds of proposals, and a batch caps at 500 operations.
+  const writes: { ref: DocumentReference; data: Record<string, unknown> }[] =
+    [];
+  const now = new Date().toISOString();
+
   // Proposals that no longer recompute (e.g. a line went pre-cutover, a
   // match resolved elsewhere) are stale — not deleted, which would erase
   // review history, and not left at a live status, which would let a
   // future execution surface pick them up. `stale` is not a decided
   // status, so a proposal that recomputes on a later build revives.
-  // Terminal decisions (`rejected`, `applied`) are never touched.
-  const now = new Date().toISOString();
-  const batch = getFirebaseAdminDb().batch();
+  // Terminal decisions (`rejected`, `applied`) are never touched — and a
+  // `move_payment_to_clearing` absence is only trusted when the QBO leg
+  // actually ran: with QBO unavailable there were no candidates to match,
+  // so a missing proposal is an outage artifact, not evidence.
   const recomputedIds = new Set(proposals.map((p) => p.proposalId));
-  for (const doc of existing.docs) {
+  for (const doc of existingDocs) {
     const data = doc.data();
     const status = data.status;
     if (
@@ -618,9 +651,12 @@ export async function processStripePayoutLedger(
     ) {
       continue;
     }
-    batch.set(
-      proposalsCollection().doc(doc.id),
-      {
+    if (!ollie.available && data.kind === "move_payment_to_clearing") {
+      continue;
+    }
+    writes.push({
+      ref: proposalsCollection().doc(doc.id),
+      data: {
         status: "stale",
         auditTrail: [
           ...(priorAudit.get(doc.id) ?? []),
@@ -631,24 +667,22 @@ export async function processStripePayoutLedger(
           },
         ].slice(-20),
       },
-      { merge: true }
-    );
+    });
   }
   for (const proposal of proposals) {
     const trail = [
       ...(priorAudit.get(proposal.proposalId) ?? []),
       { at: now, actor: "system", note: `computed in ${mode} mode` },
     ].slice(-20);
-    batch.set(
-      proposalsCollection().doc(proposal.proposalId),
-      deepOmitUndefined({
+    writes.push({
+      ref: proposalsCollection().doc(proposal.proposalId),
+      data: deepOmitUndefined({
         ...proposal,
         status: decided.get(proposal.proposalId) ?? proposal.status,
         computedAt: FieldValue.serverTimestamp(),
         auditTrail: trail,
       }),
-      { merge: true }
-    );
+    });
   }
 
   const lines = ledger.lines.slice(0, STORED_LINE_LIMIT);
@@ -667,9 +701,9 @@ export async function processStripePayoutLedger(
     });
   }
 
-  batch.set(
-    payoutRef(payout.id),
-    deepOmitUndefined({
+  writes.push({
+    ref: payoutRef(payout.id),
+    data: deepOmitUndefined({
       payoutId: payout.id,
       environment,
       status: payout.status,
@@ -691,9 +725,14 @@ export async function processStripePayoutLedger(
       lastProcessedAt: FieldValue.serverTimestamp(),
       lastProcessedIso: now,
     }),
-    { merge: true }
-  );
-  await batch.commit();
+  });
+  for (let i = 0; i < writes.length; i += BATCH_WRITE_LIMIT) {
+    const batch = getFirebaseAdminDb().batch();
+    for (const write of writes.slice(i, i + BATCH_WRITE_LIMIT)) {
+      batch.set(write.ref, write.data, { merge: true });
+    }
+    await batch.commit();
+  }
   logInfo("stripe.payout.ledger_built", {
     payoutId: payout.id,
     lines: ledger.lines.length,
