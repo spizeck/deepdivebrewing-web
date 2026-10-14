@@ -383,8 +383,8 @@ export function ollieRefsFromQboPayment(
   for (const doc of payment.linkedDocNumbers ?? []) {
     // DocNumber can be padded ("00327") or prefixed ("INV-00327") — the
     // trailing digit run is the invoice number.
-    const digits = doc.match(/(\d{3,12})/);
-    if (digits) addRef(refs, "invoiceNumbers", digits[1]);
+    const runs = doc.match(/\d{3,12}/g);
+    if (runs) addRef(refs, "invoiceNumbers", runs[runs.length - 1]);
   }
   return refs;
 }

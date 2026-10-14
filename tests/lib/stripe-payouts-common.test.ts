@@ -679,6 +679,12 @@ describe("Ollie reference extraction", () => {
     });
     assert.deepEqual(r.paymentNumbers, ["1626166"]);
     assert.deepEqual(r.invoiceNumbers, ["327"]);
+    // Prefixed DocNumbers resolve on the trailing digit run.
+    const prefixed = ollieRefsFromQboPayment({
+      refNumber: "1626166",
+      linkedDocNumbers: ["INV-2026-00327"],
+    });
+    assert.deepEqual(prefixed.invoiceNumbers, ["327"]);
   });
 
   it("compares per documented chain — populated-but-disjoint is a conflict", () => {
