@@ -1212,3 +1212,168 @@ export function canonicalizeQboUndepositedFundsAccount(
   if (!id) return null;
   return { id, name: typeof r.Name === "string" ? r.Name : `Account ${id}` };
 }
+
+// --- Guarded payout-executor primitives (payout accounting automation) ---
+// Write-path builders + canonicalizers for the proposal executor. Every
+// write carries a deterministic correlation marker in PrivateNote so a
+// retry after an ambiguous outcome can adopt the landed entity instead
+// of posting a second one (QBO offers no create-time idempotency key).
+
+// Correlation marker namespaces — deterministic per proposal, matched
+// against an entity's PrivateNote during provider-side recovery.
+export function qboFeeEntryMarker(payoutId: string): string {
+  return `DDB-PAYOUT-FEE:${payoutId}`;
+}
+export function qboPayoutTransferMarker(payoutId: string): string {
+  return `DDB-PAYOUT-XFER:${payoutId}`;
+}
+
+// Single-Payment read for apply-time revalidation + sparse update: the
+// executor re-reads the payment immediately before moving it, so the
+// SyncToken and deposit account it acts on are current facts, never a
+// cached match result.
+export interface QboPaymentRecord {
+  id: string;
+  syncToken: string;
+  txnDate?: string;
+  totalMinor: number;
+  currency?: string;
+  depositToAccountId?: string;
+  customerId?: string;
+  refNumber?: string;
+}
+
+export function qboPaymentByIdQuery(id: string): string {
+  const safe = id.replace(/[^0-9A-Za-z-]/g, "");
+  return `select Id, SyncToken, TxnDate, TotalAmt, CurrencyRef, CustomerRef, PaymentRefNum, DepositToAccountRef, Line from Payment where Id = '${safe}'`;
+}
+
+export function canonicalizeQboPayment(
+  payload: unknown
+): QboPaymentRecord | null {
+  const response =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).QueryResponse
+      : undefined;
+  const rows =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>).Payment
+      : undefined;
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  if (typeof row !== "object" || row === null) return null;
+  const r = row as Record<string, unknown>;
+  const id =
+    typeof r.Id === "string" || typeof r.Id === "number" ? String(r.Id) : "";
+  const totalMinor = minorUnits(r.TotalAmt);
+  const syncToken =
+    typeof r.SyncToken === "string" || typeof r.SyncToken === "number"
+      ? String(r.SyncToken)
+      : "";
+  if (!id || !syncToken || totalMinor === null) return null;
+  const currencyRef =
+    typeof r.CurrencyRef === "object" && r.CurrencyRef !== null
+      ? (r.CurrencyRef as Record<string, unknown>).value
+      : undefined;
+  const customerRef =
+    typeof r.CustomerRef === "object" && r.CustomerRef !== null
+      ? (r.CustomerRef as Record<string, unknown>)
+      : undefined;
+  return {
+    id,
+    syncToken,
+    txnDate: typeof r.TxnDate === "string" ? r.TxnDate : undefined,
+    totalMinor,
+    currency:
+      typeof currencyRef === "string" ? currencyRef.toUpperCase() : undefined,
+    depositToAccountId: accountRefValue(r.DepositToAccountRef) ?? undefined,
+    customerId: accountRefValue(customerRef) ?? undefined,
+    refNumber:
+      typeof r.PaymentRefNum === "string" ? r.PaymentRefNum : undefined,
+  };
+}
+
+// Sparse update payload — moves a Payment's deposit target without
+// touching its lines, customer, or invoice links. `sparse: true` is
+// required: a full update would demand every field.
+export function buildQboPaymentDepositUpdate(input: {
+  paymentId: string;
+  syncToken: string;
+  depositToAccountId: string;
+}): Record<string, unknown> {
+  return {
+    Id: input.paymentId,
+    SyncToken: input.syncToken,
+    sparse: true,
+    DepositToAccountRef: { value: input.depositToAccountId },
+  };
+}
+
+export interface QboJournalLineSpec {
+  postingType: "Debit" | "Credit";
+  accountId: string;
+  amountMinor: number;
+  description?: string;
+}
+
+// Two-legged JournalEntry payload — the Stripe fee posting (debit fee
+// expense, credit clearing). Home-currency amounts only; payout
+// proposals are never built for foreign-currency lines.
+export function buildQboJournalEntryPayload(input: {
+  txnDate: string;
+  privateNote: string;
+  lines: QboJournalLineSpec[];
+}): Record<string, unknown> {
+  return {
+    TxnDate: input.txnDate,
+    PrivateNote: input.privateNote,
+    Line: input.lines.map((line) => ({
+      DetailType: "JournalEntryLineDetail",
+      Amount: line.amountMinor / 100,
+      Description: line.description,
+      JournalEntryLineDetail: {
+        PostingType: line.postingType,
+        AccountRef: { value: line.accountId },
+      },
+    })),
+  };
+}
+
+// Transfer payload — the payout leg: FROM the Stripe clearing account
+// (credit) TO the configured payout/bank account (debit).
+export function buildQboTransferPayload(input: {
+  txnDate: string;
+  amountMinor: number;
+  fromAccountId: string;
+  toAccountId: string;
+  privateNote: string;
+}): Record<string, unknown> {
+  return {
+    TxnDate: input.txnDate,
+    Amount: input.amountMinor / 100,
+    FromAccountRef: { value: input.fromAccountId },
+    ToAccountRef: { value: input.toAccountId },
+    PrivateNote: input.privateNote,
+  };
+}
+
+// Generic create/update result — QBO echoes the persisted entity under
+// its type name ({JournalEntry: {Id, SyncToken, ...}}).
+export function canonicalizeQboTxnWriteResult(
+  entity: "Payment" | "JournalEntry" | "Transfer",
+  payload: unknown
+): { id: string; syncToken?: string } | null {
+  const row =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>)[entity]
+      : undefined;
+  if (typeof row !== "object" || row === null) return null;
+  const r = row as Record<string, unknown>;
+  const id =
+    typeof r.Id === "string" || typeof r.Id === "number" ? String(r.Id) : "";
+  if (!id) return null;
+  const syncToken =
+    typeof r.SyncToken === "string" || typeof r.SyncToken === "number"
+      ? String(r.SyncToken)
+      : undefined;
+  return { id, syncToken };
+}

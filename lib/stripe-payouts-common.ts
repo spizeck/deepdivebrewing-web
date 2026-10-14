@@ -892,8 +892,9 @@ export function buildPayoutLedger(
 
 // --- Accounting proposals ---
 
-// Native QBO workflows each proposal describes (execution is a follow-up
-// PR — these records are the review/audit artifact):
+// Native QBO workflows each proposal describes (executed by the guarded
+// executor in approval/automatic mode — these records are also the
+// review/audit artifact):
 //   move_payment_to_clearing — sparse-update the Ollie Payment's
 //     DepositToAccountRef from Undeposited Funds to Stripe Clearing.
 //     Never a journal entry: the Payment↔Invoice relationship and the
@@ -910,11 +911,11 @@ export type QboProposalKind =
   | "payout_transfer";
 
 export type QboProposalStatus =
-  | "proposed" // computed, awaiting review (all statuses this phase emits)
+  | "proposed" // computed, awaiting review
   | "blocked" // cannot become a valid posting (missing mapping, etc.)
-  | "approved" // decided by an authorized admin — not yet executable
+  | "approved" // decided by an authorized admin — executable via apply
   | "rejected"
-  | "applied" // posted to QBO — reserved for the execution follow-up
+  | "applied" // posted to QBO by the guarded executor
   | "stale"; // the latest rebuild no longer produces this proposal —
   //            kept as review history, never executable. Not a decided
   //            status: a proposal that recomputes again revives to
@@ -970,6 +971,24 @@ export interface QboAccountingProposal {
    *  fingerprint binding, newest last. `decision` alone loses the prior
    *  record when a second decision lands. */
   decisions?: QboProposalDecision[];
+  /** Latest execution state written by the guarded executor — the
+   *  durable record of apply attempts, outcomes, and the resulting QBO
+   *  entity reference. Present only after at least one apply attempt. */
+  execution?: {
+    state: "in_progress" | "applied" | "failed" | "refused" | "uncertain";
+    attempts: number;
+    /** Epoch ms the in-progress claim lease runs to. Lets a reader
+     *  distinguish a genuinely in-flight apply from an interrupted one
+     *  whose lease already lapsed — the latter is safe to retry. */
+    leaseUntilMs?: number;
+    startedAt?: string;
+    updatedAt?: string;
+    errorCode?: string;
+    errorMessage?: string;
+    qboEntityType?: string;
+    qboEntityId?: string;
+    adopted?: boolean;
+  };
 }
 
 export type StripeAccountingMode = "observe" | "approval" | "automatic";
@@ -1265,8 +1284,9 @@ export interface StripePayoutAutomationView {
   configured: boolean;
   environment: QboEnvironment;
   mode: StripeAccountingMode;
-  /** Always false in this phase — no QBO write path exists yet. */
-  writesEnabled: false;
+  /** True only in approval/automatic mode — the executor exists but
+   *  observe mode still refuses every write. */
+  writesEnabled: boolean;
   cutover?: string;
   /** Last completed reconciliation run timestamp, when one exists. */
   lastReconAt?: string;

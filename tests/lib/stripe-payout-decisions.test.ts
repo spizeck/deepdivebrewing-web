@@ -262,6 +262,57 @@ describe("decidePayoutProposal", () => {
     assert.equal(store.get(PROPOSAL_ID)!.status, "rejected");
   });
 
+  it("refuses withdrawal while an apply holds a live claim lease", async () => {
+    accountingMode = "approval";
+    const { decidePayoutProposal } = await import(
+      "@/lib/stripe-payout-decisions"
+    );
+    // A claimed, in-flight apply is past the decision checkpoint — the
+    // executor may already be posting. Withdrawing now would let the
+    // entry land and then read as rejected.
+    seedProposal({
+      status: "approved",
+      decision: {
+        action: "approve",
+        actorUid: "admin-1",
+        at: "t0",
+        fingerprint: FINGERPRINT,
+      },
+      execution: {
+        state: "in_progress",
+        attempts: 1,
+        leaseUntilMs: Date.now() + 60_000,
+      },
+    });
+    await assert.rejects(
+      decidePayoutProposal({
+        proposalId: PROPOSAL_ID,
+        action: "reject",
+        expectedFingerprint: FINGERPRINT,
+        actor: ACTOR,
+      }),
+      /apply is in progress/i
+    );
+    assert.equal(store.get(PROPOSAL_ID)!.status, "approved");
+
+    // An expired lease means the claim stalled — withdrawal is safe.
+    store.set(PROPOSAL_ID, {
+      ...store.get(PROPOSAL_ID)!,
+      execution: {
+        state: "in_progress",
+        attempts: 1,
+        leaseUntilMs: Date.now() - 1,
+      },
+    });
+    const withdrawn = await decidePayoutProposal({
+      proposalId: PROPOSAL_ID,
+      action: "reject",
+      expectedFingerprint: FINGERPRINT,
+      actor: ACTOR,
+    });
+    assert.equal(withdrawn.status, "rejected");
+  });
+
   it("refuses to approve blocked, stale, applied, or rejected entries", async () => {
     accountingMode = "approval";
     const { decidePayoutProposal } = await import(
