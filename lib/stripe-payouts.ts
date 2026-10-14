@@ -600,10 +600,40 @@ export async function processStripePayoutLedger(
       );
     }
   }
-  // Proposals that no longer recompute (e.g. a match resolved elsewhere)
-  // are stale, not deleted — removing them would erase review history.
+  // Proposals that no longer recompute (e.g. a line went pre-cutover, a
+  // match resolved elsewhere) are stale — not deleted, which would erase
+  // review history, and not left at a live status, which would let a
+  // future execution surface pick them up. `stale` is not a decided
+  // status, so a proposal that recomputes on a later build revives.
+  // Terminal decisions (`rejected`, `applied`) are never touched.
   const now = new Date().toISOString();
   const batch = getFirebaseAdminDb().batch();
+  const recomputedIds = new Set(proposals.map((p) => p.proposalId));
+  for (const doc of existing.docs) {
+    const data = doc.data();
+    const status = data.status;
+    if (
+      recomputedIds.has(doc.id) ||
+      (status !== "proposed" && status !== "blocked" && status !== "approved")
+    ) {
+      continue;
+    }
+    batch.set(
+      proposalsCollection().doc(doc.id),
+      {
+        status: "stale",
+        auditTrail: [
+          ...(priorAudit.get(doc.id) ?? []),
+          {
+            at: now,
+            actor: "system",
+            note: `no longer produced by the latest build — marked stale (was ${status})`,
+          },
+        ].slice(-20),
+      },
+      { merge: true }
+    );
+  }
   for (const proposal of proposals) {
     const trail = [
       ...(priorAudit.get(proposal.proposalId) ?? []),

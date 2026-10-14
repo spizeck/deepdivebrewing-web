@@ -539,6 +539,42 @@ describe("processStripePayoutLedger", () => {
     assert.equal(trail.length, 2);
   });
 
+  it("marks live proposals stale when the rebuild stops producing them", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    await processStripePayoutLedger("po_abc");
+    const proposals = collectionStore("qboAccountingProposals");
+    const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
+    const feeId = "sandbox:po_abc:stripe_fee_expense:aggregate";
+    const transferId = "sandbox:po_abc:payout_transfer:aggregate";
+    // Terminal and decided states going into the rebuild: one approved,
+    // one rejected — the third stays proposed.
+    proposals.get(moveId)!.status = "approved";
+    proposals.get(transferId)!.status = "rejected";
+
+    // A cutover that now excludes every movement → nothing recomputes.
+    cutover = "2026-10-14";
+    await processStripePayoutLedger("po_abc");
+
+    // Live statuses can no longer masquerade as current computation —
+    // an approved proposal that stopped recomputing must not stay
+    // executable; rejected stays terminal.
+    assert.equal(proposals.get(moveId)!.status, "stale");
+    assert.equal(proposals.get(feeId)!.status, "stale");
+    assert.equal(proposals.get(transferId)!.status, "rejected");
+    const trail = proposals.get(moveId)!.auditTrail as FakeDoc[];
+    assert.ok(
+      (trail.at(-1)!.note as string).includes("marked stale (was approved)")
+    );
+
+    // Stale is not decided — remove the cutover and the proposals revive.
+    cutover = null;
+    await processStripePayoutLedger("po_abc");
+    assert.equal(proposals.get(moveId)!.status, "proposed");
+    assert.equal(proposals.get(feeId)!.status, "proposed");
+    // The terminal rejection is still preserved across the rebuild.
+    assert.equal(proposals.get(transferId)!.status, "rejected");
+  });
+
   it("suppresses fee/transfer proposals when manual QBO entries already cover them", async () => {
     const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
     reconActivity = [

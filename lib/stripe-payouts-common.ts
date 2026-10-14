@@ -561,7 +561,11 @@ export type QboProposalStatus =
   | "blocked" // cannot become a valid posting (missing mapping, etc.)
   | "approved" // decided by an authorized admin — not yet executable
   | "rejected"
-  | "applied"; // posted to QBO — reserved for the execution follow-up
+  | "applied" // posted to QBO — reserved for the execution follow-up
+  | "stale"; // the latest rebuild no longer produces this proposal —
+  //            kept as review history, never executable. Not a decided
+  //            status: a proposal that recomputes again revives to
+  //            proposed/blocked on the next build.
 
 export interface QboProposalParty {
   accountId?: string;

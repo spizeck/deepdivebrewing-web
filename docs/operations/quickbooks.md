@@ -538,7 +538,10 @@ classifies every movement, and persists deterministic QuickBooks
   account). Missing mappings produce `blocked` proposals; a manually
   entered fee journal or transfer covering the exact amount suppresses
   the proposal. Proposals the accountant has approved/rejected keep
-  their decision across rebuilds.
+  their decision across rebuilds; proposals a rebuild stops producing
+  (a line went pre-cutover, a match resolved elsewhere) are marked
+  `stale` — kept as review history, never live — and revive if a later
+  build produces them again.
 - **Payout destination account**: the `stripePayoutAccountId` mapping
   decides whether the eventual transfer debits the bank account
   directly or a "Payouts in Transit" account — the accountant's choice;
