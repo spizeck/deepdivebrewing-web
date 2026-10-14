@@ -542,11 +542,20 @@ export function AdminQuickbooksPayouts({
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   // View responses can return out of order — only the most recently
-  // issued request may replace rendered state.
+  // issued request may replace rendered state. A dropped response means
+  // the accepted view may predate another request's committed mutation,
+  // so when the last pending mutation settles we re-read the server
+  // state once rather than trusting what made it back.
   const viewSeqRef = useRef(0);
+  const pendingRef = useRef(0);
+  const droppedViewRef = useRef(false);
   const applyView = useCallback(
     (seq: number, next: StripePayoutAutomationView | null) => {
-      if (seq === viewSeqRef.current) setView(next);
+      if (seq === viewSeqRef.current) {
+        setView(next);
+      } else {
+        droppedViewRef.current = true;
+      }
     },
     []
   );
@@ -592,8 +601,20 @@ export function AdminQuickbooksPayouts({
     void load();
   }, [load]);
 
+  // Runs in every mutation's finally — when the last in-flight request
+  // settles, refresh once if any response was dropped, so the panel
+  // can't stay on a view that predates a committed mutation.
+  const finishMutation = () => {
+    pendingRef.current -= 1;
+    if (pendingRef.current === 0 && droppedViewRef.current) {
+      droppedViewRef.current = false;
+      void load();
+    }
+  };
+
   async function handleReprocess(payoutId: string) {
     const seq = ++viewSeqRef.current;
+    pendingRef.current += 1;
     setBusy((s) => withKey(s, payoutId));
     setErrorMessage("");
     setStatusMessage("");
@@ -611,6 +632,7 @@ export function AdminQuickbooksPayouts({
       );
     } finally {
       setBusy((s) => withoutKey(s, payoutId));
+      finishMutation();
     }
   }
 
@@ -619,6 +641,7 @@ export function AdminQuickbooksPayouts({
   // the summary plus a refreshed view.
   async function runSync(scope: "recent" | "single", payoutId?: string) {
     const seq = ++viewSeqRef.current;
+    pendingRef.current += 1;
     setSyncing(scope);
     setErrorMessage("");
     setStatusMessage("");
@@ -642,6 +665,7 @@ export function AdminQuickbooksPayouts({
       );
     } finally {
       setSyncing(null);
+      finishMutation();
     }
   }
 
@@ -662,6 +686,7 @@ export function AdminQuickbooksPayouts({
     note?: string
   ) {
     const seq = ++viewSeqRef.current;
+    pendingRef.current += 1;
     setDecisionBusy((s) => withKey(s, proposal.proposalId));
     setErrorMessage("");
     setStatusMessage("");
@@ -692,11 +717,13 @@ export function AdminQuickbooksPayouts({
       );
     } finally {
       setDecisionBusy((s) => withoutKey(s, proposal.proposalId));
+      finishMutation();
     }
   }
 
   async function handleApply(proposalId: string) {
     const seq = ++viewSeqRef.current;
+    pendingRef.current += 1;
     setDecisionBusy((s) => withKey(s, proposalId));
     setErrorMessage("");
     setStatusMessage("");
@@ -725,6 +752,7 @@ export function AdminQuickbooksPayouts({
       );
     } finally {
       setDecisionBusy((s) => withoutKey(s, proposalId));
+      finishMutation();
     }
   }
 
@@ -732,6 +760,33 @@ export function AdminQuickbooksPayouts({
   const blocked =
     view?.proposals.filter((p) => p.status === "blocked") ?? [];
   const proposals = view?.proposals ?? [];
+  // In-progress executions with a live lease aren't attention items — a
+  // stalled one (lease expired) is, so the count re-renders when the
+  // next live deadline passes. The effect keys off the next deadline
+  // rather than `proposals` so sequential expiries each reschedule.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const nextLeaseUntilMs = proposals.reduce<number | undefined>(
+    (earliest, p) => {
+      const until = p.execution?.leaseUntilMs;
+      if (
+        p.execution?.state !== "in_progress" ||
+        typeof until !== "number" ||
+        until <= nowMs
+      ) {
+        return earliest;
+      }
+      return earliest === undefined ? until : Math.min(earliest, until);
+    },
+    undefined
+  );
+  useEffect(() => {
+    if (nextLeaseUntilMs === undefined) return;
+    const timer = window.setTimeout(
+      () => setNowMs(Date.now()),
+      Math.max(0, nextLeaseUntilMs - Date.now() + 250)
+    );
+    return () => window.clearTimeout(timer);
+  }, [nextLeaseUntilMs]);
   const pendingApproval = proposals.filter(
     (p) => p.status === "proposed"
   ).length;
@@ -744,7 +799,13 @@ export function AdminQuickbooksPayouts({
   const executionAttention = proposals.filter(
     (p) =>
       p.execution &&
-      (p.execution.state === "uncertain" || p.execution.state === "failed")
+      (p.execution.state === "uncertain" ||
+        p.execution.state === "failed" ||
+        (p.execution.state === "in_progress" &&
+          !(
+            typeof p.execution.leaseUntilMs === "number" &&
+            p.execution.leaseUntilMs > nowMs
+          )))
   ).length;
   const decisionsEnabled = view?.writesEnabled === true;
 
