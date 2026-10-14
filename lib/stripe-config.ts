@@ -107,14 +107,15 @@ export function resolveCheckoutReturnBaseUrl(): string {
 
 // `STRIPE_ACCOUNTING_MODE` selects how far payout automation may go:
 //   observe   (default) — ingest payouts, build the ledger and
-//             proposals, post nothing.
-//   approval  — proposals may be approved by authorized admins (the
-//             execution path is a follow-up; today this changes the
-//             label only).
-//   automatic — reserved for the auto-posting follow-up; today this
-//             changes the label only. No QBO write path exists in this
-//             build — there is nothing to arm, so a misconfigured value
-//             fails closed to observe rather than to a writer.
+//             proposals, post nothing; decisions and execution refuse.
+//   approval  — authorized admins may approve/reject proposals and
+//             explicitly apply approved ones through the guarded
+//             executor. No unattended execution.
+//   automatic — proposals the builder marked `autoEligible`
+//             self-approve and apply through the same guarded executor;
+//             everything else stays review-required. Reserved for the
+//             controlled pilot — production runs `observe`.
+// A misconfigured value fails closed to observe rather than to a writer.
 export function getStripeAccountingMode(): StripeAccountingMode {
   const raw = process.env.STRIPE_ACCOUNTING_MODE?.trim().toLowerCase();
   return (STRIPE_ACCOUNTING_MODES as readonly string[]).includes(raw ?? "")
