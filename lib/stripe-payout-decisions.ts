@@ -30,6 +30,13 @@ export interface DecideProposalInput {
    * a proposal rebuilt since render fails closed with a conflict.
    */
   expectedFingerprint: string;
+  /**
+   * Required when approving a `move_payment_to_clearing` proposal: the
+   * exact QBO payment id the reviewer confirmed. The proposal's own
+   * `qboRefs.paymentId` must match — the server checks equality inside
+   * the decision transaction, so a stale or guessed confirmation fails.
+   */
+  confirmQboPaymentId?: string;
   note?: string;
   actor: { uid: string; email?: string };
 }
@@ -92,7 +99,10 @@ export async function decidePayoutProposal(
     const data = snap.data() as {
       environment?: string;
       status?: string;
+      kind?: string;
+      historical?: boolean;
       materialFingerprint?: string;
+      qboRefs?: { paymentId?: string };
       decision?: { action?: string; fingerprint?: string };
       decisions?: Record<string, unknown>[];
       auditTrail?: { at: string; actor: string; note: string }[];
@@ -121,6 +131,8 @@ export async function decidePayoutProposal(
     }
     const prior = data.decision;
     const status = data.status;
+    // Set when an approve decision carries the confirmed payment id.
+    let confirmedPaymentId: string | undefined;
     // Idempotent replay: same action, same fingerprint, and the stored
     // status already reflects it.
     const already =
@@ -152,6 +164,25 @@ export async function decidePayoutProposal(
           "validation",
           409
         );
+      }
+      // Reclassifying an Ollie payment is an identity decision — the
+      // approver must name the exact QBO payment being moved, and it
+      // must equal the proposal's bound payment. This is what keeps a
+      // `suggested` match reviewable-but-not-executable until a human
+      // asserts the identity; it never upgrades silently.
+      if (data.kind === "move_payment_to_clearing") {
+        const boundPaymentId = data.qboRefs?.paymentId;
+        if (
+          !boundPaymentId ||
+          input.confirmQboPaymentId?.trim() !== boundPaymentId
+        ) {
+          throw new QboError(
+            "Approving a payment reclassification requires confirming the exact QBO payment id shown on the proposal.",
+            "validation",
+            409
+          );
+        }
+        confirmedPaymentId = boundPaymentId;
       }
     } else {
       // Rejection is the terminal "do not post" decision — allowed from
@@ -195,6 +226,9 @@ export async function decidePayoutProposal(
       at: now,
       ...(note ? { note } : {}),
       fingerprint,
+      ...(confirmedPaymentId
+        ? { confirmedQboPaymentId: confirmedPaymentId }
+        : {}),
     };
     const trail = [
       ...(Array.isArray(data.auditTrail) ? data.auditTrail : []),

@@ -1221,11 +1221,24 @@ export function canonicalizeQboUndepositedFundsAccount(
 
 // Correlation marker namespaces — deterministic per proposal, matched
 // against an entity's PrivateNote during provider-side recovery.
-export function qboFeeEntryMarker(payoutId: string): string {
-  return `DDB-PAYOUT-FEE:${payoutId}`;
+export function qboFeeEntryMarker(
+  payoutId: string,
+  historical?: boolean
+): string {
+  // The `-HIST` namespace keeps a historical (pre-cutover share) entry's
+  // marker disjoint from the eligible share's — neither memo can satisfy
+  // the other's `includes` check, so the shares can never cross-adopt.
+  return historical
+    ? `DDB-PAYOUT-FEE-HIST:${payoutId}`
+    : `DDB-PAYOUT-FEE:${payoutId}`;
 }
-export function qboPayoutTransferMarker(payoutId: string): string {
-  return `DDB-PAYOUT-XFER:${payoutId}`;
+export function qboPayoutTransferMarker(
+  payoutId: string,
+  historical?: boolean
+): string {
+  return historical
+    ? `DDB-PAYOUT-XFER-HIST:${payoutId}`
+    : `DDB-PAYOUT-XFER:${payoutId}`;
 }
 
 // Single-Payment read for apply-time revalidation + sparse update: the

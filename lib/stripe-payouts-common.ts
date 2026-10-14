@@ -943,6 +943,12 @@ export interface QboProposalDecision {
    *  qualifies for unattended execution — the fingerprint binds the
    *  material facts, not the eligibility that let it skip review. */
   auto?: boolean;
+  /** Approving a payment reclassification requires the admin to confirm
+   *  the exact QBO payment identity. The confirmed id is recorded here
+   *  so the executor can verify the reviewed payment is the one being
+   *  moved — a `suggested` match can never ride an unconfirmed
+   *  approval. */
+  confirmedQboPaymentId?: string;
 }
 
 export interface QboAccountingProposal {
@@ -1000,6 +1006,17 @@ export interface QboAccountingProposal {
    *  Never sufficient alone: the executor still requires the mode flag,
    *  a live proposal, and apply-time revalidation. */
   autoEligible?: boolean;
+  /** True when the proposal covers pre-cutover movements — a manual,
+   *  admin-driven path only. Historical proposals are never
+   *  `autoEligible` and never executed by the automatic pass, whatever
+   *  the accounting mode; they additionally require an explicit human
+   *  approval (and, for reclassifications, a confirmed payment
+   *  identity) bound to the material fingerprint. */
+  historical?: boolean;
+  /** The ledger line's match confidence, carried on move proposals so
+   *  reviewers see whether the payment was `suggested` or `verified`
+   *  without decoding evidence codes. */
+  lineConfidence?: MatchConfidence;
 }
 
 export type StripeAccountingMode = "observe" | "approval" | "automatic";
@@ -1079,8 +1096,16 @@ export interface BuildProposalsInput {
   /** QBO entries already covering this payout — manual fee journals and
    *  manual transfers detected by the caller's activity scan. Presence
    *  suppresses the corresponding proposal (double-posting protection
-   *  against the owner's historical manual habit). */
-  existingCover?: { hasFeeEntry: boolean; hasTransferEntry: boolean };
+   *  against the owner's historical manual habit). Fee coverage is
+   *  tracked per share: an entry matching the pre-cutover fee sum
+   *  suppresses only the historical proposal, one matching the eligible
+   *  or total sum suppresses the eligible proposal; a transfer entry
+   *  always covers the full paid amount and suppresses either. */
+  existingCover?: {
+    hasFeeEntry: boolean;
+    hasTransferEntry: boolean;
+    hasHistoricalFeeEntry?: boolean;
+  };
   /** The company's Undeposited Funds account id, when resolvable —
    *  recorded as the move proposal's credit leg so an account change
    *  invalidates approvals like any other material fact. */
@@ -1116,7 +1141,12 @@ export function buildPayoutProposals(
     ) {
       continue;
     }
-    if (line.scope !== "eligible") continue;
+    // Pre-cutover matched lines get a proposal too — flagged historical,
+    // never auto-eligible, executable only through an explicit admin
+    // approval that confirms the payment identity. Foreign-currency
+    // lines stay out entirely.
+    const historical = line.scope === "pre_cutover";
+    if (line.scope !== "eligible" && !historical) continue;
     proposals.push({
       proposalId: qboProposalIdFor(
         environment,
@@ -1128,10 +1158,12 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "move_payment_to_clearing",
       status: clearingId ? "proposed" : "blocked",
-      // Only a verified identifier chain can ever run unattended;
-      // suggested matches stay review-only forever, even in automatic
-      // mode.
-      autoEligible: line.confidence === "verified",
+      // Only a verified identifier chain can ever run unattended, and
+      // never on a historical line — `suggested` and pre-cutover
+      // matches stay review-only forever, even in automatic mode.
+      autoEligible: !historical && line.confidence === "verified",
+      historical: historical || undefined,
+      lineConfidence: line.confidence,
       amountMinor: line.grossMinor,
       currency: line.currency,
       accountingDate,
@@ -1160,6 +1192,7 @@ export function buildPayoutProposals(
       },
       evidence: [
         ...line.evidence,
+        ...(historical ? ["pre_cutover_manual_review"] : []),
         ...(clearingId ? [] : ["clearing_account_unmapped"]),
       ],
       mode,
@@ -1279,6 +1312,108 @@ export function buildPayoutProposals(
       qboRefs: {},
       evidence: [
         "payout_paid",
+        ...(payoutAccountId ? [] : ["payout_account_unmapped"]),
+        ...(clearingId ? [] : ["clearing_account_unmapped"]),
+      ],
+      mode,
+    });
+  }
+
+  // Historical aggregates cover the pre-cutover share — the same
+  // accounting entries as the eligible aggregates but over
+  // `pre_cutover` lines, under a distinct `historical` key so both can
+  // coexist on a straddling payout. They are always manual: never
+  // auto-eligible, never touched by the automatic apply pass, and only
+  // executable after an explicit admin approval. When a payout
+  // straddles the cutover the eligible transfer is suppressed (it only
+  // covers a partial payout anyway), so the historical transfer posts
+  // the full paid amount — there is exactly one transfer proposal.
+  const preCutoverLines = ledger.lines.filter(
+    (line) => line.scope === "pre_cutover"
+  );
+  const preCutoverFeesMinor = preCutoverLines.reduce(
+    (sum, line) => sum + line.feeMinor,
+    0
+  );
+  const historicalEvidence = [
+    "pre_cutover_manual_review",
+    ...(partialScope ? ["partial_scope_eligible_lines_only"] : []),
+  ];
+
+  if (
+    preCutoverFeesMinor > 0 &&
+    !input.existingCover?.hasHistoricalFeeEntry
+  ) {
+    proposals.push({
+      proposalId: qboProposalIdFor(
+        environment,
+        payout.id,
+        "stripe_fee_expense",
+        "historical"
+      ),
+      environment,
+      payoutId: payout.id,
+      kind: "stripe_fee_expense",
+      status: clearingId && feeId ? "proposed" : "blocked",
+      autoEligible: false,
+      historical: true,
+      amountMinor: preCutoverFeesMinor,
+      currency: payout.currency,
+      accountingDate,
+      debit: {
+        accountId: feeId,
+        label: name(feeId, "Stripe fee expense account"),
+      },
+      credit: {
+        accountId: clearingId,
+        label: name(clearingId, "Stripe clearing account"),
+      },
+      stripeRefs: { payoutId: payout.id },
+      qboRefs: {},
+      evidence: [
+        "actual_stripe_fees",
+        ...historicalEvidence,
+        ...(feeId ? [] : ["fee_account_unmapped"]),
+        ...(clearingId ? [] : ["clearing_account_unmapped"]),
+      ],
+      mode,
+    });
+  }
+
+  if (
+    preCutoverLines.length > 0 &&
+    payout.status === "paid" &&
+    !input.existingCover?.hasTransferEntry
+  ) {
+    proposals.push({
+      proposalId: qboProposalIdFor(
+        environment,
+        payout.id,
+        "payout_transfer",
+        "historical"
+      ),
+      environment,
+      payoutId: payout.id,
+      kind: "payout_transfer",
+      status: clearingId && payoutAccountId ? "proposed" : "blocked",
+      autoEligible: false,
+      historical: true,
+      amountMinor: payout.amountMinor,
+      currency: payout.currency,
+      accountingDate,
+      debit: {
+        accountId: payoutAccountId,
+        label: name(payoutAccountId, "Stripe payout account"),
+      },
+      credit: {
+        accountId: clearingId,
+        label: name(clearingId, "Stripe clearing account"),
+      },
+      stripeRefs: { payoutId: payout.id },
+      qboRefs: {},
+      evidence: [
+        "payout_paid",
+        ...historicalEvidence,
         ...(payoutAccountId ? [] : ["payout_account_unmapped"]),
         ...(clearingId ? [] : ["clearing_account_unmapped"]),
       ],

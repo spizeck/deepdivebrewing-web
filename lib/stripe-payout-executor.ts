@@ -179,6 +179,18 @@ async function claimProposal(
     ) {
       return { early: { outcome: "in_progress" as const } };
     }
+    // Historical (pre-cutover) proposals are manual-only — the
+    // automatic path must never execute one even when a human approval
+    // already exists on it.
+    if (auto && data.historical === true) {
+      return {
+        early: {
+          outcome: "refused" as const,
+          reason:
+            "historical_manual_only — a pre-cutover proposal requires an explicit administrator apply",
+        },
+      };
+    }
     // Automatic mode may self-approve a `proposed` entry whose evidence
     // tier qualifies (`autoEligible` — verified identifier chains and
     // fully-identified, fully-in-scope aggregates). The system decision
@@ -213,11 +225,37 @@ async function claimProposal(
         },
       };
     }
-    if (!data.accountingDate || data.accountingDate < cutover) {
+    // The cutover date gate exempts `historical`-flagged proposals —
+    // they exist precisely to post pre-cutover accounting through the
+    // guarded manual path. An unflagged proposal carrying a pre-cutover
+    // date still fails closed.
+    if (
+      !data.accountingDate ||
+      (data.accountingDate < cutover && data.historical !== true)
+    ) {
       return {
         early: {
           outcome: "refused" as const,
           reason: "pre_cutover — the accounting date precedes the cutover",
+        },
+      };
+    }
+    // A reclassification approval must record the exact QBO payment the
+    // admin confirmed — `confirmedQboPaymentId` is bound into the same
+    // fingerprint the approval reviewed, so a payment that resolves
+    // differently on rebuild can't ride an old approval. Auto-grants
+    // are exempt: they only fire on `verified` identifier chains, which
+    // are their own machine-checked confirmation.
+    if (
+      data.kind === "move_payment_to_clearing" &&
+      !autoApproved &&
+      data.decision?.confirmedQboPaymentId !== data.qboRefs?.paymentId
+    ) {
+      return {
+        early: {
+          outcome: "refused" as const,
+          reason:
+            "payment_identity_unconfirmed — the approval must record the exact QBO payment being reclassified",
         },
       };
     }
@@ -523,7 +561,7 @@ async function executeJournalEntry(
   if (grossProblem) {
     return { kind: "refused", code: "ddb_gross_unposted", message: grossProblem };
   }
-  const marker = qboFeeEntryMarker(proposal.payoutId);
+  const marker = qboFeeEntryMarker(proposal.payoutId, proposal.historical);
   const existing = await recoverWrittenEntity(
     ctx,
     "JournalEntry",
@@ -591,7 +629,10 @@ async function executePayoutTransfer(
   if (grossProblem) {
     return { kind: "refused", code: "ddb_gross_unposted", message: grossProblem };
   }
-  const marker = qboPayoutTransferMarker(proposal.payoutId);
+  const marker = qboPayoutTransferMarker(
+    proposal.payoutId,
+    proposal.historical
+  );
   const existing = await recoverWrittenEntity(
     ctx,
     "Transfer",

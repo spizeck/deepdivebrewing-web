@@ -163,11 +163,13 @@ function ProposalRow({
   onDecide: (
     proposal: QboAccountingProposal,
     action: "approve" | "reject",
-    note?: string
+    note?: string,
+    confirmQboPaymentId?: string
   ) => void;
   onApply: (proposalId: string) => void;
 }) {
   const [note, setNote] = useState("");
+  const [confirmPaymentId, setConfirmPaymentId] = useState("");
   const decision = proposal.decision;
   const execution = proposal.execution;
   // A live claim lease means an apply may be posting right now; an
@@ -189,6 +191,15 @@ function ProposalRow({
   const leaseLive = (execution?.leaseUntilMs ?? 0) > nowMs;
   const inFlight = execution?.state === "in_progress" && leaseLive;
   const approvable = decisionsEnabled && proposal.status === "proposed";
+  // Reclassifications approve only after the reviewer confirms the exact
+  // QBO payment identity — a `suggested` match can never be approved by
+  // a bare click.
+  const needsPaymentConfirm =
+    proposal.kind === "move_payment_to_clearing" &&
+    proposal.status === "proposed";
+  const paymentIdConfirmed =
+    confirmPaymentId.trim().length > 0 &&
+    confirmPaymentId.trim() === proposal.qboRefs.paymentId;
   // Rejection is also the "do not post" marker — the server allows it
   // on any live, undecided status, so blocked entries can be dismissed
   // before their mapping lands.
@@ -206,6 +217,9 @@ function ProposalRow({
           <Badge variant={STATUS_VARIANT[proposal.status] ?? "outline"}>
             {proposal.status}
           </Badge>{" "}
+          {proposal.historical && (
+            <Badge variant="secondary">historical · manual only</Badge>
+          )}{" "}
           {execution && execution.state !== "applied" && (
             <Badge
               variant={
@@ -228,13 +242,22 @@ function ProposalRow({
           <span className="text-muted-foreground">
             {proposal.accountingDate || "—"} ·{" "}
             {money({ amountMinor: proposal.amountMinor, currency: proposal.currency })}
+            {proposal.lineConfidence
+              ? ` · ${proposal.lineConfidence} match`
+              : ""}
           </span>
         </div>
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">
         {proposal.debit.label} → debit · {proposal.credit.label} → credit
+        {proposal.qboRefs.paymentId
+          ? ` · QBO payment ${proposal.qboRefs.paymentId}`
+          : ""}
         {proposal.qboRefs.paymentRef
-          ? ` · ${proposal.qboRefs.paymentRef}`
+          ? ` (${proposal.qboRefs.paymentRef})`
+          : ""}
+        {proposal.stripeRefs.balanceTxnId
+          ? ` · stripe txn ${proposal.stripeRefs.balanceTxnId}`
           : ""}
       </p>
       {proposal.evidence.length > 0 && (
@@ -264,15 +287,50 @@ function ProposalRow({
             : ""}
         </p>
       )}
+      {approvable && needsPaymentConfirm && (
+        <div className="mt-2 text-xs text-muted-foreground">
+          <label
+            htmlFor={`confirm-${proposal.proposalId}`}
+            className="mb-1 block"
+          >
+            This reclassifies a specific QuickBooks payment — type its QBO
+            payment id
+            {proposal.qboRefs.paymentRef
+              ? ` (${proposal.qboRefs.paymentRef})`
+              : ""}{" "}
+            to confirm
+          </label>
+          <input
+            id={`confirm-${proposal.proposalId}`}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            value={confirmPaymentId}
+            onChange={(e) => setConfirmPaymentId(e.target.value)}
+            placeholder="QBO payment id"
+            aria-label={`Confirm QBO payment id for ${proposal.proposalId}`}
+            className="w-40 rounded-md border border-ink/50 px-2 py-1 text-xs"
+          />
+        </div>
+      )}
       {(approvable || rejectable || applicable) && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {approvable && (
             <Button
               variant="outline"
               size="sm"
-              disabled={busy || inFlight}
+              disabled={
+                busy ||
+                inFlight ||
+                (needsPaymentConfirm && !paymentIdConfirmed)
+              }
               onClick={() =>
-                onDecide(proposal, "approve", note || undefined)
+                onDecide(
+                  proposal,
+                  "approve",
+                  note || undefined,
+                  needsPaymentConfirm ? confirmPaymentId.trim() : undefined
+                )
               }
             >
               Approve
@@ -338,7 +396,8 @@ function PayoutCard({
   onDecide: (
     proposal: QboAccountingProposal,
     action: "approve" | "reject",
-    note?: string
+    note?: string,
+    confirmQboPaymentId?: string
   ) => void;
   onApply: (proposalId: string) => void;
   onReprocess: (payoutId: string) => void;
@@ -683,7 +742,8 @@ export function AdminQuickbooksPayouts({
   async function handleDecide(
     proposal: QboAccountingProposal,
     action: "approve" | "reject",
-    note?: string
+    note?: string,
+    confirmQboPaymentId?: string
   ) {
     const seq = ++viewSeqRef.current;
     pendingRef.current += 1;
@@ -704,6 +764,7 @@ export function AdminQuickbooksPayouts({
             action,
             note,
             expectedFingerprint: proposal.materialFingerprint ?? "",
+            ...(confirmQboPaymentId ? { confirmQboPaymentId } : {}),
           }),
         }
       );
@@ -1005,8 +1066,8 @@ export function AdminQuickbooksPayouts({
                   proposals={view.proposals}
                   decisionsEnabled={decisionsEnabled}
                   decisionBusy={decisionBusy}
-                  onDecide={(id, action, note) =>
-                    void handleDecide(id, action, note)
+                  onDecide={(id, action, note, confirmQboPaymentId) =>
+                    void handleDecide(id, action, note, confirmQboPaymentId)
                   }
                   onApply={(id) => void handleApply(id)}
                   onReprocess={handleReprocess}

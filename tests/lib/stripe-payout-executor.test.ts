@@ -193,7 +193,17 @@ function seedProposal(id: string, overrides: FakeDoc = {}) {
     qboRefs: kind === "move_payment_to_clearing" ? { paymentId: "900" } : {},
     evidence: ["exact_amount"],
     materialFingerprint: FP,
-    decision: { action: "approve", actorUid: "a", at: "t", fingerprint: FP },
+    decision: {
+      action: "approve",
+      actorUid: "a",
+      at: "t",
+      fingerprint: FP,
+      // Human approvals of a reclassification must carry the confirmed
+      // payment id the reviewer asserted.
+      ...(kind === "move_payment_to_clearing"
+        ? { confirmedQboPaymentId: "900" }
+        : {}),
+    },
     auditTrail: [],
     ...overrides,
   });
@@ -757,5 +767,270 @@ describe("applyPayoutProposal — automatic mode", () => {
       auto: true,
     });
     assert.equal(res.apply.outcome, "applied");
+  });
+});
+
+describe("applyPayoutProposal — historical (pre-cutover) proposals", () => {
+  const HIST_FEE_ID = "sandbox:po_1:stripe_fee_expense:historical";
+  const HIST_XFER_ID = "sandbox:po_1:payout_transfer:historical";
+
+  it("applies a human-approved, identity-confirmed historical move past the cutover gate", async () => {
+    // Pre-cutover accounting date — the executor would refuse this
+    // proposal unflagged; the historical flag + confirmed approval is
+    // precisely the manual bypass.
+    seedProposal(MOVE_ID, {
+      historical: true,
+      accountingDate: "2026-10-06",
+    });
+    payments.set("900", {
+      id: "900",
+      syncToken: "3",
+      totalMinor: 29401,
+      currency: "USD",
+      depositToAccountId: "uf-1",
+    });
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "applied");
+    assert.equal(writeCalls.length, 1);
+    assert.equal(writeCalls[0].args.depositToAccountId, "clr-1");
+  });
+
+  it("still refuses an unflagged pre-cutover accounting date", async () => {
+    // The historical escape hatch is opt-in only — a doc that lost its
+    // flag (or was never classified historical) stays cutover-refused.
+    seedProposal(MOVE_ID, {
+      historical: undefined,
+      accountingDate: "2026-10-06",
+    });
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "refused");
+    assert.match((res.apply as { reason: string }).reason, /pre_cutover/);
+    assert.equal(writeCalls.length, 0);
+  });
+
+  it("refuses a historical proposal on the automatic path even when approved", async () => {
+    seedProposal(FEE_ID, { historical: true });
+    seedPayout([]);
+    accountingMode = "automatic";
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: FEE_ID,
+      actor: { uid: "stripe-payout-automation" },
+      auto: true,
+    });
+    assert.equal(res.apply.outcome, "refused");
+    assert.match(
+      (res.apply as { reason: string }).reason,
+      /historical_manual_only/
+    );
+    assert.equal(writeCalls.length, 0);
+    // The approval is untouched — a human apply remains possible.
+    assert.equal(collectionDocs(PROPOSALS).get(FEE_ID)!.status, "approved");
+  });
+
+  it("refuses an approved move whose decision lacks the confirmed payment identity", async () => {
+    seedProposal(MOVE_ID, {
+      decision: {
+        action: "approve",
+        actorUid: "a",
+        at: "t",
+        fingerprint: FP,
+        // confirmedQboPaymentId absent — the approver never named the
+        // payment; apply must fail closed.
+      },
+    });
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "refused");
+    assert.match(
+      (res.apply as { reason: string }).reason,
+      /payment_identity_unconfirmed/
+    );
+    assert.equal(writeCalls.length, 0);
+  });
+
+  it("refuses when the confirmed payment identity no longer matches the proposal", async () => {
+    seedProposal(MOVE_ID, {
+      decision: {
+        action: "approve",
+        actorUid: "a",
+        at: "t",
+        fingerprint: FP,
+        confirmedQboPaymentId: "12345",
+      },
+    });
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: MOVE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "refused");
+    assert.match(
+      (res.apply as { reason: string }).reason,
+      /payment_identity_unconfirmed/
+    );
+  });
+
+  it("writes historical aggregates under the -HIST marker namespace", async () => {
+    seedProposal(HIST_FEE_ID, { amountMinor: 883, historical: true });
+    seedPayout([]);
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: HIST_FEE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "applied");
+    const note = (writeCalls[0].args.payload as FakeDoc)
+      .PrivateNote as string;
+    assert.ok(note.includes("DDB-PAYOUT-FEE-HIST:po_1"));
+  });
+
+  it("adopts a landed -HIST journal entry instead of duplicating it", async () => {
+    seedProposal(HIST_FEE_ID, { amountMinor: 883, historical: true });
+    seedPayout([]);
+    reconRows.push({
+      entityType: "JournalEntry",
+      id: "je-hist",
+      memo: "DDB-PAYOUT-FEE-HIST:po_1 — manual reconciliation",
+      legs: [
+        { accountId: "fee-1", amountMinor: 883 },
+        { accountId: "clr-1", amountMinor: -883 },
+      ],
+    });
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: HIST_FEE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "applied");
+    assert.equal((res.apply as { adopted: boolean }).adopted, true);
+    assert.equal(
+      (res.apply as { qboEntityId: string }).qboEntityId,
+      "je-hist"
+    );
+    assert.equal(writeCalls.length, 0);
+  });
+
+  it("never lets the eligible proposal adopt a -HIST entry (or vice versa)", async () => {
+    // Cross-workflow duplicate protection: the marker namespaces are
+    // disjoint so an eligible fee apply must ignore a historical entry
+    // with matching legs and post its own.
+    seedProposal(FEE_ID, { amountMinor: 883 });
+    seedPayout([]);
+    reconRows.push({
+      entityType: "JournalEntry",
+      id: "je-hist",
+      memo: "DDB-PAYOUT-FEE-HIST:po_1",
+      legs: [
+        { accountId: "fee-1", amountMinor: 883 },
+        { accountId: "clr-1", amountMinor: -883 },
+      ],
+    });
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: FEE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "applied");
+    assert.equal((res.apply as { adopted: boolean }).adopted, false);
+    assert.equal(writeCalls.length, 1);
+
+    // And the mirror image — a historical proposal ignores the plain
+    // eligible marker.
+    writeCalls.length = 0;
+    collections.get(PROPOSALS)!.clear();
+    seedProposal(HIST_FEE_ID, { amountMinor: 883, historical: true });
+    reconRows.length = 0;
+    reconRows.push({
+      entityType: "JournalEntry",
+      id: "je-eligible",
+      memo: "DDB-PAYOUT-FEE:po_1",
+      legs: [
+        { accountId: "fee-1", amountMinor: 883 },
+        { accountId: "clr-1", amountMinor: -883 },
+      ],
+    });
+    const res2 = await applyPayoutProposal({
+      proposalId: HIST_FEE_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res2.apply.outcome, "applied");
+    assert.equal((res2.apply as { adopted: boolean }).adopted, false);
+    assert.equal(writeCalls.length, 1);
+  });
+
+  it("recovers a partial historical write through the durable uncertain path", async () => {
+    seedProposal(HIST_XFER_ID, {
+      amountMinor: 28518,
+      historical: true,
+      accountingDate: "2026-10-06",
+    });
+    seedPayout([]);
+    const { QboError } = await import("@/lib/qbo-errors");
+    writeError = new QboError("request timed out", "unavailable");
+    const { applyPayoutProposal } = await import(
+      "@/lib/stripe-payout-executor"
+    );
+    const res = await applyPayoutProposal({
+      proposalId: HIST_XFER_ID,
+      actor: ACTOR,
+    });
+    assert.equal(res.apply.outcome, "uncertain");
+    assert.equal(
+      (collectionDocs(PROPOSALS).get(HIST_XFER_ID)!.execution as FakeDoc)
+        .state,
+      "uncertain"
+    );
+    assert.equal(
+      collectionDocs(PROPOSALS).get(HIST_XFER_ID)!.status,
+      "approved"
+    );
+
+    // The write actually landed — retry adopts it via the -HIST marker
+    // instead of double-posting the transfer.
+    writeError = null;
+    reconRows.push({
+      entityType: "Transfer",
+      id: "tr-hist",
+      memo: "DDB-PAYOUT-XFER-HIST:po_1",
+      legs: [
+        { accountId: "clr-1", amountMinor: -28518 },
+        { accountId: "bank-1", amountMinor: 28518 },
+      ],
+    });
+    const retry = await applyPayoutProposal({
+      proposalId: HIST_XFER_ID,
+      actor: ACTOR,
+    });
+    assert.equal(retry.apply.outcome, "applied");
+    assert.equal((retry.apply as { adopted: boolean }).adopted, true);
+    assert.equal(writeCalls.length, 0);
   });
 });

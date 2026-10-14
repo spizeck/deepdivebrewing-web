@@ -620,15 +620,25 @@ far that pipeline may go:
   `decisions[]` preserves every prior decision's action, actor, and
   fingerprint. `approved` → `rejected` withdraws an approval;
   `rejected`/`applied` are terminal; `blocked` cannot be approved until
-  its mapping lands.
+  its mapping lands. Approving a `move_payment_to_clearing` proposal
+  additionally requires `confirmQboPaymentId` — the exact QBO payment id
+  the reviewer asserts the proposal should move, which must equal the
+  proposal's bound `qboRefs.paymentId`. The confirmed id is recorded on
+  the decision; the executor refuses any approval that lacks it, so a
+  `suggested` match can never be executed without a human naming the
+  payment.
 - **Execution** (`POST /api/admin/quickbooks/payouts/proposals/apply`,
   bearer + `accounting` permission, non-observe modes only): the
   guarded executor in `lib/stripe-payout-executor.ts` is the only code
   path that mutates QBO. Before writing it re-reads the proposal inside
   a Firestore transaction (environment, `approved` status, the
   decision's fingerprint still binding to `materialFingerprint`,
-  accounting date ≥ cutover — no apply without a configured cutover) and
-  claims it with a two-minute owner-token lease. It then re-reads live
+  accounting date ≥ cutover unless the proposal is flagged `historical`
+  — no apply without a configured cutover, and historical proposals are
+  refused outright on the automatic path) and claims it with a
+  two-minute owner-token lease. A `move_payment_to_clearing` apply also
+  requires the approval's recorded `confirmedQboPaymentId` to equal the
+  proposal's bound payment. It then re-reads live
   QBO state: a move verifies the payment is still in Undeposited Funds
   with the approved amount/currency and applies a sparse
   `DepositToAccountRef` update (never a full update — invoice links are
@@ -637,7 +647,8 @@ far that pipeline may go:
   sales-receipt record (`ddb_gross_unposted` refusal otherwise), then
   post a JournalEntry (debit fee expense / credit clearing) or a
   Transfer (clearing → payout account). Every create carries a
-  deterministic `DDB-PAYOUT-FEE:`/`DDB-PAYOUT-XFER:` PrivateNote marker;
+  deterministic `DDB-PAYOUT-FEE:`/`DDB-PAYOUT-XFER:` PrivateNote marker
+  (`-HIST` variants for historical proposals);
   each attempt runs a marker+legs recovery scan first, so a write that
   landed but lost its response is **adopted**, never duplicated. A write
   whose outcome is unknown parks `execution.state: "uncertain"` — retry
@@ -650,8 +661,24 @@ far that pipeline may go:
   map whichever they pick. Unmapped → the transfer proposal stays
   blocked.
 - **Cutover**: `STRIPE_AUTOMATION_CUTOVER=YYYY-MM-DD` marks movements
-  created earlier as `pre_cutover` — reported, never proposed. Leave
-  unset to treat everything as eligible.
+  created earlier as `pre_cutover` — excluded from every eligible
+  proposal and aggregate. To keep pre-cutover payouts reconcilable the
+  builder also emits **historical** proposals for them: the same three
+  kinds under distinct `…:historical` proposal ids (and a
+  `DDB-PAYOUT-FEE-HIST:`/`DDB-PAYOUT-XFER-HIST:` marker namespace, so a
+  straddling payout's two shares can never cross-adopt each other's
+  entries). Historical proposals are manual-only by construction —
+  `autoEligible` is never set, the automatic apply pass refuses them
+  (`historical_manual_only`) even when one carries an approval, and the
+  executor applies one only on an explicit admin apply with a valid
+  human approval (a reclassification additionally needs the confirmed
+  payment identity described under **Decisions**). The pre-cutover
+  `accountingDate` that would fail an unflagged proposal is permitted
+  precisely because the flag exists. Manual fee/transfer entries are
+  still honored: `detectExistingCover` suppresses a historical fee
+  proposal when an entry matching the pre-cutover fee sum exists, and
+  any full-payout transfer entry suppresses the historical transfer.
+  Leave the cutover unset to treat everything as eligible.
 - **Mode**: `STRIPE_ACCOUNTING_MODE` defaults to `observe`. `approval`
   unlocks the decision + apply routes for authorized admins;
   `automatic` is reserved for the post-pilot unattended sweep. The flag
@@ -682,7 +709,7 @@ far that pipeline may go:
   lock. The
   result distinguishes ingestion from proposal eligibility — a payout
   whose movements all predate the cutover reports as processed with
-  zero proposals rather than silently absent.
+  only manual-only historical proposals rather than silently absent.
 - **Foreign currencies**: a movement whose currency differs from the
   payout's is flagged `foreign_currency` and excluded from every total —
   never converted.

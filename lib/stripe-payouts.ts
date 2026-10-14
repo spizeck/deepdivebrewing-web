@@ -18,7 +18,10 @@ import {
   queryQboPayments,
   queryQboReconActivity,
 } from "@/lib/qbo-api";
-import { QBO_RECON_ACTIVITY_ENTITIES } from "@/lib/qbo-protocol";
+import {
+  QBO_RECON_ACTIVITY_ENTITIES,
+  qboFeeEntryMarker,
+} from "@/lib/qbo-protocol";
 import {
   fetchStripePayout,
   fetchStripeChargeFacts,
@@ -507,8 +510,16 @@ async function detectExistingCover(
     stripeClearingAccountId?: string;
     stripeFeeExpenseAccountId?: string;
   }
-): Promise<{ hasFeeEntry: boolean; hasTransferEntry: boolean }> {
-  const none = { hasFeeEntry: false, hasTransferEntry: false };
+): Promise<{
+  hasFeeEntry: boolean;
+  hasTransferEntry: boolean;
+  hasHistoricalFeeEntry: boolean;
+}> {
+  const none = {
+    hasFeeEntry: false,
+    hasTransferEntry: false,
+    hasHistoricalFeeEntry: false,
+  };
   const watched = new Set(
     [
       mapping.stripeClearingAccountId,
@@ -531,15 +542,30 @@ async function detectExistingCover(
       )
     );
     // What a fee proposal would actually carry — on a cutover-straddling
-    // payout that is the eligible-line fee sum, not the ledger total.
+    // payout the eligible proposal covers the eligible-line fee sum and
+    // the historical proposal covers the pre-cutover sum. A manual entry
+    // matching the ledger total covers both shares.
     const eligibleFeesMinor = ledger.lines
       .filter((line) => line.scope === "eligible")
+      .reduce((sum, line) => sum + line.feeMinor, 0);
+    const preCutoverFeesMinor = ledger.lines
+      .filter((line) => line.scope === "pre_cutover")
       .reduce((sum, line) => sum + line.feeMinor, 0);
     const coveredFeeAmounts = new Set(
       [ledger.totals.feesMinor, eligibleFeesMinor].filter((n) => n > 0)
     );
+    const coveredHistoricalFeeAmounts = new Set(
+      [ledger.totals.feesMinor, preCutoverFeesMinor].filter((n) => n > 0)
+    );
+    // On a straddling payout the two shares post under disjoint marker
+    // namespaces — an entry stamped with one share's marker must not
+    // read as coverage for the other share, even when the amounts
+    // coincide. Unmarked (manual) entries count for either.
+    const eligibleFeeMarker = qboFeeEntryMarker(payout.id);
+    const historicalFeeMarker = qboFeeEntryMarker(payout.id, true);
     let hasFeeEntry = false;
     let hasTransferEntry = false;
+    let hasHistoricalFeeEntry = false;
     for (const scan of scans) {
       for (const entry of scan.rows) {
         const hits = entry.legs.filter((leg) => watched.has(leg.accountId));
@@ -547,8 +573,20 @@ async function detectExistingCover(
         const feeLeg = hits.find(
           (leg) => leg.accountId === mapping.stripeFeeExpenseAccountId
         );
-        if (feeLeg && coveredFeeAmounts.has(Math.abs(feeLeg.amountMinor))) {
-          hasFeeEntry = true;
+        if (feeLeg) {
+          const feeAmount = Math.abs(feeLeg.amountMinor);
+          const memo = entry.memo ?? "";
+          const markedEligible = memo.includes(eligibleFeeMarker);
+          const markedHistorical = memo.includes(historicalFeeMarker);
+          if (!markedHistorical && coveredFeeAmounts.has(feeAmount)) {
+            hasFeeEntry = true;
+          }
+          if (
+            !markedEligible &&
+            coveredHistoricalFeeAmounts.has(feeAmount)
+          ) {
+            hasHistoricalFeeEntry = true;
+          }
         }
         const transferLeg = hits.find(
           (leg) => leg.accountId === mapping.stripeClearingAccountId
@@ -562,7 +600,7 @@ async function detectExistingCover(
         }
       }
     }
-    return { hasFeeEntry, hasTransferEntry };
+    return { hasFeeEntry, hasTransferEntry, hasHistoricalFeeEntry };
   } catch {
     return none;
   }

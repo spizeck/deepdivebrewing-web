@@ -505,13 +505,19 @@ describe("buildPayoutProposals", () => {
       mode: "observe",
       mapping,
     });
-    assert.equal(
-      proposals.some((p) => p.kind === "move_payment_to_clearing"),
-      false
+    // The pre-cutover Ollie match still gets a proposal — flagged
+    // historical, manual-only, never auto-eligible.
+    const move = proposals.find(
+      (p) => p.kind === "move_payment_to_clearing"
     );
+    assert.ok(move, "expected a historical move proposal");
+    assert.equal(move.historical, true);
+    assert.equal(move.autoEligible, false);
+    assert.equal(move.lineConfidence, "suggested");
+    assert.ok(move.evidence.includes("pre_cutover_manual_review"));
   });
 
-  it("skips aggregate proposals when every line is pre-cutover", () => {
+  it("emits manual-only historical aggregates when every line is pre-cutover", () => {
     const ledger = buildPayoutLedger(
       emptyInput({
         txns: [charge({ createdMs: NOW - 30 * DAY_MS })],
@@ -525,7 +531,19 @@ describe("buildPayoutProposals", () => {
       mode: "observe",
       mapping,
     });
-    assert.equal(proposals.length, 0);
+    // Nothing eligible — only the historical fee and transfer.
+    const kinds = proposals.map((p) => p.proposalId).sort();
+    assert.deepEqual(kinds, [
+      "sandbox:po_123:payout_transfer:historical",
+      "sandbox:po_123:stripe_fee_expense:historical",
+    ]);
+    assert.ok(
+      proposals.every((p) => p.historical === true && !p.autoEligible)
+    );
+    const fee = proposals.find((p) => p.kind === "stripe_fee_expense")!;
+    assert.equal(fee.amountMinor, 320);
+    const transfer = proposals.find((p) => p.kind === "payout_transfer")!;
+    assert.equal(transfer.amountMinor, 9680);
   });
 
   it("scopes the fee proposal to eligible lines on a cutover-straddling payout", () => {
@@ -553,7 +571,7 @@ describe("buildPayoutProposals", () => {
     assert.ok(fee.evidence.includes("partial_scope_eligible_lines_only"));
   });
 
-  it("withholds the transfer proposal on a mixed-scope payout", () => {
+  it("moves the full transfer to manual review on a mixed-scope payout", () => {
     const ledger = buildPayoutLedger(
       emptyInput({
         txns: [
@@ -571,13 +589,87 @@ describe("buildPayoutProposals", () => {
       mapping,
     });
     // The bank deposit covers the full payout including the pre-cutover
-    // share — proposing it would double-count manual history, so the
-    // transfer waits for a human and the line carries the exception.
+    // share — the eligible transfer is withheld, and the whole amount
+    // becomes a historical proposal the admin can reconcile manually.
     assert.equal(
-      proposals.find((p) => p.kind === "payout_transfer"),
+      proposals.find(
+        (p) => p.kind === "payout_transfer" && p.historical !== true
+      ),
       undefined
     );
+    const histTransfer = proposals.find(
+      (p) => p.kind === "payout_transfer" && p.historical === true
+    )!;
+    assert.ok(histTransfer);
+    assert.equal(histTransfer.autoEligible, false);
     assert.ok(ledger.exceptions.some((e) => e.code === "cutover_skipped"));
+  });
+
+  it("reproduces the Oct 13 payout po_1UPu2kC2zsUcVaNLpowu61JK as manual-only history", () => {
+    // Regression fixture from the missed-webhook production payout:
+    // gross Ollie charge $294.01 (ref 1626166 → QBO payment 1795),
+    // Stripe fees $8.83, net payout $285.18, charge predates the
+    // 2026-10-09 cutover, match confidence `suggested`.
+    const oct13Payout = payout({
+      id: "po_1UPu2kC2zsUcVaNLpowu61JK",
+      amountMinor: 28518,
+      arrivalDate: "2026-10-13",
+      createdMs: Date.parse("2026-10-13T00:00:00Z"),
+    });
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        payout: oct13Payout,
+        txns: [
+          charge({
+            txnId: "txn_oct13",
+            sourceId: "ch_1626166",
+            grossMinor: 29401,
+            feeMinor: 883,
+            netMinor: 28518,
+            createdMs: Date.parse("2026-10-06T00:00:00Z"),
+          }),
+        ],
+        ollieCandidates: [
+          olliePayment({
+            id: "1795",
+            totalMinor: 29401,
+            txnDate: "2026-10-06",
+            refNumber: "Ollie Payment #1626166",
+          }),
+        ],
+        cutover: "2026-10-09",
+      })
+    );
+    const proposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: oct13Payout,
+      ledger,
+      mode: "observe",
+      mapping,
+    });
+
+    // Three historical proposals: the reclassification, the fee, the
+    // transfer — every one manual-only.
+    const move = proposals.find(
+      (p) => p.kind === "move_payment_to_clearing"
+    )!;
+    assert.equal(move.historical, true);
+    assert.equal(move.autoEligible, false);
+    assert.equal(move.amountMinor, 29401);
+    assert.equal(move.qboRefs?.paymentId, "1795");
+    assert.equal(move.lineConfidence, "suggested");
+
+    const fee = proposals.find((p) => p.kind === "stripe_fee_expense")!;
+    assert.equal(fee.historical, true);
+    assert.equal(fee.amountMinor, 883);
+    assert.equal(fee.autoEligible, false);
+
+    const transfer = proposals.find(
+      (p) => p.kind === "payout_transfer"
+    )!;
+    assert.equal(transfer.historical, true);
+    assert.equal(transfer.amountMinor, 28518);
+    assert.equal(transfer.autoEligible, false);
   });
 
   it("does not propose a transfer for an unpaid payout", () => {

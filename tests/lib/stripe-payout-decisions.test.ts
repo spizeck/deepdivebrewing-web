@@ -67,6 +67,7 @@ function seedProposal(overrides: FakeDoc = {}) {
     kind: "move_payment_to_clearing",
     status: "proposed",
     materialFingerprint: FINGERPRINT,
+    qboRefs: { paymentId: "42", paymentRef: "Ollie Payment #1626166" },
     auditTrail: [
       { at: "2026-10-15T00:00:00.000Z", actor: "system", note: "computed" },
     ],
@@ -108,6 +109,7 @@ describe("decidePayoutProposal", () => {
       action: "approve",
       note: "matches the Ollie payment",
       expectedFingerprint: FINGERPRINT,
+      confirmQboPaymentId: "42",
       actor: ACTOR,
     });
     assert.equal(result.status, "approved");
@@ -119,6 +121,7 @@ describe("decidePayoutProposal", () => {
     assert.equal(decision.actorUid, "admin-1");
     assert.equal(decision.fingerprint, FINGERPRINT);
     assert.equal(decision.note, "matches the Ollie payment");
+    assert.equal(decision.confirmedQboPaymentId, "42");
     const trail = doc.auditTrail as FakeDoc[];
     assert.equal(trail.length, 2);
     assert.ok((trail[1].note as string).includes("approved"));
@@ -209,6 +212,7 @@ describe("decidePayoutProposal", () => {
       proposalId: PROPOSAL_ID,
       action: "approve",
       expectedFingerprint: FINGERPRINT,
+      confirmQboPaymentId: "42",
       actor: ACTOR,
     });
     await decidePayoutProposal({
@@ -372,6 +376,74 @@ describe("decidePayoutProposal", () => {
         actor: ACTOR,
       }),
       /proposalId/
+    );
+  });
+
+  it("requires confirming the exact QBO payment identity to approve a reclassification", async () => {
+    seedProposal();
+    accountingMode = "approval";
+    const { decidePayoutProposal } = await import(
+      "@/lib/stripe-payout-decisions"
+    );
+    // Missing confirmation — a suggested match can never ride a bare
+    // approve click.
+    await assert.rejects(
+      decidePayoutProposal({
+        proposalId: PROPOSAL_ID,
+        action: "approve",
+        expectedFingerprint: FINGERPRINT,
+        actor: ACTOR,
+      }),
+      /confirming the exact QBO payment/i
+    );
+    // Wrong id — the reviewer named a different payment than the one
+    // the proposal is bound to.
+    await assert.rejects(
+      decidePayoutProposal({
+        proposalId: PROPOSAL_ID,
+        action: "approve",
+        expectedFingerprint: FINGERPRINT,
+        confirmQboPaymentId: "9999",
+        actor: ACTOR,
+      }),
+      /confirming the exact QBO payment/i
+    );
+    assert.equal(store.get(PROPOSAL_ID)!.status, "proposed");
+
+    // Correct id — approval binds and records the confirmation.
+    const ok = await decidePayoutProposal({
+      proposalId: PROPOSAL_ID,
+      action: "approve",
+      expectedFingerprint: FINGERPRINT,
+      confirmQboPaymentId: "42",
+      actor: ACTOR,
+    });
+    assert.equal(ok.status, "approved");
+    const doc = store.get(PROPOSAL_ID)!;
+    assert.equal((doc.decision as FakeDoc).confirmedQboPaymentId, "42");
+    // The durable history carries it too.
+    assert.equal(
+      (doc.decisions as FakeDoc[])[0].confirmedQboPaymentId,
+      "42"
+    );
+  });
+
+  it("does not require a payment confirmation for aggregate approvals", async () => {
+    seedProposal({ kind: "stripe_fee_expense", qboRefs: {} });
+    accountingMode = "approval";
+    const { decidePayoutProposal } = await import(
+      "@/lib/stripe-payout-decisions"
+    );
+    const result = await decidePayoutProposal({
+      proposalId: PROPOSAL_ID,
+      action: "approve",
+      expectedFingerprint: FINGERPRINT,
+      actor: ACTOR,
+    });
+    assert.equal(result.status, "approved");
+    assert.equal(
+      (store.get(PROPOSAL_ID)!.decision as FakeDoc).confirmedQboPaymentId,
+      undefined
     );
   });
 });

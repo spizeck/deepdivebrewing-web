@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     const action = record.action;
     const note = record.note;
     const expectedFingerprint = record.expectedFingerprint;
+    const confirmQboPaymentId = record.confirmQboPaymentId;
     if (typeof proposalId !== "string" || !proposalId.trim()) {
       throw new QboError("proposalId is required.", "validation", 400);
     }
@@ -63,12 +64,23 @@ export async function POST(req: NextRequest) {
     if (note !== undefined && typeof note !== "string") {
       throw new QboError("note must be a string.", "validation", 400);
     }
+    if (
+      confirmQboPaymentId !== undefined &&
+      typeof confirmQboPaymentId !== "string"
+    ) {
+      throw new QboError(
+        "confirmQboPaymentId must be a string.",
+        "validation",
+        400
+      );
+    }
 
     const result = await decidePayoutProposal({
       proposalId,
       action,
       note,
       expectedFingerprint,
+      confirmQboPaymentId,
       actor: {
         uid: actor.token.uid,
         email: actor.token.email ?? actor.record.email,
