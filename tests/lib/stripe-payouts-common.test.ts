@@ -399,6 +399,215 @@ describe("buildPayoutLedger", () => {
   });
 });
 
+describe("buildPayoutLedger — reconciled evidence", () => {
+  // Production regression (payout po_1UPu2kC2zsUcVaNLpowu61JK): once a
+  // reclassification applies, the payment leaves Undeposited Funds and
+  // can never reappear in the candidate scan. The applied proposal's
+  // durable record must keep the line identified instead of demoting it
+  // to external/unmatched.
+  const appliedMove = new Map([
+    [
+      "txn_1",
+      {
+        paymentId: "1795",
+        paymentRef: "1626166",
+        customerName: "Sea Saba",
+        confidence: "suggested" as const,
+        state: "applied" as const,
+      },
+    ],
+  ]);
+
+  it("keeps an applied reconciliation Ollie with its original confidence", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge()],
+        ollieCandidates: [], // 1795 left UF — never a candidate again
+        reconciledMoves: appliedMove,
+      })
+    );
+    const line = ledger.lines[0];
+    assert.equal(line.lane, "ollie");
+    // A manually confirmed `suggested` stays `suggested` — completing
+    // the accounting action never upgrades the match tier.
+    assert.equal(line.confidence, "suggested");
+    assert.equal(line.reconciled, "applied");
+    assert.equal(line.qboPaymentId, "1795");
+    assert.equal(line.qboPaymentRef, "1626166");
+    assert.ok(line.evidence.includes("applied_reconciliation"));
+    assert.ok(!ledger.exceptions.some((e) => e.ref === "txn_1"));
+    // The bound payment is claimed so nothing else can re-match it.
+    assert.ok(ledger.claimedByThisPayout.includes("1795"));
+  });
+
+  it("a reconciled line wins over a fresh same-amount UF candidate", () => {
+    // Pathological: a *different* UF payment happens to match the
+    // amount/date — durable evidence still binds the recorded payment,
+    // never an arbitrary lookalike.
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge()],
+        ollieCandidates: [olliePayment({ id: "9999" })],
+        reconciledMoves: appliedMove,
+      })
+    );
+    const line = ledger.lines[0];
+    assert.equal(line.qboPaymentId, "1795");
+    assert.equal(line.reconciled, "applied");
+  });
+
+  it("emits no second move proposal for a reconciled line", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge()],
+        reconciledMoves: appliedMove,
+      })
+    );
+    const proposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger,
+      mode: "approval",
+      mapping: {
+        stripeClearingAccountId: "clearing-1",
+        stripeFeeExpenseAccountId: "fee-1",
+        stripePayoutAccountId: "bank-1",
+      },
+    });
+    assert.equal(
+      proposals.filter((p) => p.kind === "move_payment_to_clearing")
+        .length,
+      0
+    );
+  });
+
+  it("flags a contradicted durable record as reconciled_state_conflict", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge()],
+        reconciledMoves: new Map([
+          [
+            "txn_1",
+            {
+              paymentId: "1795",
+              confidence: "suggested" as const,
+              state: "conflict" as const,
+              conflictDetail: "QBO payment 1795 no longer exists.",
+            },
+          ],
+        ]),
+      })
+    );
+    const line = ledger.lines[0];
+    // The recorded identity is preserved for reporting — fail closed,
+    // not silently rematch or silently drop.
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.reconciled, "conflict");
+    const exc = ledger.exceptions.find((e) => e.ref === "txn_1");
+    assert.equal(exc?.code, "reconciled_state_conflict");
+    assert.match(exc?.detail ?? "", /1795/);
+    const proposals = buildPayoutProposals({
+      environment: "sandbox",
+      payout: payout(),
+      ledger,
+      mode: "approval",
+      mapping: {
+        stripeClearingAccountId: "clearing-1",
+        stripeFeeExpenseAccountId: "fee-1",
+        stripePayoutAccountId: "bank-1",
+      },
+    });
+    assert.equal(
+      proposals.filter((p) => p.kind === "move_payment_to_clearing")
+        .length,
+      0
+    );
+  });
+
+  it("keeps the identity flagged unverified when live reads are down", () => {
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge()],
+        reconciledMoves: new Map([
+          [
+            "txn_1",
+            {
+              paymentId: "1795",
+              confidence: "suggested" as const,
+              state: "unverified" as const,
+            },
+          ],
+        ]),
+      })
+    );
+    const line = ledger.lines[0];
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.reconciled, "unverified");
+    assert.equal(line.qboPaymentId, "1795");
+    assert.ok(
+      line.evidence.includes("applied_reconciliation_unverified")
+    );
+    // An outage is not evidence — no conflict exception.
+    assert.ok(!ledger.exceptions.some((e) => e.ref === "txn_1"));
+  });
+
+  it("a newer charge cannot steal a reconciled payment back in UF", () => {
+    // Payment 1795's recorded move is contradicted — it drifted back
+    // into Undeposited Funds, so it is a UF candidate again. Stripe
+    // returns balance transactions newest first; without up-front
+    // reservation the newer same-amount charge would claim it before
+    // the bound line is reached.
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          charge({ txnId: "txn_newer", createdMs: NOW - DAY_MS }),
+          charge({ txnId: "txn_1" }),
+        ],
+        ollieCandidates: [olliePayment({ id: "1795" })],
+        reconciledMoves: new Map([
+          [
+            "txn_1",
+            {
+              paymentId: "1795",
+              confidence: "suggested" as const,
+              state: "conflict" as const,
+              conflictDetail: "QBO payment 1795 is back in UF.",
+            },
+          ],
+        ]),
+      })
+    );
+    const newer = ledger.lines.find((l) => l.txnId === "txn_newer")!;
+    const bound = ledger.lines.find((l) => l.txnId === "txn_1")!;
+    assert.equal(newer.lane, "external");
+    assert.equal(newer.confidence, "unmatched");
+    assert.equal(newer.qboPaymentId, undefined);
+    assert.equal(bound.reconciled, "conflict");
+    assert.equal(bound.qboPaymentId, "1795");
+    assert.ok(ledger.claimedByThisPayout.includes("1795"));
+  });
+
+  it("a charge with no durable record still goes external/unmatched", () => {
+    // `appliedMove` is keyed to txn_1 — genuine external activity must
+    // not inherit a reconciliation recorded for a different charge.
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge({ txnId: "txn_other" })],
+        ollieCandidates: [],
+        reconciledMoves: appliedMove,
+      })
+    );
+    assert.equal(ledger.lines[0].lane, "external");
+    assert.equal(ledger.lines[0].confidence, "unmatched");
+    assert.equal(ledger.lines[0].reconciled, undefined);
+    assert.ok(
+      ledger.exceptions.some(
+        (e) => e.ref === "txn_other" && e.code === "unmatched_movement"
+      )
+    );
+  });
+});
+
 describe("buildPayoutProposals", () => {
   const mapping = {
     stripeClearingAccountId: "clearing-1",

@@ -495,6 +495,19 @@ function PayoutCard({
                         {line.confidence}
                       </Badge>
                     )}{" "}
+                    {line.reconciled === "applied" && (
+                      <Badge variant="secondary">reconciled</Badge>
+                    )}
+                    {line.reconciled === "unverified" && (
+                      <Badge variant="outline">
+                        reconciled · unverified
+                      </Badge>
+                    )}
+                    {line.reconciled === "conflict" && (
+                      <Badge variant="destructive">
+                        reconciliation conflict
+                      </Badge>
+                    )}{" "}
                     <span className="text-muted-foreground">
                       {line.txnId}
                       {line.scope === "pre_cutover" ? " · pre-cutover" : ""}

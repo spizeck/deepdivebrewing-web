@@ -577,6 +577,24 @@ far that pipeline may go:
     `Cash` regardless of the real rail, so it is evidence of nothing.
     Customer-name similarity corroborates but never proves identity; a
     mismatch demotes a would-be `verified` hit to `suggested`.
+- **Reconciled identity**: matching only ever sees payments still in
+  Undeposited Funds, so a payment whose reclassification already applied
+  would otherwise demote to `external/unmatched` on the next rebuild.
+  To keep the relationship, each build first scans the payout's stored
+  proposals: an `applied` `move_payment_to_clearing` doc is the durable
+  record (its `qboRefs.paymentId` required explicit admin confirmation
+  and executor revalidation) and is re-checked against live QBO state —
+  `applied` (payment sits in the account the proposal moved it to, same
+  amount/currency), `conflict` (deleted, amount/currency changed, back
+  in UF, or in an unexpected account → `reconciled_state_conflict`
+  exception, fail closed), or `unverified` (the live read was
+  unreachable — an outage is not evidence). The line keeps its original
+  lane, confidence tier (a confirmed `suggested` stays `suggested`),
+  payment id, and gains a `reconciled` state shown as a badge in the
+  admin panel. A reconciled line never emits a second move proposal;
+  the applied doc is terminal and never rewritten. Evidence is keyed to
+  the exact Stripe balance transaction — amount/date similarity alone
+  can never establish or inherit a reconciliation.
 - **Computed net / balanced**: Stripe's payout transaction list also
   returns the payout's *own debit* (`type: "payout"`) — it stays visible
   as an account-level line but is excluded from the net sum, or every

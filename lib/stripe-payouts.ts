@@ -13,6 +13,7 @@ import { isQboConfigured, getQboEnvironment } from "@/lib/qbo-config";
 import { getQuickBooksAccessToken } from "@/lib/qbo-tokens";
 import { getQboMappingView } from "@/lib/qbo-mapping";
 import {
+  fetchQboPaymentById,
   findQboUndepositedFundsAccount,
   queryQboInvoices,
   queryQboPayments,
@@ -47,6 +48,7 @@ import {
   type PayoutException,
   type QboAccountingProposal,
   type QboUndepositedPayment,
+  type ReconciledPayment,
   type StripePayoutAutomationView,
   type StripePayoutFacts,
   type StripePayoutSyncItem,
@@ -611,6 +613,158 @@ async function detectExistingCover(
 // execution surface (follow-up PR) flips these and a recompute must
 // respect them.
 
+// Durable reconciliation evidence for the ledger build: payments this
+// payout already reclassified through an *applied* move proposal leave
+// the Undeposited Funds candidate set permanently, so a rebuild that
+// relied on matching alone would demote the line to `external/unmatched`
+// and forget a completed reconciliation. The applied proposal doc is
+// the authoritative record — the payment id required explicit admin
+// confirmation and the executor's apply-time revalidation before it
+// ever ran. Each recorded relationship is then checked against live
+// QBO state: confirmed, contradicted (`conflict` → exception), or
+// unreachable (`unverified` — an outage is not evidence).
+async function loadReconciledMoves(
+  environment: QboEnvironment,
+  proposalDocs: QueryDocumentSnapshot[],
+  ollie: { available: boolean; undepositedFundsId?: string }
+): Promise<Map<string, ReconciledPayment>> {
+  const records = new Map<
+    string,
+    {
+      paymentId: string;
+      paymentRef?: string;
+      confidence: ReconciledPayment["confidence"];
+      identityRefs?: string[];
+      expectedAccountId?: string;
+      amountMinor: number;
+      currency: string;
+    }
+  >();
+  for (const doc of proposalDocs) {
+    const data = doc.data() as QboAccountingProposal;
+    if (
+      data.kind !== "move_payment_to_clearing" ||
+      data.status !== "applied"
+    ) {
+      continue;
+    }
+    const txnId = data.stripeRefs?.balanceTxnId;
+    const paymentId = data.qboRefs?.paymentId;
+    if (!txnId || !paymentId || records.has(txnId)) continue;
+    records.set(txnId, {
+      paymentId,
+      paymentRef: data.qboRefs?.paymentRef,
+      confidence:
+        data.lineConfidence === "verified" ||
+        data.lineConfidence === "confirmed"
+          ? data.lineConfidence
+          : "suggested",
+      identityRefs: data.stripeRefs?.identity
+        ? data.stripeRefs.identity.split(",")
+        : undefined,
+      expectedAccountId: data.debit?.accountId,
+      amountMinor: data.amountMinor,
+      currency: data.currency,
+    });
+  }
+  const result = new Map<string, ReconciledPayment>();
+  if (!records.size) return result;
+  if (!ollie.available) {
+    // No QBO leg this run — keep the recorded identities (an outage is
+    // not evidence) but mark every one unverified.
+    for (const [txnId, rec] of records) {
+      result.set(txnId, { ...rec, state: "unverified" });
+    }
+    return result;
+  }
+  let token: Awaited<ReturnType<typeof getQuickBooksAccessToken>>;
+  try {
+    token = await getQuickBooksAccessToken();
+  } catch {
+    for (const [txnId, rec] of records) {
+      result.set(txnId, { ...rec, state: "unverified" });
+    }
+    return result;
+  }
+  for (const [txnId, rec] of records) {
+    const base = {
+      paymentId: rec.paymentId,
+      paymentRef: rec.paymentRef,
+      confidence: rec.confidence,
+      identityRefs: rec.identityRefs,
+    };
+    try {
+      const payment = await fetchQboPaymentById({
+        ...token,
+        environment,
+        paymentId: rec.paymentId,
+      });
+      if (!payment) {
+        result.set(txnId, {
+          ...base,
+          state: "conflict",
+          conflictDetail: `QBO payment ${rec.paymentId} no longer exists — the recorded reclassification cannot be confirmed. Investigate before further accounting.`,
+        });
+        continue;
+      }
+      if (payment.totalMinor !== rec.amountMinor) {
+        result.set(txnId, {
+          ...base,
+          state: "conflict",
+          conflictDetail: `QBO payment ${rec.paymentId} now totals ${payment.totalMinor} minor units vs the recorded ${rec.amountMinor} — the recorded reclassification no longer matches live state.`,
+        });
+        continue;
+      }
+      if (
+        payment.currency &&
+        payment.currency !== rec.currency.toUpperCase()
+      ) {
+        result.set(txnId, {
+          ...base,
+          state: "conflict",
+          conflictDetail: `QBO payment ${rec.paymentId} currency changed to ${payment.currency} vs the recorded ${rec.currency}.`,
+        });
+        continue;
+      }
+      if (
+        rec.expectedAccountId &&
+        payment.depositToAccountId === rec.expectedAccountId
+      ) {
+        result.set(txnId, {
+          ...base,
+          paymentRef: rec.paymentRef ?? payment.refNumber ?? undefined,
+          state: "applied",
+        });
+        continue;
+      }
+      if (
+        ollie.undepositedFundsId &&
+        payment.depositToAccountId === ollie.undepositedFundsId
+      ) {
+        result.set(txnId, {
+          ...base,
+          state: "conflict",
+          conflictDetail: `QBO payment ${rec.paymentId} is back in Undeposited Funds though its reclassification was applied — possible manual reversal; investigate before proposing again.`,
+        });
+        continue;
+      }
+      result.set(txnId, {
+        ...base,
+        state: "conflict",
+        conflictDetail: `QBO payment ${rec.paymentId} sits in account ${payment.depositToAccountId ?? "(none)"}, not the recorded destination — the reconciliation may have been altered outside this workflow.`,
+      });
+    } catch (error) {
+      logWarn("stripe.payout.reconciled_read_failed", {
+        environment,
+        paymentId: rec.paymentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      result.set(txnId, { ...base, state: "unverified" });
+    }
+  }
+  return result;
+}
+
 // What one canonical build produced — returned so the manual sync can
 // report ingestion vs proposal eligibility honestly (a fully pre-cutover
 // payout ingests cleanly and proposes nothing).
@@ -644,6 +798,34 @@ export async function processStripePayoutLedger(
   const index = buildDdbPaymentIndex(ddbRecords);
   const ollie = await fetchOllieLeg(environment, payout);
 
+  // The stored proposal set is read once and serves two purposes: it is
+  // the durable evidence the ledger build uses to keep already-reconciled
+  // payments identified (applied moves — see `loadReconciledMoves`), and
+  // the live-state snapshot the merge/stale pass below writes against.
+  // Docs are paged by document id (equality filters + document-id
+  // ordering need no composite index) so a payout holding more than one
+  // page of proposals is scanned completely.
+  const existingDocs: QueryDocumentSnapshot[] = [];
+  let cursor: QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let pageQuery = proposalsCollection()
+      .where("payoutId", "==", payoutId)
+      .where("environment", "==", environment)
+      .orderBy(FieldPath.documentId())
+      .limit(PROPOSAL_SCAN_PAGE_SIZE);
+    if (cursor) pageQuery = pageQuery.startAfter(cursor);
+    const snap = await pageQuery.get();
+    existingDocs.push(...snap.docs);
+    if (snap.size < PROPOSAL_SCAN_PAGE_SIZE) break;
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+
+  const reconciledMoves = await loadReconciledMoves(
+    environment,
+    existingDocs,
+    ollie
+  );
+
   const ledger = buildPayoutLedger({
     payout,
     txns,
@@ -651,6 +833,7 @@ export async function processStripePayoutLedger(
     resolvedChargeFacts,
     ollieCandidates: ollie.candidates,
     claimedPaymentIds: ollie.claimedByOthers,
+    reconciledMoves,
     cutover,
   });
 
@@ -684,24 +867,10 @@ export async function processStripePayoutLedger(
 
   // Proposal persistence: deterministic ids make every rewrite idempotent
   // — a replayed event or second trigger converges to the same docs. The
-  // stored set is paged by document id (equality filters + document-id
-  // ordering need no composite index) so a payout holding more than one
-  // page of proposals is scanned completely — the stale pass must see
-  // every stored doc.
-  const existingDocs: QueryDocumentSnapshot[] = [];
-  let cursor: QueryDocumentSnapshot | undefined;
-  for (;;) {
-    let pageQuery = proposalsCollection()
-      .where("payoutId", "==", payoutId)
-      .where("environment", "==", environment)
-      .orderBy(FieldPath.documentId())
-      .limit(PROPOSAL_SCAN_PAGE_SIZE);
-    if (cursor) pageQuery = pageQuery.startAfter(cursor);
-    const snap = await pageQuery.get();
-    existingDocs.push(...snap.docs);
-    if (snap.size < PROPOSAL_SCAN_PAGE_SIZE) break;
-    cursor = snap.docs[snap.docs.length - 1];
-  }
+  // `existingDocs` snapshot was scanned before the build (it doubles as
+  // the reconciliation-evidence source); the merge/stale pass below
+  // still re-reads live docs inside per-document transactions, so a
+  // decision committed after the snapshot cannot be overwritten.
   // Writes collect into bounded batches — a pathological payout could
   // hold hundreds of proposals, and a batch caps at 500 operations.
   const writes: { ref: DocumentReference; data: Record<string, unknown> }[] =
