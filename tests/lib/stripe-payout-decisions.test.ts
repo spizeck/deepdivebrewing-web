@@ -89,6 +89,7 @@ describe("decidePayoutProposal", () => {
       decidePayoutProposal({
         proposalId: PROPOSAL_ID,
         action: "approve",
+        expectedFingerprint: FINGERPRINT,
         actor: ACTOR,
       }),
       /observe mode/
@@ -106,6 +107,7 @@ describe("decidePayoutProposal", () => {
       proposalId: PROPOSAL_ID,
       action: "approve",
       note: "matches the Ollie payment",
+      expectedFingerprint: FINGERPRINT,
       actor: ACTOR,
     });
     assert.equal(result.status, "approved");
@@ -139,10 +141,92 @@ describe("decidePayoutProposal", () => {
     const result = await decidePayoutProposal({
       proposalId: PROPOSAL_ID,
       action: "approve",
+      expectedFingerprint: FINGERPRINT,
       actor: ACTOR,
     });
     assert.equal(result.changed, false);
     assert.equal(result.status, "approved");
+  });
+
+  it("requires the fingerprint that was actually reviewed", async () => {
+    seedProposal();
+    accountingMode = "approval";
+    const { decidePayoutProposal } = await import(
+      "@/lib/stripe-payout-decisions"
+    );
+    // Missing entirely — a client that never rendered the facts.
+    await assert.rejects(
+      decidePayoutProposal({
+        proposalId: PROPOSAL_ID,
+        action: "approve",
+        expectedFingerprint: "",
+        actor: ACTOR,
+      }),
+      /fingerprint/i
+    );
+    // Stale UI: the proposal was rebuilt between render and click.
+    await assert.rejects(
+      decidePayoutProposal({
+        proposalId: PROPOSAL_ID,
+        action: "approve",
+        expectedFingerprint: "kind|99999|USD|different|facts",
+        actor: ACTOR,
+      }),
+      /material facts changed/i
+    );
+    assert.equal(store.get(PROPOSAL_ID)!.status, "proposed");
+  });
+
+  it("refuses decisions for proposals with no material fingerprint", async () => {
+    // Legacy docs predate fingerprint binding — deciding would bind the
+    // approval to nothing.
+    seedProposal({ materialFingerprint: undefined });
+    accountingMode = "approval";
+    const { decidePayoutProposal } = await import(
+      "@/lib/stripe-payout-decisions"
+    );
+    await assert.rejects(
+      decidePayoutProposal({
+        proposalId: PROPOSAL_ID,
+        action: "approve",
+        expectedFingerprint: FINGERPRINT,
+        actor: ACTOR,
+      }),
+      /fingerprint binding/i
+    );
+  });
+
+  it("keeps the superseded decision's action and fingerprint in history", async () => {
+    seedProposal();
+    accountingMode = "approval";
+    const { decidePayoutProposal } = await import(
+      "@/lib/stripe-payout-decisions"
+    );
+    await decidePayoutProposal({
+      proposalId: PROPOSAL_ID,
+      action: "approve",
+      expectedFingerprint: FINGERPRINT,
+      actor: ACTOR,
+    });
+    await decidePayoutProposal({
+      proposalId: PROPOSAL_ID,
+      action: "reject",
+      note: "wrong payment",
+      expectedFingerprint: FINGERPRINT,
+      actor: { uid: "admin-2" },
+    });
+    const doc = store.get(PROPOSAL_ID)!;
+    const decisions = doc.decisions as FakeDoc[];
+    assert.equal(decisions.length, 2);
+    assert.equal(decisions[0].action, "approve");
+    assert.equal(decisions[0].fingerprint, FINGERPRINT);
+    assert.equal(decisions[1].action, "reject");
+    const trail = doc.auditTrail as FakeDoc[];
+    assert.ok(
+      (trail[trail.length - 1].note as string).includes(
+        "supersedes prior approve"
+      )
+    );
   });
 
   it("rejects a proposal and lets rejection withdraw an approval", async () => {
@@ -154,6 +238,7 @@ describe("decidePayoutProposal", () => {
     const rejected = await decidePayoutProposal({
       proposalId: PROPOSAL_ID,
       action: "reject",
+      expectedFingerprint: FINGERPRINT,
       actor: ACTOR,
     });
     assert.equal(rejected.status, "rejected");
@@ -167,6 +252,7 @@ describe("decidePayoutProposal", () => {
       proposalId: PROPOSAL_ID,
       action: "reject",
       note: "wrong payment",
+      expectedFingerprint: FINGERPRINT,
       actor: ACTOR,
     });
     assert.equal(withdrawn.status, "rejected");
@@ -184,6 +270,7 @@ describe("decidePayoutProposal", () => {
         decidePayoutProposal({
           proposalId: PROPOSAL_ID,
           action: "approve",
+          expectedFingerprint: FINGERPRINT,
           actor: ACTOR,
         }),
         new RegExp(status === "blocked" ? "proposed" : status)
@@ -201,6 +288,7 @@ describe("decidePayoutProposal", () => {
       decidePayoutProposal({
         proposalId: PROPOSAL_ID,
         action: "approve",
+        expectedFingerprint: FINGERPRINT,
         actor: ACTOR,
       }),
       /not found/i
@@ -210,6 +298,7 @@ describe("decidePayoutProposal", () => {
       decidePayoutProposal({
         proposalId: PROPOSAL_ID,
         action: "approve",
+        expectedFingerprint: FINGERPRINT,
         actor: ACTOR,
       }),
       /not found/i
@@ -225,6 +314,7 @@ describe("decidePayoutProposal", () => {
       decidePayoutProposal({
         proposalId: "   ",
         action: "approve",
+        expectedFingerprint: FINGERPRINT,
         actor: ACTOR,
       }),
       /proposalId/

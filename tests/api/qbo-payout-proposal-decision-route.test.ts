@@ -128,6 +128,7 @@ describe("POST /api/admin/quickbooks/payouts/proposals", () => {
         JSON.stringify({
           proposalId: "sandbox:po_1:k:1",
           action: "approve",
+          expectedFingerprint: "fp-1",
         })
       )
     );
@@ -146,6 +147,7 @@ describe("POST /api/admin/quickbooks/payouts/proposals", () => {
           proposalId: "sandbox:po_1:k:1",
           action: "approve",
           note: "verified against Ollie",
+          expectedFingerprint: "fp-1",
         })
       )
     );
@@ -157,6 +159,9 @@ describe("POST /api/admin/quickbooks/payouts/proposals", () => {
     assert.strictEqual(decideCalls.length, 1);
     assert.strictEqual(decideCalls[0].action, "approve");
     assert.strictEqual(decideCalls[0].note, "verified against Ollie");
+    // The reviewed fingerprint is forwarded — the decision layer binds
+    // to the facts the admin actually saw.
+    assert.strictEqual(decideCalls[0].expectedFingerprint, "fp-1");
     assert.strictEqual(auditCalls.length, 1);
     assert.strictEqual(
       auditCalls[0].action,
@@ -164,18 +169,32 @@ describe("POST /api/admin/quickbooks/payouts/proposals", () => {
     );
   });
 
-  it("validates action and proposalId", async () => {
+  it("validates action, proposalId, and expectedFingerprint", async () => {
     const { POST } = await import(
       "@/app/api/admin/quickbooks/payouts/proposals/route"
     );
     const bad = await POST(
-      authedPost(JSON.stringify({ proposalId: "x", action: "maybe" }))
+      authedPost(
+        JSON.stringify({
+          proposalId: "x",
+          action: "maybe",
+          expectedFingerprint: "fp-1",
+        })
+      )
     );
     assert.strictEqual(bad.status, 400);
     const missing = await POST(
-      authedPost(JSON.stringify({ action: "approve" }))
+      authedPost(
+        JSON.stringify({ action: "approve", expectedFingerprint: "fp-1" })
+      )
     );
     assert.strictEqual(missing.status, 400);
+    const noFingerprint = await POST(
+      authedPost(
+        JSON.stringify({ proposalId: "sandbox:po_1:k:1", action: "approve" })
+      )
+    );
+    assert.strictEqual(noFingerprint.status, 400);
     const badJson = await POST(authedPost("{not json"));
     assert.strictEqual(badJson.status, 400);
     assert.strictEqual(decideCalls.length, 0);
@@ -193,7 +212,11 @@ describe("POST /api/admin/quickbooks/payouts/proposals", () => {
     );
     const res = await POST(
       authedPost(
-        JSON.stringify({ proposalId: "sandbox:po_1:k:1", action: "reject" })
+        JSON.stringify({
+          proposalId: "sandbox:po_1:k:1",
+          action: "reject",
+          expectedFingerprint: "fp-1",
+        })
       )
     );
     assert.strictEqual(res.status, 409);
@@ -206,7 +229,11 @@ describe("POST /api/admin/quickbooks/payouts/proposals", () => {
     decideError = new Error("firestore: unknown");
     const res = await POST(
       authedPost(
-        JSON.stringify({ proposalId: "sandbox:po_1:k:1", action: "approve" })
+        JSON.stringify({
+          proposalId: "sandbox:po_1:k:1",
+          action: "approve",
+          expectedFingerprint: "fp-1",
+        })
       )
     );
     assert.strictEqual(res.status, 500);

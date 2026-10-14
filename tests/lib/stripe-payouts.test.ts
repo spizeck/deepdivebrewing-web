@@ -44,6 +44,10 @@ interface FakeDoc {
 // collection name → doc id → doc data
 const store = new Map<string, Map<string, FakeDoc>>();
 const batchWrites: { coll: string; id: string; data: FakeDoc }[] = [];
+// Test-only seam: hooks run inside the fake's batch commit — after the
+// batch writes land but before the per-document merge transactions —
+// simulating a decision committed mid-build against live state.
+const midBuildHooks: (() => void)[] = [];
 
 function collectionStore(name: string): Map<string, FakeDoc> {
   let coll = store.get(name);
@@ -142,7 +146,10 @@ const fakeDb = {
         collectionStore(ref.__coll).set(ref.__id, data);
       }
     },
-    commit: async () => {},
+    commit: async () => {
+      const hooks = midBuildHooks.splice(0);
+      for (const hook of hooks) hook();
+    },
   }),
   runTransaction: async (
     work: (tx: {
@@ -389,6 +396,7 @@ const OLLIE_PAYMENT = {
 beforeEach(() => {
   store.clear();
   batchWrites.length = 0;
+  midBuildHooks.length = 0;
   loggedErrors.length = 0;
   stripePayout = { ...PAID_PAYOUT };
   payoutTxns = [{ ...CHARGE }];
@@ -696,6 +704,83 @@ describe("processStripePayoutLedger", () => {
     assert.equal(
       collectionStore("qboAccountingProposals").get(moveId)!.status,
       "proposed"
+    );
+  });
+
+  it("preserves a decision committed after the rebuild's snapshot", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    await processStripePayoutLedger("po_abc");
+    const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
+    // The approval lands between the rebuild's proposal scan and its
+    // merge — the snapshot holds `proposed`, but the live doc carries a
+    // valid fingerprint-bound approval. A stale-snapshot write would
+    // silently revert it to proposed.
+    midBuildHooks.push(() => {
+      const stored =
+        collectionStore("qboAccountingProposals").get(moveId)!;
+      stored.status = "approved";
+      stored.decision = {
+        action: "approve",
+        actorUid: "admin-1",
+        at: "2026-10-15T01:00:00.000Z",
+        fingerprint: stored.materialFingerprint,
+      };
+    });
+    await processStripePayoutLedger("po_abc");
+    const proposal = collectionStore("qboAccountingProposals").get(moveId)!;
+    assert.equal(proposal.status, "approved");
+  });
+
+  it("an invalidated approval reverts to blocked — never back to approvable", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    const { proposalMaterialFingerprint } = await import(
+      "@/lib/stripe-payouts-common"
+    );
+    await processStripePayoutLedger("po_abc");
+    const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
+    const stored = collectionStore("qboAccountingProposals").get(moveId)!;
+    stored.status = "approved";
+    stored.decision = {
+      action: "approve",
+      actorUid: "admin-1",
+      at: "2026-10-15T00:00:00.000Z",
+      fingerprint: proposalMaterialFingerprint(
+        stored as Parameters<typeof proposalMaterialFingerprint>[0]
+      ),
+    };
+    // The clearing mapping disappears — the rebuilt proposal is blocked,
+    // and the stale approval must not turn it into an approvable
+    // `proposed`.
+    mappingView = { mapping: {}, entityNames: {} };
+    await processStripePayoutLedger("po_abc");
+    assert.equal(
+      collectionStore("qboAccountingProposals").get(moveId)!.status,
+      "blocked"
+    );
+  });
+
+  it("does not stale-mark a proposal that went terminal mid-build", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    await processStripePayoutLedger("po_abc");
+    const moveId = "sandbox:po_abc:move_payment_to_clearing:42";
+    // Scan sees `proposed`; before the merge the admin rejects it. The
+    // stale pass must observe the live terminal status, not the snapshot.
+    midBuildHooks.push(() => {
+      const stored =
+        collectionStore("qboAccountingProposals").get(moveId)!;
+      stored.status = "rejected";
+      stored.decision = {
+        action: "reject",
+        actorUid: "admin-1",
+        at: "2026-10-15T01:00:00.000Z",
+        fingerprint: stored.materialFingerprint,
+      };
+    });
+    cutover = "2026-10-14"; // every movement excluded — nothing recomputes
+    await processStripePayoutLedger("po_abc");
+    assert.equal(
+      collectionStore("qboAccountingProposals").get(moveId)!.status,
+      "rejected"
     );
   });
 

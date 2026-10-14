@@ -947,8 +947,6 @@ export interface QboAccountingProposal {
   payoutId: string;
   kind: QboProposalKind;
   status: QboProposalStatus;
-  /** Present but not yet executable — approval is recorded by a
-   *  follow-up surface; observe mode never produces it. */
   amountMinor: number;
   currency: string;
   /** The accounting date the eventual posting would carry. */
@@ -965,9 +963,13 @@ export interface QboAccountingProposal {
    *  and the scope that made it eligible. Recomputed by every build; a
    *  stored decision whose fingerprint no longer matches is invalid. */
   materialFingerprint?: string;
-  /** Latest recorded admin decision (if any). History lives in the
-   *  proposal's auditTrail — this is the current decision only. */
+  /** Latest recorded admin decision (if any). History lives in
+   *  `decisions` — this is the current decision only. */
   decision?: QboProposalDecision;
+  /** Durable decision history — every recorded decision with its
+   *  fingerprint binding, newest last. `decision` alone loses the prior
+   *  record when a second decision lands. */
+  decisions?: QboProposalDecision[];
 }
 
 export type StripeAccountingMode = "observe" | "approval" | "automatic";
@@ -1009,21 +1011,24 @@ export function proposalMaterialFingerprint(
     | "evidence"
   >
 ): string {
+  // JSON serialization per section: values can contain any delimiter,
+  // so structured encoding keeps distinct material facts distinct.
   const refs = (record: Record<string, string>) =>
-    Object.keys(record)
-      .sort()
-      .map((key) => `${key}=${record[key]}`)
-      .join(",");
+    JSON.stringify(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, record[key]])
+    );
   return [
     proposal.kind,
-    proposal.amountMinor,
+    String(proposal.amountMinor),
     proposal.currency,
     proposal.accountingDate,
     `dr=${proposal.debit.accountId ?? ""}`,
     `cr=${proposal.credit.accountId ?? ""}`,
     `stripe=${refs(proposal.stripeRefs)}`,
     `qbo=${refs(proposal.qboRefs)}`,
-    `ev=${[...proposal.evidence].sort().join(",")}`,
+    `ev=${JSON.stringify([...proposal.evidence].sort())}`,
   ].join("|");
 }
 
@@ -1046,6 +1051,10 @@ export interface BuildProposalsInput {
    *  suppresses the corresponding proposal (double-posting protection
    *  against the owner's historical manual habit). */
   existingCover?: { hasFeeEntry: boolean; hasTransferEntry: boolean };
+  /** The company's Undeposited Funds account id, when resolvable —
+   *  recorded as the move proposal's credit leg so an account change
+   *  invalidates approvals like any other material fact. */
+  undepositedFundsId?: string;
 }
 
 // Builds the proposal set for one ledger. Only `eligible`-scope lines can
@@ -1093,12 +1102,19 @@ export function buildPayoutProposals(
         label: name(clearingId, "Stripe clearing account"),
       },
       credit: {
+        accountId: input.undepositedFundsId,
         label: "Undeposited Funds",
       },
       stripeRefs: {
         payoutId: payout.id,
         balanceTxnId: line.txnId,
         ...(line.sourceId ? { chargeId: line.sourceId } : {}),
+        // The namespaced refs that carried the match — a rebuild that
+        // resolves different identifiers is a material change even when
+        // the matched payment stays the same.
+        ...(line.identityRefs?.length
+          ? { identity: [...line.identityRefs].sort().join(",") }
+          : {}),
       },
       qboRefs: {
         paymentId: line.qboPaymentId,

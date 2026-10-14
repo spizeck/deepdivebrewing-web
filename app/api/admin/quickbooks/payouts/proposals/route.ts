@@ -39,12 +39,23 @@ export async function POST(req: NextRequest) {
     const proposalId = record.proposalId;
     const action = record.action;
     const note = record.note;
+    const expectedFingerprint = record.expectedFingerprint;
     if (typeof proposalId !== "string" || !proposalId.trim()) {
       throw new QboError("proposalId is required.", "validation", 400);
     }
     if (action !== "approve" && action !== "reject") {
       throw new QboError(
         'action must be "approve" or "reject".',
+        "validation",
+        400
+      );
+    }
+    if (
+      typeof expectedFingerprint !== "string" ||
+      !expectedFingerprint.trim()
+    ) {
+      throw new QboError(
+        "expectedFingerprint is required — decisions bind to the facts that were reviewed.",
         "validation",
         400
       );
@@ -57,6 +68,7 @@ export async function POST(req: NextRequest) {
       proposalId,
       action,
       note,
+      expectedFingerprint,
       actor: {
         uid: actor.token.uid,
         email: actor.token.email ?? actor.record.email,
