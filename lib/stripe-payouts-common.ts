@@ -733,7 +733,15 @@ export function buildPayoutLedger(
     : undefined;
   const lines: StripePayoutLine[] = [];
   const exceptions: PayoutException[] = [];
-  const claimed = new Set<string>();
+  // Reserve every durably-bound payment id up front — Stripe returns
+  // balance transactions newest first, so without this a newer charge
+  // could amount/date-match an older reconciled payment that drifted
+  // back into Undeposited Funds before its own line is reached.
+  const claimed = new Set<string>(
+    [...(input.reconciledMoves?.values() ?? [])].map(
+      (reconciled) => reconciled.paymentId
+    )
+  );
   const totals: PayoutTotals = {
     lineCount: input.txns.length,
     chargeCount: 0,
@@ -850,11 +858,9 @@ export function buildPayoutLedger(
             identityRefs = reconciled.identityRefs;
           }
           reconciledState = reconciled.state;
-          // Claim the bound payment so no other line in this build can
-          // re-match it — relevant when it unexpectedly sits back in
-          // Undeposited Funds (conflict) and would otherwise still be a
-          // candidate for amount/date matching.
-          claimed.add(reconciled.paymentId);
+          // The bound payment was already reserved in `claimed` before
+          // the loop — no other line in this build can re-match it even
+          // if it drifted back into Undeposited Funds.
           evidence.push(
             reconciled.state === "applied"
               ? "applied_reconciliation"

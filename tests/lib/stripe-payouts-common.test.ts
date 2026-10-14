@@ -551,6 +551,42 @@ describe("buildPayoutLedger — reconciled evidence", () => {
     assert.ok(!ledger.exceptions.some((e) => e.ref === "txn_1"));
   });
 
+  it("a newer charge cannot steal a reconciled payment back in UF", () => {
+    // Payment 1795's recorded move is contradicted — it drifted back
+    // into Undeposited Funds, so it is a UF candidate again. Stripe
+    // returns balance transactions newest first; without up-front
+    // reservation the newer same-amount charge would claim it before
+    // the bound line is reached.
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [
+          charge({ txnId: "txn_newer", createdMs: NOW - DAY_MS }),
+          charge({ txnId: "txn_1" }),
+        ],
+        ollieCandidates: [olliePayment({ id: "1795" })],
+        reconciledMoves: new Map([
+          [
+            "txn_1",
+            {
+              paymentId: "1795",
+              confidence: "suggested" as const,
+              state: "conflict" as const,
+              conflictDetail: "QBO payment 1795 is back in UF.",
+            },
+          ],
+        ]),
+      })
+    );
+    const newer = ledger.lines.find((l) => l.txnId === "txn_newer")!;
+    const bound = ledger.lines.find((l) => l.txnId === "txn_1")!;
+    assert.equal(newer.lane, "external");
+    assert.equal(newer.confidence, "unmatched");
+    assert.equal(newer.qboPaymentId, undefined);
+    assert.equal(bound.reconciled, "conflict");
+    assert.equal(bound.qboPaymentId, "1795");
+    assert.ok(ledger.claimedByThisPayout.includes("1795"));
+  });
+
   it("a charge with no durable record still goes external/unmatched", () => {
     // `appliedMove` is keyed to txn_1 — genuine external activity must
     // not inherit a reconciliation recorded for a different charge.
