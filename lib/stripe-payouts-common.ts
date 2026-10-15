@@ -490,6 +490,28 @@ export function compareOllieRefs(
   return { hits, conflicts };
 }
 
+// Payment references found in the PaymentRefNum field alone. The
+// Spreedly payment leg corroborates only against this field — a labeled
+// "Ollie Payment #…" ref in the memo is self-reported text, not the
+// payment reference.
+function paymentRefNumRefs(
+  payment: Pick<QboUndepositedPayment, "refNumber">
+): string[] {
+  const refs: OllieRefSet = {
+    orderNumbers: [],
+    paymentNumbers: [],
+    invoiceNumbers: [],
+  };
+  if (payment.refNumber) {
+    extractOllieRefsFromText(payment.refNumber, refs);
+    if (!hasAnyRef(refs)) {
+      // Bare digits in PaymentRefNum are still the Ollie payment number.
+      addRef(refs, "paymentNumbers", payment.refNumber);
+    }
+  }
+  return refs.paymentNumbers;
+}
+
 function hasAnyRef(refs: OllieRefSet): boolean {
   return (
     refs.orderNumbers.length > 0 ||
@@ -599,19 +621,13 @@ export function matchOlliePayment(
       // Customer agreement corroborates; a mismatch demotes the hit —
       // identifiers proved which payment this is, but a different
       // customer on it warrants human eyes before it counts as verified.
+      // Exception: a fully corroborated Spreedly two-leg identity (below)
+      // establishes WHICH payment this is without names — wholesale
+      // buyers routinely pay company invoices on personal cards, so the
+      // cardholder ↔ invoice-customer difference is informational only.
       const stripeName = identity.customerName?.trim().toLowerCase();
       const qboName = hit.payment.customerName?.trim().toLowerCase();
       const customerConflict = Boolean(stripeName && qboName && stripeName !== qboName);
-      if (customerConflict) {
-        evidence.push("customer_mismatch");
-        return {
-          confidence: "suggested",
-          payment: hit.payment,
-          candidateIds: [hit.payment.id],
-          evidence,
-          identityRefs: hit.identityRefs,
-        };
-      }
       // A Spreedly composite claim is held to a stricter standard than a
       // lone namespaced ref: BOTH legs must positively corroborate on
       // the same payment — the Ollie payment ref ↔ PaymentRefNum AND the
@@ -620,15 +636,22 @@ export function matchOlliePayment(
       // — review-required, not verified. (A contradicting leg already
       // counted as a conflict and never reaches this branch.)
       if (identity.spreedly) {
-        const legs = new Set(
-          hit.identityRefs.map((ref) => ref.split(":")[0])
+        // Legs are pinned to the CLAIMED values, not just any hit in the
+        // namespace — an unrelated labeled ref sharing the space does
+        // not corroborate this claim. The payment leg must come from
+        // PaymentRefNum itself: memo text is self-reported, not the
+        // payment reference. The order leg must be the claimed order
+        // hitting a linked-invoice DocNumber (actual payment↔invoice
+        // linkage — a memo "Order #…" mention does not count).
+        const paymentLeg = paymentRefNumRefs(hit.payment).includes(
+          identity.spreedly.paymentRef
         );
-        const paymentLeg = legs.has("payment");
-        // Only a linked-invoice DocNumber proves payment↔invoice linkage;
-        // a memo/refNumber "Order #…" mention does not.
-        const orderLeg = legs.has("order-invoice");
+        const orderLeg = hit.identityRefs.includes(
+          `order-invoice:${identity.spreedly.orderNumber}`
+        );
         if (!paymentLeg || !orderLeg) {
           evidence.push("spreedly_linkage_unverified");
+          if (customerConflict) evidence.push("customer_mismatch");
           if (matching.length > 1) evidence.push("identity_disambiguated");
           return {
             confidence: "suggested",
@@ -639,8 +662,22 @@ export function matchOlliePayment(
           };
         }
         evidence.push("spreedly_identity");
+        if (customerConflict) {
+          evidence.push("cardholder_customer_name_differs");
+        }
+      } else if (customerConflict) {
+        evidence.push("customer_mismatch");
+        return {
+          confidence: "suggested",
+          payment: hit.payment,
+          candidateIds: [hit.payment.id],
+          evidence,
+          identityRefs: hit.identityRefs,
+        };
       }
-      if (stripeName && qboName) evidence.push("customer_consistent");
+      if (stripeName && qboName && !customerConflict) {
+        evidence.push("customer_consistent");
+      }
       if (matching.length > 1) evidence.push("identity_disambiguated");
       return {
         confidence: "verified",
