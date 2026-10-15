@@ -292,16 +292,28 @@ function ProposalRow({
       )}
       {approvable && needsPaymentConfirm && (
         <div className="mt-2 text-xs text-muted-foreground">
+          <p className="mb-1">
+            QBO Payment ID:{" "}
+            <span className="font-mono text-ink">
+              {proposal.qboRefs.paymentId ?? "—"}
+            </span>
+            {proposal.qboRefs.paymentRef ? (
+              <>
+                {" "}
+                · Payment reference:{" "}
+                <span className="font-mono">
+                  {proposal.qboRefs.paymentRef}
+                </span>
+              </>
+            ) : null}
+          </p>
           <label
             htmlFor={`confirm-${proposal.proposalId}`}
             className="mb-1 block"
           >
-            This reclassifies a specific QuickBooks payment — type its QBO
-            payment id
-            {proposal.qboRefs.paymentRef
-              ? ` (${proposal.qboRefs.paymentRef})`
-              : ""}{" "}
-            to confirm
+            Enter QBO Payment ID {proposal.qboRefs.paymentId ?? ""} to
+            confirm this payment — the payment reference identifies it in
+            QuickBooks but is not the confirmation value.
           </label>
           <input
             id={`confirm-${proposal.proposalId}`}
@@ -310,8 +322,8 @@ function ProposalRow({
             autoComplete="off"
             value={confirmPaymentId}
             onChange={(e) => setConfirmPaymentId(e.target.value)}
-            placeholder="QBO payment id"
-            aria-label={`Confirm QBO payment id for ${proposal.proposalId}`}
+            placeholder="QBO Payment ID"
+            aria-label={`Confirm QBO Payment ID ${proposal.qboRefs.paymentId ?? ""} for ${proposal.proposalId}`}
             className="w-40 rounded-md border border-ink/50 px-2 py-1 text-xs"
           />
         </div>

@@ -604,6 +604,84 @@ describe("processStripePayoutLedger", () => {
     );
   });
 
+  it("flags a DDB charge whose Sales Receipt sync record is missing", async () => {
+    // Oct-4 "QBO Test" regression: balanced payout, missing gross — the
+    // line must not read as fully reconciled.
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    collectionStore("payments").set("pay_1", {
+      stripeChargeId: "ch_ollie",
+      status: "paid",
+    });
+    // No qboSyncRecords doc for pay_1 — receipt unproven.
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const line = (doc.lines as FakeDoc[])[0];
+    assert.equal(line.lane, "ddb");
+    assert.ok((line.evidence as string[]).includes("ddb_receipt_unverified"));
+    const exceptions = doc.exceptions as FakeDoc[];
+    assert.ok(exceptions.some((e) => e.code === "ddb_receipt_unposted"));
+  });
+
+  it("does not flag a DDB charge whose sync record is synced", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    collectionStore("payments").set("pay_1", {
+      stripeChargeId: "ch_ollie",
+      status: "paid",
+    });
+    const syncId = "sandbox:stripe_payment:pay_1";
+    collectionStore("qboSyncRecords").set(syncId, {
+      __name__: syncId,
+      status: "synced",
+      qboEntityId: "sr-1",
+    });
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const exceptions = doc.exceptions as FakeDoc[];
+    assert.ok(!exceptions.some((e) => e.code === "ddb_receipt_unposted"));
+  });
+
+  it("flags a DDB charge whose synced record carries no QBO entity", async () => {
+    // `synced` without a qboEntityId is unfinished evidence — the
+    // receipt it claims to have created cannot be named.
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    collectionStore("payments").set("pay_1", {
+      stripeChargeId: "ch_ollie",
+      status: "paid",
+    });
+    const syncId = "sandbox:stripe_payment:pay_1";
+    collectionStore("qboSyncRecords").set(syncId, {
+      __name__: syncId,
+      status: "synced",
+    });
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const exceptions = doc.exceptions as FakeDoc[];
+    assert.ok(
+      exceptions.some(
+        (e) =>
+          e.code === "ddb_receipt_unposted" &&
+          (e.detail as string).includes("synced_no_entity")
+      )
+    );
+  });
+
+  it("flags a DDB charge whose sync record needs attention", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    collectionStore("payments").set("pay_1", {
+      stripeChargeId: "ch_ollie",
+      status: "paid",
+    });
+    const syncId = "sandbox:stripe_payment:pay_1";
+    collectionStore("qboSyncRecords").set(syncId, {
+      __name__: syncId,
+      status: "needs_attention",
+    });
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const exceptions = doc.exceptions as FakeDoc[];
+    assert.ok(exceptions.some((e) => e.code === "ddb_receipt_unposted"));
+  });
+
   it("flags ambiguity when two UF payments match amount and date", async () => {
     const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
     qboPayments = [{ ...OLLIE_PAYMENT }, { ...OLLIE_PAYMENT, id: "77" }];

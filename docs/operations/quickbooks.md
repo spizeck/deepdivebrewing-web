@@ -340,7 +340,11 @@ posting guessed tax.
 - A `syncing` claim carries a short lease; a stale claim is reclaimed,
   and the worker always queries for the `ddb:<paymentId>` correlation
   marker before creating — a write that landed but whose response was
-  lost is adopted, never duplicated.
+  lost is adopted, never duplicated. Adoption also verifies the found
+  receipt's `DepositToAccountRef`: a marker-carrying receipt deposited
+  to the wrong account parks `needs_attention`
+  (`wrong_deposit_account`) for a human — it is never counted as
+  synced, and a replacement receipt is never created blindly.
 - QBO failures never affect the payment: it stays `paid`, and nothing
   customer-facing implies the card charge failed.
 
@@ -446,6 +450,17 @@ pre-flight test stays unposted only while it remains outside it. A
 backfill beyond the 30-day cap remains an explicit, separately reviewed
 admin action, not a sweep configuration change.
 
+Out-of-window payments are not invisible, though: when such a payment's
+Stripe charge lands inside a processed payout, the ledger's
+`ddb_receipt_unposted` exception flags that its Sales Receipt cannot be
+proven (see Stripe payout accounting → Lanes). That is the intended
+detection path for a pre-flight payment like the October 4 `$5.00`
+test — reconcile it by creating the receipt manually in QBO (as was
+done; the marker-adopt path adopts a receipt carrying the payment's
+`ddb:<paymentId>` note when it sits on the mapped generic customer
+with the payment's posted date) or by a deliberately approved
+backfill, never by widening the sweep silently.
+
 ## Stripe reconciliation report (issue #181)
 
 `/admin/integrations/quickbooks` → **Stripe reconciliation** is a
@@ -549,7 +564,17 @@ far that pipeline may go:
   confidence tiers below), `external` (no match — Stripe activity
   outside DDB/Ollie, including refunds which are never reclassified
   through payments), or `account_level` (fees, adjustments, the
-  payout's own debit — never matched).
+  payout's own debit — never matched). A `ddb` lane proves *which*
+  charge this is — it does not by itself prove the gross sale posted.
+  The ledger additionally checks each resolved payment's durable sync
+  record: anything other than `synced` (including no record at all)
+  marks the line `ddb_receipt_unverified` and raises a
+  `ddb_receipt_unposted` exception naming the payment id and the
+  expected SalesReceipt — a payout that merely balances arithmetically
+  no longer reads as fully reconciled. The executor independently
+  refuses fee/transfer applies while an eligible DDB line lacks a
+  synced receipt (`ddb_gross_unposted`), so the exception is
+  informational, not the only gate.
 - **Match confidence** on Ollie lanes — an explicit evidence
   hierarchy, displayed per line in the admin panel:
   - `verified` — a namespaced identifier chain corroborates the match
@@ -673,7 +698,11 @@ far that pipeline may go:
   its mapping lands. Approving a `move_payment_to_clearing` proposal
   additionally requires `confirmQboPaymentId` — the exact QBO payment id
   the reviewer asserts the proposal should move, which must equal the
-  proposal's bound `qboRefs.paymentId`. The confirmed id is recorded on
+  proposal's bound `qboRefs.paymentId`. The admin UI labels both values
+  unambiguously — **QBO Payment ID** (the internal id, e.g. `1813`,
+  which is what the field requires) versus **Payment reference** (the
+  `PaymentRefNum`, e.g. `1626166`, which identifies the payment in
+  QuickBooks but can never substitute). The confirmed id is recorded on
   the decision; the executor refuses any approval that lacks it, so a
   `suggested` match can never be executed without a human naming the
   payment.

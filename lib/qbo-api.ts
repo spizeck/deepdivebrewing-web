@@ -236,7 +236,9 @@ export async function findQboSalesReceiptForMarker(input: {
   /** The receipt's posted TxnDate (YYYY-MM-DD) — the payment's paidAt. */
   txnDate: string;
   marker: string;
-}): Promise<QboSalesReceiptCreateResult | null> {
+}): Promise<
+  (QboSalesReceiptCreateResult & { depositToAccountId?: string }) | null
+> {
   let correlationId: string | undefined;
   for (let page = 0; page < QBO_QUERY_MAX_PAGES; page++) {
     const { payload, correlationId: tid } = await qboApiFetch({
@@ -264,7 +266,11 @@ export async function findQboSalesReceiptForMarker(input: {
         found: true,
         correlationId,
       });
-      return { id: match.id, correlationId };
+      return {
+        id: match.id,
+        correlationId,
+        depositToAccountId: match.depositToAccountId,
+      };
     }
     if (qboSalesReceiptRowCount(payload) < QBO_QUERY_PAGE_SIZE) break;
   }

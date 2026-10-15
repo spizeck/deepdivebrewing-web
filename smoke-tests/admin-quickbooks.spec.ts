@@ -739,6 +739,44 @@ test("payout accounting panel shows observe mode and expandable detail", async (
   ).toBeVisible();
 });
 
+test("payment confirmation distinguishes QBO Payment ID from reference", async ({
+  page,
+}) => {
+  await mockQboApi(page, CONNECTED, {
+    payoutsBody: {
+      ok: true,
+      view: { ...PAYOUTS_VIEW, mode: "approval", writesEnabled: true },
+    },
+  });
+  await page.goto(FIXTURE);
+  const section = page.locator(
+    'section[aria-labelledby="payout-automation-heading"]'
+  );
+  await section.getByRole("button", { name: /po_fixture1/ }).click();
+
+  // Both identifiers display with unambiguous labels — PaymentRefNum
+  // (1626166) is lookup context, not the confirmation value.
+  await expect(
+    section.getByText("QBO Payment ID:", { exact: false })
+  ).toBeVisible();
+  await expect(section.getByText("Payment reference:")).toBeVisible();
+  await expect(
+    section.getByText(/Enter QBO Payment ID 42 to confirm this payment/)
+  ).toBeVisible();
+
+  const confirm = section.getByLabel(/Confirm QBO Payment ID/);
+  const approve = section
+    .getByRole("button", { name: "Approve" })
+    .first();
+  await expect(approve).toBeDisabled();
+  // The payment reference is not the confirmation value.
+  await confirm.fill("1626166");
+  await expect(approve).toBeDisabled();
+  // The internal QBO Payment ID is.
+  await confirm.fill("42");
+  await expect(approve).toBeEnabled();
+});
+
 test("payout sync runs on demand and reports the result summary", async ({
   page,
 }) => {
