@@ -456,8 +456,9 @@ Stripe charge lands inside a processed payout, the ledger's
 proven (see Stripe payout accounting → Lanes). That is the intended
 detection path for a pre-flight payment like the October 4 `$5.00`
 test — reconcile it by creating the receipt manually in QBO (as was
-done; the marker-adopt path will adopt any receipt carrying the
-payment's `ddb:<paymentId>` note) or by a deliberately approved
+done; the marker-adopt path adopts a receipt carrying the payment's
+`ddb:<paymentId>` note when it sits on the mapped generic customer
+with the payment's posted date) or by a deliberately approved
 backfill, never by widening the sweep silently.
 
 ## Stripe reconciliation report (issue #181)

@@ -566,16 +566,14 @@ async function runSyncWrite(
       // Adoption proves the receipt exists — not that it sits in the
       // account this payment's rail requires. A marker-carrying receipt
       // deposited elsewhere (manual entry, moved after posting) means
-      // the gross is NOT in the expected account: fail closed for a
-      // human rather than marking the sync complete or posting a
+      // the gross is NOT in the expected account, and a receipt whose
+      // deposit account cannot be read is equally unproven: fail closed
+      // for a human rather than marking the sync complete or posting a
       // duplicate receipt.
-      if (
-        existing.depositToAccountId &&
-        existing.depositToAccountId !== depositAccountId
-      ) {
+      if (existing.depositToAccountId !== depositAccountId) {
         return attention(
           "wrong_deposit_account",
-          `Sales Receipt ${existing.id} carries this payment's marker but deposits to account ${existing.depositToAccountId}, not the mapped deposit account ${depositAccountId} — reconcile manually.`
+          `Sales Receipt ${existing.id} carries this payment's marker but deposits to account ${existing.depositToAccountId ?? "unreadable"}, not the mapped deposit account ${depositAccountId} — reconcile manually.`
         );
       }
       return {

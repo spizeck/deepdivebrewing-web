@@ -315,9 +315,19 @@ async function loadDdbReceiptStatuses(
       .get();
     for (const doc of snap.docs) {
       const paymentId = idToPayment.get(doc.id);
-      const status = doc.data().status;
+      const data = doc.data();
+      const status = data.status;
       if (paymentId && typeof status === "string") {
-        statuses.set(paymentId, status);
+        // `synced` only proves the receipt posted when the record carries
+        // the QBO entity it created — a bare `synced` with no entity id
+        // is unfinished evidence, not confirmation.
+        statuses.set(
+          paymentId,
+          status === "synced" &&
+            !(typeof data.qboEntityId === "string" && data.qboEntityId)
+            ? "synced_no_entity"
+            : status
+        );
       }
     }
   }
