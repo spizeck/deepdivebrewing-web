@@ -17,6 +17,16 @@ const OPTIMIZED_HERO_PATH = HERO_PATH.replace(".jpg", "-optimized.jpg");
 const BREWHOUSE_SOURCE_PATH = path.join(PHOTO_DIR, "PXL_20261006_121738963.jpg");
 const BREWHOUSE_HERO_PATH = path.join(PHOTO_DIR, "herobrewhouse.jpg");
 
+// Editorial gallery derivatives (Issue #193): the served assets are
+// 2048px-long-edge recompresses of the PXL_* originals, which stay in the
+// repo as sources of truth and are never referenced by a page directly.
+const GALLERY_DERIVATIVES = [
+  { source: "PXL_20261006_121633967.jpg", output: "gallery-alpha-vessel.jpg" },
+  { source: "PXL_20261006_121628797.jpg", output: "gallery-mash-tun.jpg" },
+  { source: "PXL_20261006_121718700.jpg", output: "gallery-valve-manifold.jpg" },
+  { source: "PXL_20261006_121652949.jpg", output: "gallery-pipework.jpg" },
+];
+
 const hero = sharp(HERO_PATH);
 const meta = await hero.metadata();
 
@@ -38,6 +48,16 @@ await brewhouse
   .resize(1920, undefined, { withoutEnlargement: true })
   .jpeg({ quality: 75, progressive: true, mozjpeg: true })
   .toFile(BREWHOUSE_HERO_PATH);
+
+for (const { source, output } of GALLERY_DERIVATIVES) {
+  const result = await sharp(path.join(PHOTO_DIR, source))
+    .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 78, progressive: true, mozjpeg: true })
+    .toFile(path.join(PHOTO_DIR, output));
+  console.log(
+    `${output}: ${result.width}x${result.height} ${(result.size / 1024).toFixed(0)} KB`
+  );
+}
 
 const optimizedStats = fs.statSync(OPTIMIZED_HERO_PATH);
 const ogStats = fs.statSync(OG_PATH);

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { SiteNav } from "@/components/site-nav";
 import IntroSection from "@/components/home/IntroSection";
+import { InsideDeepDiveTeaser } from "@/components/home/inside-deep-dive-teaser";
 import { Reveal } from "@/components/reveal";
 import { BeerCarousel } from "@/components/beer-carousel";
 import { HeroVideo } from "@/components/hero-video";
@@ -168,6 +169,11 @@ export default async function Home() {
           </div>
         </div>
       </Reveal>
+
+      {/* Inside Deep Dive teaser — one photo, short copy, one CTA to
+          /about (Issue #193). Self-contained so parallel page edits
+          stay easy to rebase/cherry-pick. */}
+      <InsideDeepDiveTeaser />
 
       {/* Where to find us teaser */}
       <Reveal as="section" className="border-t border-stone">

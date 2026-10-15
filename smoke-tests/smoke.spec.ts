@@ -9,8 +9,10 @@ test("homepage renders brewery content and primary navigation", async ({
   page,
 }) => {
   await page.goto("/");
+  // The h1 specifically: other headings may also contain "Deep Dive"
+  // (e.g. the "Inside Deep Dive" teaser, Issue #193).
   await expect(
-    page.getByRole("heading", { name: /deep dive/i })
+    page.getByRole("heading", { name: /deep dive/i, level: 1 })
   ).toBeVisible();
   // Primary site navigation.
   await expect(
