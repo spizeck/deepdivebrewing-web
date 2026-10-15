@@ -25,6 +25,7 @@ import {
   buildQboPaymentDepositUpdate,
   qboInvoicesByIdsQuery,
   qboPaymentByIdQuery,
+  qboPaymentsByRefNumQuery,
   qboSalesReceiptCorrelationQuery,
   qboSalesReceiptRowCount,
   QBO_QUERY_MAX_PAGES,
@@ -517,6 +518,35 @@ export async function fetchQboPaymentById(input: {
     correlationId,
   });
   return payment;
+}
+
+// Targeted Payment lookup by PaymentRefNum — investigates a payment
+// reference claimed by Stripe charge metadata (Spreedly `order_id`)
+// when the payment fell outside the date-windowed candidate scan.
+// Bounded to one page; read-only.
+export async function queryQboPaymentsByRefNum(input: {
+  environment: QboEnvironment;
+  realmId: string;
+  accessToken: string;
+  refNum: string;
+}): Promise<QboPaymentFacts[]> {
+  const { payload, correlationId } = await qboApiFetch({
+    environment: input.environment,
+    realmId: input.realmId,
+    accessToken: input.accessToken,
+    url: buildQboQueryUrl(
+      input.environment,
+      input.realmId,
+      qboPaymentsByRefNumQuery(input.refNum)
+    ),
+  });
+  const rows = canonicalizeQboPayments(payload);
+  logInfo("qbo.api.payments_by_refnum", {
+    environment: input.environment,
+    rows: rows.length,
+    correlationId,
+  });
+  return rows;
 }
 
 export interface QboTxnWriteResult {

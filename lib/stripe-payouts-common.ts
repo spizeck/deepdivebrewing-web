@@ -334,12 +334,51 @@ export function extractOllieRefsFromMetadata(
   }
 }
 
+// --- Spreedly composite identity ---
+//
+// Ollie runs Stripe charges through Spreedly, which stamps two metadata
+// keys on the charge: `connect_agent` naming the integration and a
+// composite `order_id` of the form `<Ollie order>-<Ollie payment ref>`
+// (observed production values: `00327-1626166`, `00326-1623638`). The
+// order number is the QBO invoice DocNumber; the payment ref is the QBO
+// PaymentRefNum — two independently corroboratable identifiers pinned
+// to one claimed relationship. Leading zeros are preserved through
+// parsing; comparison normalizes them the same way `addRef` does.
+export interface SpreedlyIdentity {
+  /** Ollie order number, normalized (leading zeros stripped — "00326" →
+   *  "326"), matching the OllieRefSet convention on both sides. */
+  orderNumber: string;
+  /** Ollie payment reference, normalized — the QBO PaymentRefNum. */
+  paymentRef: string;
+}
+
+const SPREEDLY_ORDER_ID = /^(\d{3,12})-(\d{3,12})$/;
+const SPREEDLY_AGENT = "spreedly";
+
+// Strict, centralized parse: exactly two digit runs joined by one dash.
+// Anything else — missing, extra segments, letters, mixed content —
+// yields null and can never produce a verified identity.
+export function parseSpreedlyOrderId(raw: string): SpreedlyIdentity | null {
+  const m = SPREEDLY_ORDER_ID.exec(raw.trim());
+  if (!m) return null;
+  const orderNumber = normalizeOllieRef(m[1]);
+  const paymentRef = normalizeOllieRef(m[2]);
+  if (!orderNumber || !paymentRef) return null;
+  return { orderNumber, paymentRef };
+}
+
 // The Stripe side of an Ollie identity attempt — enrichment facts plus
 // the extracted reference set. `billingName` is used for conflict
 // evidence only; it is never authoritative and never persisted on lines.
 export interface OllieStripeIdentity {
   refs: OllieRefSet;
   customerName?: string;
+  /** Spreedly composite claim — present only when `connect_agent`
+   *  identifies the Spreedly integration AND `order_id` parses strictly
+   *  as `<order>-<paymentRef>`. A claimed identity, not proof: the
+   *  matcher verifies it only when BOTH legs independently corroborate
+   *  on the same QBO payment. */
+  spreedly?: SpreedlyIdentity;
 }
 
 // Extracts every namespaced Ollie reference a Stripe charge carries.
@@ -361,7 +400,24 @@ export function ollieIdentityFromChargeFacts(facts: {
     extractOllieRefsFromText(facts.statementDescriptor, refs);
   }
   if (facts.metadata) extractOllieRefsFromMetadata(facts.metadata, refs);
-  return { refs, customerName: facts.billingName };
+  // The composite claim requires Spreedly provenance — a stray
+  // `order_id` on a charge from anywhere else is an ordinary
+  // (single-namespace) ref, never a two-leg identity.
+  let spreedly: SpreedlyIdentity | undefined;
+  const agent = facts.metadata?.connect_agent?.trim().toLowerCase();
+  if (agent === SPREEDLY_AGENT && facts.metadata?.order_id) {
+    const parsed = parseSpreedlyOrderId(facts.metadata.order_id);
+    if (parsed) {
+      spreedly = parsed;
+      if (!refs.orderNumbers.includes(parsed.orderNumber)) {
+        refs.orderNumbers.push(parsed.orderNumber);
+      }
+      if (!refs.paymentNumbers.includes(parsed.paymentRef)) {
+        refs.paymentNumbers.push(parsed.paymentRef);
+      }
+    }
+  }
+  return { refs, customerName: facts.billingName, spreedly };
 }
 
 // A QBO payment's namespaced references: PaymentRefNum is the Ollie
@@ -555,6 +611,34 @@ export function matchOlliePayment(
           evidence,
           identityRefs: hit.identityRefs,
         };
+      }
+      // A Spreedly composite claim is held to a stricter standard than a
+      // lone namespaced ref: BOTH legs must positively corroborate on
+      // the same payment — the Ollie payment ref ↔ PaymentRefNum AND the
+      // order number ↔ a linked-invoice DocNumber. One leg hitting while
+      // the other has no QBO data means the linkage cannot be confirmed
+      // — review-required, not verified. (A contradicting leg already
+      // counted as a conflict and never reaches this branch.)
+      if (identity.spreedly) {
+        const legs = new Set(
+          hit.identityRefs.map((ref) => ref.split(":")[0])
+        );
+        const paymentLeg = legs.has("payment");
+        // Only a linked-invoice DocNumber proves payment↔invoice linkage;
+        // a memo/refNumber "Order #…" mention does not.
+        const orderLeg = legs.has("order-invoice");
+        if (!paymentLeg || !orderLeg) {
+          evidence.push("spreedly_linkage_unverified");
+          if (matching.length > 1) evidence.push("identity_disambiguated");
+          return {
+            confidence: "suggested",
+            payment: hit.payment,
+            candidateIds: [hit.payment.id],
+            evidence,
+            identityRefs: hit.identityRefs,
+          };
+        }
+        evidence.push("spreedly_identity");
       }
       if (stripeName && qboName) evidence.push("customer_consistent");
       if (matching.length > 1) evidence.push("identity_disambiguated");

@@ -1068,6 +1068,19 @@ export function qboPaymentsQuery(
   return `${base} startposition ${startPosition ?? 1} maxresults ${maxResults ?? QBO_QUERY_PAGE_SIZE}`;
 }
 
+// Targeted Payment lookup by PaymentRefNum — used when a Stripe charge's
+// Spreedly metadata claims a payment reference that fell outside the
+// date-windowed candidate scan. Single-page bound: payment refs are
+// effectively unique in this ledger's usage; more than a page of hits
+// would itself be an anomaly the matcher flags ambiguous.
+export function qboPaymentsByRefNumQuery(
+  refNum: string,
+  maxResults = 20
+): string {
+  const safe = refNum.replace(/[^0-9A-Za-z-]/g, "");
+  return `select Id, TxnDate, TotalAmt, CurrencyRef, CustomerRef, PaymentRefNum, PrivateNote, DepositToAccountRef, Line from Payment where PaymentRefNum = '${safe}' maxresults ${maxResults}`;
+}
+
 export function canonicalizeQboPayments(
   payload: unknown
 ): QboPaymentFacts[] {
