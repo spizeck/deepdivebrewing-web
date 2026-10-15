@@ -1752,6 +1752,55 @@ describe("Spreedly composite identity", () => {
       assert.ok(!result.evidence.includes("customer_mismatch"));
     });
 
+    it("stays review-required when the payment leg is memo-only", () => {
+      // The memo claims "Ollie Payment #1623638" and a linked invoice
+      // carries 00326, but PaymentRefNum itself does not corroborate —
+      // memo text is self-reported, not the payment reference.
+      const result = matchOlliePayment(
+        charge230,
+        [
+          lookalike({
+            id: "1786",
+            refNumber: "7777777",
+            memo: "Ollie Payment #1623638",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: ["00326"],
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "suggested");
+      assert.ok(result.evidence.includes("spreedly_linkage_unverified"));
+    });
+
+    it("stays review-required when legs hit values the claim did not make", () => {
+      // Metadata also carries `paymentReference: 555555`; the candidate
+      // matches THAT ref plus the claimed order — two namespace hits,
+      // but the claimed payment ref itself is uncorroborated.
+      const result = matchOlliePayment(
+        charge230,
+        [
+          lookalike({
+            id: "1786",
+            refNumber: "555555",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: ["00326"],
+          }),
+        ],
+        "USD",
+        ollieIdentityFromChargeFacts({
+          metadata: {
+            connect_agent: "Spreedly",
+            order_id: "00326-1623638",
+            paymentReference: "555555",
+          },
+        })
+      );
+      assert.equal(result.confidence, "suggested");
+      assert.ok(result.evidence.includes("spreedly_linkage_unverified"));
+    });
+
     it("a name gap still demotes when Spreedly linkage is incomplete", () => {
       // Payment ref hits but no linked invoice carries the order — the
       // conservative customer_mismatch behavior still applies.
