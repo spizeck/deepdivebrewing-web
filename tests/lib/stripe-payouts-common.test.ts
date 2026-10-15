@@ -1719,14 +1719,18 @@ describe("Spreedly composite identity", () => {
       assert.equal(result.confidence, "unmatched");
     });
 
-    it("a customer mismatch still demotes a Spreedly-verified hit", () => {
+    it("verifies despite a differing cardholder name — Tropics Cafe", () => {
+      // Production Oct-7 fixture: Wilhemus Schutten paid the Tropics
+      // Cafe invoice on a personal card. Both Spreedly legs corroborate
+      // (PaymentRefNum + linked-invoice DocNumber), so the name gap is
+      // informational, not a downgrade.
       const result = matchOlliePayment(
         charge230,
         [
           olliePayment({
             id: "1786",
             totalMinor: 23000,
-            customerName: "Someone Else",
+            customerName: "Tropics Cafe",
             refNumber: "1623638",
             linkedTxnIds: ["inv-326"],
             linkedDocNumbers: ["00326"],
@@ -1735,10 +1739,38 @@ describe("Spreedly composite identity", () => {
         "USD",
         {
           ...spreedly,
-          customerName: "Tropics Cafe", // Stripe billing name disagrees
+          customerName: "Wilhemus Schutten", // Stripe cardholder differs
         }
       );
+      assert.equal(result.confidence, "verified");
+      assert.equal(result.payment?.id, "1786");
+      assert.ok(result.evidence.includes("spreedly_identity"));
+      assert.ok(
+        result.evidence.includes("cardholder_customer_name_differs")
+      );
+      assert.ok(!result.evidence.includes("customer_consistent"));
+      assert.ok(!result.evidence.includes("customer_mismatch"));
+    });
+
+    it("a name gap still demotes when Spreedly linkage is incomplete", () => {
+      // Payment ref hits but no linked invoice carries the order — the
+      // conservative customer_mismatch behavior still applies.
+      const result = matchOlliePayment(
+        charge230,
+        [
+          olliePayment({
+            id: "1786",
+            totalMinor: 23000,
+            customerName: "Tropics Cafe",
+            refNumber: "1623638",
+            linkedTxnIds: [],
+          }),
+        ],
+        "USD",
+        { ...spreedly, customerName: "Wilhemus Schutten" }
+      );
       assert.equal(result.confidence, "suggested");
+      assert.ok(result.evidence.includes("spreedly_linkage_unverified"));
       assert.ok(result.evidence.includes("customer_mismatch"));
     });
 

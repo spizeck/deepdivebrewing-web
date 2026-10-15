@@ -564,7 +564,8 @@ far that pipeline may go:
     spaces. `verified` is the only tier the executor's `autoEligible`
     path may act on — and still only after apply-time revalidation.
   - `suggested` — amount/currency/window/uniqueness evidence only, or
-    an identity hit whose customer name disagrees. **Review-only,
+    an identity hit whose customer name disagrees (non-Spreedly hits —
+    see below for the fully corroborated exception). **Review-only,
     forever** — circumstantial evidence is never execution-grade.
   - `ambiguous` — multiple candidates share the amount/window, or
     identifier evidence conflicts (Stripe says order *N*, the sole
@@ -576,7 +577,9 @@ far that pipeline may go:
   - QBO `PaymentMethodRef` is never read — Ollie labels everything
     `Cash` regardless of the real rail, so it is evidence of nothing.
     Customer-name similarity corroborates but never proves identity; a
-    mismatch demotes a would-be `verified` hit to `suggested`.
+    mismatch demotes a would-be `verified` hit to `suggested` — unless
+    the hit is a fully corroborated Spreedly two-leg match (below),
+    where the cardholder↔customer gap is informational only.
 - **Spreedly composite identity**: Ollie runs Stripe charges through
   Spreedly, which stamps `connect_agent: "Spreedly"` and a composite
   `order_id` of the form `<Ollie order>-<Ollie payment ref>` on the
@@ -598,7 +601,14 @@ far that pipeline may go:
   `PaymentRefNum` lookup — a claimed payment found outside UF is not a
   candidate (its durable reconciliation evidence, if any, owns it) and
   the charge falls back to review-required. Two corroborating candidates
-  stay `ambiguous`; duplicate references never resolve.
+  stay `ambiguous`; duplicate references never resolve. Once both legs
+  corroborate, the transaction identifiers alone establish identity —
+  wholesale buyers routinely pay company invoices on personal cards, so
+  a differing Stripe cardholder vs QBO customer name does NOT demote
+  the match; it stays `verified` and the difference is surfaced as
+  informational `cardholder_customer_name_differs` evidence. Names can
+  never substitute for the identifiers: without both legs the
+  conservative rules above still apply.
 - **Reconciled identity**: matching only ever sees payments still in
   Undeposited Funds, so a payment whose reclassification already applied
   would otherwise demote to `external/unmatched` on the next rebuild.
