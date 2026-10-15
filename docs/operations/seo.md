@@ -26,7 +26,7 @@ policy, metadata conventions, sitemap/robots behavior, and how to verify.
 
 | Surface | Indexed? | Mechanism |
 | --- | --- | --- |
-| `/`, `/beers`, `/beers/[slug]`, `/where-to-buy`, `/about`, `/contact`, `/trade`, `/privacy`, `/terms` | Yes | `index,follow` (root default); in `sitemap.xml` |
+| `/`, `/beers`, `/beers/[slug]`, `/where-to-buy`, `/about`, `/brewed-on-saba`, `/contact`, `/trade`, `/privacy`, `/terms` | Yes | `index,follow` (root default); in `sitemap.xml` |
 | `/beers/[slug]` unknown slug | No | `generateMetadata` returns `robots: { index: false }` + 404 |
 | `/admin` | No | `robots` meta `noindex,nofollow` + `Disallow` in robots.txt; real protection is auth, not robots |
 | `/admin-fixture` | No | `noindex,nofollow` meta + `Disallow`; also returns 404 unless the server-only test flag is set |
@@ -74,6 +74,7 @@ deploy), so a build-time stamp would misreport freshness to crawlers.
 | `/contact` | `Brewery` (`#brewery`) | Same builder — identical entity on every page |
 | `/trade` | `Brewery` (`#brewery`) | Same builder — identical entity |
 | `/where-to-buy` | `Brewery` (`#brewery`) + `FAQPage` | Same builder; FAQ mirrors the visible on-page questions |
+| `/brewed-on-saba` | `Brewery` (`#brewery`) | Same builder — editorial page about the brewery itself |
 | `/beers/[slug]` | `BreadcrumbList` | Mirrors the visible breadcrumb nav; no `Product` markup — see below |
 
 Beer detail pages deliberately emit **no `Product` schema**. Google's
@@ -110,9 +111,11 @@ the serializer.
 
 ## Internal linking
 
-Primary nav + footer link every indexable page; beer cards link `/beers` →
-`/beers/[slug]`; beer detail links back via the visible breadcrumb and a
-"where to buy" link. No orphan indexable pages.
+Primary nav + footer link every indexable page **except** `/brewed-on-saba`,
+which is intentionally linked from `/about` only until nav/footer placement
+is decided (Issue #192) — a deliberate exception, not an oversight. Beer
+cards link `/beers` → `/beers/[slug]`; beer detail links back via the
+visible breadcrumb and a "where to buy" link. No orphan indexable pages.
 
 ## Verifying SEO locally
 

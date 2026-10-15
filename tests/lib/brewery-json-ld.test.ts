@@ -14,10 +14,12 @@ import {
 } from "../../lib/site";
 import { TELEPHONE_DISPLAY } from "../../lib/whatsapp";
 
-// The four routes that emit the Brewery entity (Issue #107). Each must use
-// the shared builder — a hand-written copy is how the field sets diverged.
+// The routes that emit the Brewery entity (Issue #107; #192 added
+// /brewed-on-saba). Each must use the shared builder — a hand-written copy
+// is how the field sets diverged.
 const BREWERY_PAGES = [
   ["app", "page.tsx"],
+  ["app", "(pages)", "brewed-on-saba", "page.tsx"],
   ["app", "(pages)", "contact", "page.tsx"],
   ["app", "(pages)", "trade", "page.tsx"],
   ["app", "(pages)", "where-to-buy", "page.tsx"],
