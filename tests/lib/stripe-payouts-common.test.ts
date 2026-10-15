@@ -1601,6 +1601,29 @@ describe("Spreedly composite identity", () => {
       assert.ok(result.evidence.includes("spreedly_linkage_unverified"));
     });
 
+    it("stays review-required when the order leg is memo-only", () => {
+      // PaymentRefNum corroborates and the payment's own memo mentions
+      // "Order #00326", but no linked invoice carries DocNumber 00326 —
+      // self-reported text on the payment is not invoice linkage.
+      const result = matchOlliePayment(
+        charge230,
+        [
+          lookalike({
+            id: "1786",
+            refNumber: "1623638",
+            memo: "Ollie Order #00326",
+            linkedTxnIds: [],
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "suggested");
+      assert.equal(result.payment?.id, "1786");
+      assert.ok(result.evidence.includes("spreedly_linkage_unverified"));
+      assert.ok(result.identityRefs?.includes("order:326"));
+    });
+
     it("stays review-required when the invoice lookup did not resolve", () => {
       // linkedTxnIds exist but DocNumbers were never fetched (lookup
       // failure/limit) — the linkage evidence is absent, not negative.

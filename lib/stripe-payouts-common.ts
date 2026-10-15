@@ -624,7 +624,9 @@ export function matchOlliePayment(
           hit.identityRefs.map((ref) => ref.split(":")[0])
         );
         const paymentLeg = legs.has("payment");
-        const orderLeg = legs.has("order") || legs.has("order-invoice");
+        // Only a linked-invoice DocNumber proves payment↔invoice linkage;
+        // a memo/refNumber "Order #…" mention does not.
+        const orderLeg = legs.has("order-invoice");
         if (!paymentLeg || !orderLeg) {
           evidence.push("spreedly_linkage_unverified");
           if (matching.length > 1) evidence.push("identity_disambiguated");
