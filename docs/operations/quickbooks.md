@@ -577,6 +577,28 @@ far that pipeline may go:
     `Cash` regardless of the real rail, so it is evidence of nothing.
     Customer-name similarity corroborates but never proves identity; a
     mismatch demotes a would-be `verified` hit to `suggested`.
+- **Spreedly composite identity**: Ollie runs Stripe charges through
+  Spreedly, which stamps `connect_agent: "Spreedly"` and a composite
+  `order_id` of the form `<Ollie order>-<Ollie payment ref>` on the
+  charge metadata (observed: `00327-1626166`, `00326-1623638`). The
+  order number is the QBO invoice `DocNumber`; the payment ref is the
+  QBO `PaymentRefNum`. `order_id` parses strictly — exactly two digit
+  runs joined by one dash, leading zeros preserved (comparison
+  normalizes padding on both sides); malformed, absent, or
+  non-Spreedly-sourced values yield no identity at all. The claim is
+  held to a stricter standard than a lone namespaced ref: `verified`
+  requires BOTH legs to corroborate on the same candidate — the payment
+  ref ↔ `PaymentRefNum` AND the order number ↔ a *linked* invoice
+  DocNumber (the payment must actually link the invoice, not merely
+  share its number). A one-leg hit with the other leg absent from QBO
+  (unlinked payment, unresolved invoice lookup) stays `suggested` with
+  `spreedly_linkage_unverified` evidence; a contradicting leg fails
+  closed to `ambiguous`. When the claimed payment ref isn't among the
+  date-windowed UF candidates, the build investigates it with a bounded
+  `PaymentRefNum` lookup — a claimed payment found outside UF is not a
+  candidate (its durable reconciliation evidence, if any, owns it) and
+  the charge falls back to review-required. Two corroborating candidates
+  stay `ambiguous`; duplicate references never resolve.
 - **Reconciled identity**: matching only ever sees payments still in
   Undeposited Funds, so a payment whose reclassification already applied
   would otherwise demote to `external/unmatched` on the next rebuild.

@@ -8,7 +8,9 @@ import {
   extractOllieRefsFromMetadata,
   extractOllieRefsFromText,
   matchOlliePayment,
+  ollieIdentityFromChargeFacts,
   ollieRefsFromQboPayment,
+  parseSpreedlyOrderId,
   proposalMaterialFingerprint,
   qboProposalIdFor,
   STRIPE_PAYOUT_EVENT_TYPES,
@@ -1384,6 +1386,351 @@ describe("buildPayoutLedger with identity evidence", () => {
     assert.ok(
       ledger.exceptions.some((e) => e.code === "unmatched_movement")
     );
+  });
+});
+
+describe("Spreedly composite identity", () => {
+  // Production metadata observed on Ollie/Spreedly charges:
+  // connect_agent: "Spreedly", order_id: "<order>-<paymentRef>" where
+  // the order number equals the QBO invoice DocNumber and the payment
+  // ref equals the QBO PaymentRefNum.
+  describe("parseSpreedlyOrderId", () => {
+    it("parses the observed composite format", () => {
+      assert.deepEqual(parseSpreedlyOrderId("00326-1623638"), {
+        orderNumber: "326",
+        paymentRef: "1623638",
+      });
+      assert.deepEqual(parseSpreedlyOrderId("00327-1626166"), {
+        orderNumber: "327",
+        paymentRef: "1626166",
+      });
+    });
+
+    it("preserves leading zeros through normalized comparison", () => {
+      // "00326" and "326" are the same Ollie order — normalization
+      // strips padding on BOTH sides, so a padded QBO DocNumber and a
+      // padded metadata value still meet.
+      const parsed = parseSpreedlyOrderId("00326-1623638")!;
+      assert.equal(parsed.orderNumber, "326");
+      // ...and a QBO DocNumber "00326" normalizes identically.
+      const qboRefs = ollieRefsFromQboPayment(
+        olliePayment({ linkedDocNumbers: ["00326"] })
+      );
+      assert.ok(qboRefs.invoiceNumbers.includes("326"));
+    });
+
+    it("rejects malformed composites — never partial identity", () => {
+      for (const bad of [
+        "",
+        "00326",
+        "1623638",
+        "00326-",
+        "-1623638",
+        "00326-1623638-extra",
+        "order 00326-1623638",
+        "00326x-1623638",
+        "00326-1623638-1",
+        "ab-cd",
+        "00326162636 1623638",
+        "1-2", // digit runs shorter than a plausible reference
+      ]) {
+        assert.equal(parseSpreedlyOrderId(bad), null, bad);
+      }
+    });
+  });
+
+  describe("ollieIdentityFromChargeFacts", () => {
+    it("claims the identity only with Spreedly provenance", () => {
+      const id = ollieIdentityFromChargeFacts({
+        metadata: { connect_agent: "Spreedly", order_id: "00326-1623638" },
+      });
+      assert.deepEqual(id.spreedly, {
+        orderNumber: "326",
+        paymentRef: "1623638",
+      });
+      // Both halves join the ref set so the documented chains see them.
+      assert.ok(id.refs.orderNumbers.includes("326"));
+      assert.ok(id.refs.paymentNumbers.includes("1623638"));
+    });
+
+    it("ignores the composite for a different connect_agent", () => {
+      const id = ollieIdentityFromChargeFacts({
+        metadata: {
+          connect_agent: "SomeOtherGateway",
+          order_id: "00326-1623638",
+        },
+      });
+      assert.equal(id.spreedly, undefined);
+      assert.equal(id.refs.orderNumbers.length, 0);
+      assert.equal(id.refs.paymentNumbers.length, 0);
+    });
+
+    it("ignores malformed or missing order_id", () => {
+      const cases: Record<string, string>[] = [
+        { connect_agent: "Spreedly" },
+        { connect_agent: "Spreedly", order_id: "garbage" },
+        { connect_agent: "Spreedly", order_id: "00326" },
+        { order_id: "00326-1623638" }, // no agent
+      ];
+      for (const metadata of cases) {
+        const id = ollieIdentityFromChargeFacts({ metadata });
+        assert.equal(
+          id.spreedly,
+          undefined,
+          JSON.stringify(metadata)
+        );
+      }
+    });
+
+    it("tolerates agent casing/whitespace but nothing else", () => {
+      assert.ok(
+        ollieIdentityFromChargeFacts({
+          metadata: {
+            connect_agent: "  spreedly ",
+            order_id: "00326-1623638",
+          },
+        }).spreedly
+      );
+    });
+  });
+
+  describe("matchOlliePayment with a Spreedly claim", () => {
+    // October 7 fixture: charge $230.00, metadata claims order 00326 /
+    // payment 1623638; four same-amount UF payments exist but only 1786
+    // carries both identifiers.
+    const spreedly = ollieIdentityFromChargeFacts({
+      metadata: { connect_agent: "Spreedly", order_id: "00326-1623638" },
+    });
+    const charge230 = {
+      amountMinor: 23000,
+      currency: "USD",
+      createdMs: Date.parse("2026-10-05T00:00:00.000Z"),
+    };
+    function lookalike(overrides: Partial<QboUndepositedPayment>) {
+      return olliePayment({
+        totalMinor: 23000,
+        txnDate: "2026-10-05",
+        ...overrides,
+      });
+    }
+    function candidates(): QboUndepositedPayment[] {
+      return [
+        lookalike({ id: "1801", refNumber: "9000001" }),
+        lookalike({ id: "1802", refNumber: "9000002" }),
+        lookalike({ id: "1803" }),
+        lookalike({
+          id: "1786",
+          refNumber: "1623638",
+          customerName: "Tropics Cafe",
+          linkedTxnIds: ["inv-326"],
+          linkedDocNumbers: ["00326"],
+        }),
+      ];
+    }
+
+    it("verifies the uniquely corroborated payment out of four candidates", () => {
+      const result = matchOlliePayment(
+        charge230,
+        candidates(),
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "verified");
+      assert.equal(result.payment?.id, "1786");
+      assert.ok(result.evidence.includes("spreedly_identity"));
+      assert.ok(result.evidence.includes("identity_disambiguated"));
+      assert.ok(
+        result.identityRefs?.includes("payment:1623638") &&
+          result.identityRefs.some((ref) => ref.startsWith("order"))
+      );
+    });
+
+    it("fails closed when the payment ref hits but the invoice differs", () => {
+      const result = matchOlliePayment(
+        charge230,
+        [
+          lookalike({
+            id: "1786",
+            refNumber: "1623638",
+            linkedTxnIds: ["inv-999"],
+            linkedDocNumbers: ["00999"], // resolved — wrong invoice
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "ambiguous");
+      assert.ok(result.evidence.includes("identifier_conflict"));
+    });
+
+    it("fails closed when the invoice hits but the payment ref differs", () => {
+      const result = matchOlliePayment(
+        charge230,
+        [
+          lookalike({
+            id: "1786",
+            refNumber: "9999999",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: ["00326"],
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "ambiguous");
+      assert.ok(result.evidence.includes("identifier_conflict"));
+    });
+
+    it("stays review-required when the payment↔invoice link is missing", () => {
+      // PaymentRefNum corroborates, but the payment links no invoices at
+      // all — the claimed order cannot be confirmed.
+      const result = matchOlliePayment(
+        charge230,
+        [
+          lookalike({
+            id: "1786",
+            refNumber: "1623638",
+            linkedTxnIds: [],
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "suggested");
+      assert.equal(result.payment?.id, "1786");
+      assert.ok(result.evidence.includes("spreedly_linkage_unverified"));
+    });
+
+    it("stays review-required when the invoice lookup did not resolve", () => {
+      // linkedTxnIds exist but DocNumbers were never fetched (lookup
+      // failure/limit) — the linkage evidence is absent, not negative.
+      const result = matchOlliePayment(
+        charge230,
+        [
+          lookalike({
+            id: "1786",
+            refNumber: "1623638",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: undefined,
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "suggested");
+      assert.ok(result.evidence.includes("spreedly_linkage_unverified"));
+    });
+
+    it("goes ambiguous when two candidates both corroborate", () => {
+      const twin = () =>
+        lookalike({
+          refNumber: "1623638",
+          linkedTxnIds: ["inv-326"],
+          linkedDocNumbers: ["00326"],
+        });
+      const result = matchOlliePayment(
+        charge230,
+        [twin(), { ...twin(), id: "1787" }],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "ambiguous");
+      assert.ok(result.evidence.includes("multiple_identity_matches"));
+    });
+
+    it("compares gross, never net", () => {
+      // Charge gross $230.00 / net $219.58 — a $219.58 payment is not
+      // this charge however good its identifiers are.
+      const result = matchOlliePayment(
+        charge230,
+        [
+          olliePayment({
+            id: "1786",
+            totalMinor: 21958,
+            refNumber: "1623638",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: ["00326"],
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "unmatched");
+    });
+
+    it("rejects corroborating identifiers in the wrong currency", () => {
+      const result = matchOlliePayment(
+        charge230,
+        [
+          olliePayment({
+            id: "1786",
+            totalMinor: 23000,
+            currency: "EUR",
+            refNumber: "1623638",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: ["00326"],
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "unmatched");
+    });
+
+    it("rejects a corroborating payment outside the date window", () => {
+      const result = matchOlliePayment(
+        charge230,
+        [
+          olliePayment({
+            id: "1786",
+            totalMinor: 23000,
+            txnDate: "2026-06-01",
+            refNumber: "1623638",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: ["00326"],
+          }),
+        ],
+        "USD",
+        spreedly
+      );
+      assert.equal(result.confidence, "unmatched");
+    });
+
+    it("a customer mismatch still demotes a Spreedly-verified hit", () => {
+      const result = matchOlliePayment(
+        charge230,
+        [
+          olliePayment({
+            id: "1786",
+            totalMinor: 23000,
+            customerName: "Someone Else",
+            refNumber: "1623638",
+            linkedTxnIds: ["inv-326"],
+            linkedDocNumbers: ["00326"],
+          }),
+        ],
+        "USD",
+        {
+          ...spreedly,
+          customerName: "Tropics Cafe", // Stripe billing name disagrees
+        }
+      );
+      assert.equal(result.confidence, "suggested");
+      assert.ok(result.evidence.includes("customer_mismatch"));
+    });
+
+    it("wrong-agent metadata behaves like no metadata", () => {
+      const id = ollieIdentityFromChargeFacts({
+        metadata: {
+          connect_agent: "OtherGateway",
+          order_id: "00326-1623638",
+        },
+      });
+      const result = matchOlliePayment(charge230, candidates(), "USD", id);
+      // No usable refs → four amount/date candidates stay ambiguous.
+      assert.equal(result.confidence, "ambiguous");
+      assert.ok(result.evidence.includes("multiple_candidates"));
+    });
   });
 });
 
