@@ -200,6 +200,76 @@ describe("buildPayoutLedger", () => {
     assert.equal(ledger.lines[0].paymentId, "pay_2");
   });
 
+  it("flags a DDB charge whose Sales Receipt never posted", () => {
+    // The Oct-4 "QBO Test" regression: the payout balanced while the $5
+    // gross was missing from Stripe clearing — a missing sync record
+    // must not read as fully reconciled.
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge()],
+        ddbIndex: index,
+        // pay_1 has no sync record at all — absent from the map.
+        ddbReceiptStatus: new Map(),
+      })
+    );
+    assert.equal(ledger.lines[0].lane, "ddb");
+    assert.equal(ledger.lines[0].confidence, "confirmed");
+    assert.ok(ledger.lines[0].evidence.includes("ddb_receipt_unverified"));
+    assert.equal(ledger.exceptions.length, 1);
+    assert.equal(ledger.exceptions[0].code, "ddb_receipt_unposted");
+    assert.equal(ledger.exceptions[0].ref, "txn_1");
+    assert.ok(ledger.exceptions[0].detail.includes("pay_1"));
+    assert.ok(ledger.exceptions[0].detail.includes("Sales Receipt"));
+  });
+
+  it("flags a DDB charge whose sync record stalled unfinished", () => {
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    for (const status of ["pending", "failed", "needs_attention", "syncing"]) {
+      const ledger = buildPayoutLedger(
+        emptyInput({
+          txns: [charge()],
+          ddbIndex: index,
+          ddbReceiptStatus: new Map([["pay_1", status]]),
+        })
+      );
+      assert.equal(
+        ledger.exceptions[0]?.code,
+        "ddb_receipt_unposted",
+        `status ${status} must not read as reconciled`
+      );
+    }
+  });
+
+  it("stays quiet for a DDB charge with a synced receipt", () => {
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    const ledger = buildPayoutLedger(
+      emptyInput({
+        txns: [charge()],
+        ddbIndex: index,
+        ddbReceiptStatus: new Map([["pay_1", "synced"]]),
+      })
+    );
+    assert.equal(ledger.exceptions.length, 0);
+    assert.ok(!ledger.lines[0].evidence.includes("ddb_receipt_unverified"));
+  });
+
+  it("does not consult absent receipt status (legacy callers)", () => {
+    const index = buildDdbPaymentIndex([
+      { paymentId: "pay_1", chargeId: "ch_1" },
+    ]);
+    const ledger = buildPayoutLedger(
+      emptyInput({ txns: [charge()], ddbIndex: index })
+    );
+    assert.equal(ledger.exceptions.length, 0);
+  });
+
   it("suggests a unique Ollie payment for a non-DDB charge", () => {
     const ledger = buildPayoutLedger(
       emptyInput({

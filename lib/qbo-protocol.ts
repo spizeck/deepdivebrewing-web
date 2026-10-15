@@ -736,7 +736,7 @@ export function qboSalesReceiptCorrelationQuery(
       "unexpected"
     );
   }
-  return `select Id, PrivateNote, TxnDate from SalesReceipt where CustomerRef = '${safe}' and TxnDate = '${txnDate}' orderby TxnDate desc startposition ${startPosition} maxresults ${maxResults}`;
+  return `select Id, PrivateNote, TxnDate, DepositToAccountRef from SalesReceipt where CustomerRef = '${safe}' and TxnDate = '${txnDate}' orderby TxnDate desc startposition ${startPosition} maxresults ${maxResults}`;
 }
 
 // Raw row count in a SalesReceipt QueryResponse page — the pagination
@@ -756,6 +756,10 @@ export function qboSalesReceiptRowCount(payload: unknown): number {
 export interface QboSalesReceiptRef {
   id: string;
   privateNote?: string;
+  /** The account the receipt deposited to, when the query returns it —
+   *  lets the adopt path fail closed instead of syncing a receipt that
+   *  sits outside the expected deposit account. */
+  depositToAccountId?: string;
 }
 
 export function canonicalizeQboSalesReceiptRefs(
@@ -783,6 +787,8 @@ export function canonicalizeQboSalesReceiptRefs(
       id,
       privateNote:
         typeof r.PrivateNote === "string" ? r.PrivateNote : undefined,
+      depositToAccountId:
+        accountRefValue(r.DepositToAccountRef) ?? undefined,
     });
   }
   return out;

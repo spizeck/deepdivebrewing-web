@@ -34,7 +34,11 @@ const state = {
   },
   tokenError: null as unknown,
   // Provider-side recovery lookup result.
-  foundReceipt: null as { id: string; correlationId?: string } | null,
+  foundReceipt: null as {
+    id: string;
+    correlationId?: string;
+    depositToAccountId?: string;
+  } | null,
   findError: null as unknown,
   createResult: { id: "9001", correlationId: "tid-1" } as {
     id: string;
@@ -321,6 +325,50 @@ describe("processQboSyncRecord — idempotency and concurrency", () => {
     assert.strictEqual(state.createCalls.length, 0, "must not create a duplicate");
     assert.strictEqual(syncDoc()?.qboEntityId, "5550");
     assert.strictEqual(syncDoc()?.status, "synced");
+  });
+
+  it("fails closed when the marker receipt sits in the wrong account", async () => {
+    // A marker-carrying receipt deposited outside Stripe clearing means
+    // the gross is NOT where this rail requires — surface for a human;
+    // never mark synced and never post a replacement receipt.
+    reset({
+      [`payments/${PAYMENT_ID}`]: paidPayment(),
+      [`${RECORDS}/${SYNC_ID}`]: {
+        sourceType: "stripe_payment",
+        sourceId: PAYMENT_ID,
+        status: "pending",
+      },
+    });
+    state.foundReceipt = {
+      id: "5550",
+      correlationId: "tid-lookup",
+      depositToAccountId: "acct-other",
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "needs_attention");
+    assert.strictEqual(result.reason, "wrong_deposit_account");
+    assert.strictEqual(state.createCalls.length, 0);
+    assert.strictEqual(syncDoc()?.status, "needs_attention");
+  });
+
+  it("adopts a marker receipt in the correct deposit account", async () => {
+    reset({
+      [`payments/${PAYMENT_ID}`]: paidPayment(),
+      [`${RECORDS}/${SYNC_ID}`]: {
+        sourceType: "stripe_payment",
+        sourceId: PAYMENT_ID,
+        status: "pending",
+      },
+    });
+    state.foundReceipt = {
+      id: "5550",
+      correlationId: "tid-lookup",
+      depositToAccountId: "acct-stripe-balance",
+    };
+    const result = await process(SYNC_ID);
+    assert.strictEqual(result.outcome, "synced");
+    assert.strictEqual(state.createCalls.length, 0);
+    assert.strictEqual(syncDoc()?.qboEntityId, "5550");
   });
 });
 

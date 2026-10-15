@@ -66,7 +66,10 @@ import { applyPayoutProposal } from "@/lib/stripe-payout-executor";
 import { logError, logInfo, logWarn } from "@/lib/log";
 import { QboError } from "@/lib/qbo-errors";
 import {
+  QBO_STRIPE_PAYMENT_SOURCE_TYPE,
   QBO_SWEEP_STATE_COLLECTION,
+  QBO_SYNC_RECORDS_COLLECTION,
+  qboSyncIdFor,
   type QboEnvironment,
 } from "@/lib/qbo-common";
 
@@ -281,6 +284,44 @@ async function loadDdbIdentityRecords(
     records,
     truncated: sourceIds.length >= IDENTITY_QUERY_MAX_IDS,
   };
+}
+
+// The sync-record status for every resolved DDB payment — the durable
+// record of whether its gross sale posted a QBO SalesReceipt. The ledger
+// flags any `ddb` line that cannot prove its receipt (missing record,
+// pending, failed, needs_attention) instead of letting a balanced payout
+// read as fully reconciled. Document ids are deterministic
+// (`environment:stripe_payment:<paymentId>`), so chunked document-id
+// `in` queries fetch exactly the records that could exist.
+async function loadDdbReceiptStatuses(
+  environment: QboEnvironment,
+  records: DdbIdentityRecord[]
+): Promise<Map<string, string>> {
+  const statuses = new Map<string, string>();
+  const paymentIds = [
+    ...new Set(records.map((record) => record.paymentId)),
+  ];
+  const syncIds = paymentIds.map((paymentId) =>
+    qboSyncIdFor(environment, QBO_STRIPE_PAYMENT_SOURCE_TYPE, paymentId)
+  );
+  const idToPayment = new Map(syncIds.map((id, i) => [id, paymentIds[i]]));
+  const collection = getFirebaseAdminDb().collection(
+    QBO_SYNC_RECORDS_COLLECTION
+  );
+  for (let i = 0; i < syncIds.length; i += IDENTITY_QUERY_CHUNK) {
+    const chunk = syncIds.slice(i, i + IDENTITY_QUERY_CHUNK);
+    const snap = await collection
+      .where(FieldPath.documentId(), "in", chunk)
+      .get();
+    for (const doc of snap.docs) {
+      const paymentId = idToPayment.get(doc.id);
+      const status = doc.data().status;
+      if (paymentId && typeof status === "string") {
+        statuses.set(paymentId, status);
+      }
+    }
+  }
+  return statuses;
 }
 
 // Enrichment for charge sources that resolved nothing — one bounded
@@ -859,6 +900,10 @@ export async function processStripePayoutLedger(
   const { records: ddbRecords } = await loadDdbIdentityRecords(txns);
   const resolvedChargeFacts = await enrichChargeSources(txns, ddbRecords);
   const index = buildDdbPaymentIndex(ddbRecords);
+  const ddbReceiptStatus = await loadDdbReceiptStatuses(
+    environment,
+    ddbRecords
+  );
   // Payment references the charges' Spreedly metadata claims — the QBO
   // leg investigates any that the date-windowed scan missed.
   const claimedPaymentRefs = [
@@ -905,6 +950,7 @@ export async function processStripePayoutLedger(
     resolvedChargeFacts,
     ollieCandidates: ollie.candidates,
     claimedPaymentIds: ollie.claimedByOthers,
+    ddbReceiptStatus,
     reconciledMoves,
     cutover,
   });

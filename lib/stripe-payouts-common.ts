@@ -763,7 +763,8 @@ export interface PayoutException {
     | "foreign_currency"
     | "existing_manual_entry"
     | "cutover_skipped"
-    | "reconciled_state_conflict";
+    | "reconciled_state_conflict"
+    | "ddb_receipt_unposted";
   ref: string;
   detail: string;
   amountMinor?: number;
@@ -816,6 +817,13 @@ export interface BuildPayoutLedgerInput {
   ollieCandidates: QboUndepositedPayment[];
   /** QBO payment ids already claimed by OTHER payouts' proposals. */
   claimedPaymentIds: ReadonlySet<string>;
+  /** QBO sync-record status per DDB payments-doc id (`synced` / `pending`
+   *  / `failed` / `needs_attention` / `syncing`; absent = no record at
+   *  all). A `ddb` line proves *which* charge this is — this map proves
+   *  whether its gross sale actually posted to Stripe clearing. When the
+   *  map itself is absent the state is simply not consulted (callers
+   *  that never fetch it keep the legacy display). */
+  ddbReceiptStatus?: ReadonlyMap<string, string>;
   /** Durable reconciliation evidence keyed by Stripe balance-txn id:
    *  payments this payout already reclassified through an applied
    *  move proposal (server-validated at apply, revalidated live by the
@@ -948,6 +956,23 @@ export function buildPayoutLedger(
         confidence = "confirmed";
         paymentId = ddbHit;
         evidence.push("application_identity");
+        // Positive identity is settled — but the gross sale must also
+        // have posted its QBO SalesReceipt to Stripe clearing. A payout
+        // that balances arithmetically while the receipt is missing or
+        // unfinished is NOT fully reconciled; surface it loudly rather
+        // than letting the line read as complete.
+        if (input.ddbReceiptStatus) {
+          const receipt = input.ddbReceiptStatus.get(ddbHit);
+          if (receipt !== "synced") {
+            evidence.push("ddb_receipt_unverified");
+            exceptions.push({
+              code: "ddb_receipt_unposted",
+              ref: txn.txnId,
+              detail: `DDB payment ${ddbHit} has no confirmed QBO Sales Receipt (sync status: ${receipt ?? "no record"}) — the gross sale is not proven posted to Stripe clearing. Expected document: SalesReceipt. Check the QBO sync panel for the durable sync record.`,
+              amountMinor: txn.grossMinor,
+            });
+          }
+        }
       } else if (isRefundBucket(txn.type)) {
         // Refunds are never reclassified through an Undeposited-Funds
         // payment — a negative movement can never equal a positive QBO

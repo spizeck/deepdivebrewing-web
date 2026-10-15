@@ -266,6 +266,11 @@ describe("sales receipt correlation lookup", () => {
           { Id: "1", PrivateNote: "Deep Dive Brewing payment ddb:pay-1; Stripe PI pi_1" },
           { Id: "2" },
           { PrivateNote: "no id — dropped" },
+          {
+            Id: "3",
+            PrivateNote: "Deep Dive Brewing payment ddb:pay-3",
+            DepositToAccountRef: { value: "55" },
+          },
         ],
       },
     });
@@ -273,8 +278,14 @@ describe("sales receipt correlation lookup", () => {
       {
         id: "1",
         privateNote: "Deep Dive Brewing payment ddb:pay-1; Stripe PI pi_1",
+        depositToAccountId: undefined,
       },
-      { id: "2", privateNote: undefined },
+      { id: "2", privateNote: undefined, depositToAccountId: undefined },
+      {
+        id: "3",
+        privateNote: "Deep Dive Brewing payment ddb:pay-3",
+        depositToAccountId: "55",
+      },
     ]);
     assert.deepStrictEqual(canonicalizeQboSalesReceiptRefs({}), []);
     assert.deepStrictEqual(canonicalizeQboSalesReceiptRefs(null), []);
