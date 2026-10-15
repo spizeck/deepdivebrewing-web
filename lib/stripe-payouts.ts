@@ -17,6 +17,7 @@ import {
   findQboUndepositedFundsAccount,
   queryQboInvoices,
   queryQboPayments,
+  queryQboPaymentsByRefNum,
   queryQboReconActivity,
 } from "@/lib/qbo-api";
 import {
@@ -40,6 +41,7 @@ import {
   buildPayoutLedger,
   buildPayoutProposals,
   ollieIdentityFromChargeFacts,
+  ollieRefsFromQboPayment,
   STRIPE_PAYOUT_LEDGER_TRIGGERS,
   STRIPE_PAYOUTS_COLLECTION,
   QBO_ACCOUNTING_PROPOSALS_COLLECTION,
@@ -108,6 +110,9 @@ const OLLIE_SCAN_LAG_DAYS = 7;
 // this many linked invoice ids per payout, in IN-clause chunks.
 const INVOICE_LOOKUP_MAX_IDS = 150;
 const INVOICE_ID_CHUNK = 50;
+// Targeted PaymentRefNum lookups for Spreedly-claimed references that
+// fell outside the date-windowed candidate scan — bounded per build.
+const SPREEDLY_LOOKUP_MAX = 5;
 
 // Cross-payout claim lookup: `in` queries cap at 30 values (Firestore).
 const CLAIMS_IN_CHUNK = 30;
@@ -357,7 +362,8 @@ async function enrichChargeSources(
 // guessed account.
 async function fetchOllieLeg(
   environment: QboEnvironment,
-  payout: StripePayoutFacts
+  payout: StripePayoutFacts,
+  claimedPaymentRefs: string[] = []
 ): Promise<{
   candidates: QboUndepositedPayment[];
   claimedByOthers: Set<string>;
@@ -417,6 +423,63 @@ async function fetchOllieLeg(
         memo: payment.memo,
         linkedTxnIds: payment.linkedTxnIds,
       }));
+
+    // Spreedly-claimed payment references that the window scan missed —
+    // a charge's metadata names the payment it believes it is, so a
+    // claim pointing outside the window is investigated with a targeted
+    // PaymentRefNum lookup instead of silently matching nothing. The
+    // same UF and claim filters apply; a claimed payment that has
+    // already been deposited elsewhere is not a candidate (its durable
+    // reconciliation evidence, if any, owns the relationship).
+    const hasRef = (payment: QboUndepositedPayment, ref: string) =>
+      ollieRefsFromQboPayment(payment).paymentNumbers.includes(ref);
+    const missing = claimedPaymentRefs
+      .filter(
+        (ref, i) =>
+          claimedPaymentRefs.indexOf(ref) === i &&
+          !candidates.some((payment) => hasRef(payment, ref))
+      )
+      .slice(0, SPREEDLY_LOOKUP_MAX);
+    for (const ref of missing) {
+      try {
+        const extra = await queryQboPaymentsByRefNum({
+          ...token,
+          environment,
+          refNum: ref,
+        });
+        for (const payment of extra) {
+          if (candidates.some((candidate) => candidate.id === payment.id)) {
+            continue;
+          }
+          if (
+            payment.depositToAccountId &&
+            payment.depositToAccountId !== uf.id
+          ) {
+            continue;
+          }
+          candidates.push({
+            id: payment.id,
+            txnDate: payment.txnDate,
+            totalMinor: payment.totalMinor,
+            depositToAccountId: payment.depositToAccountId,
+            currency: payment.currency,
+            customerId: payment.customerId,
+            customerName: payment.customerName,
+            refNumber: payment.refNumber,
+            memo: payment.memo,
+            linkedTxnIds: payment.linkedTxnIds,
+          });
+        }
+      } catch (error) {
+        // A failed lookup leaves the claim unresolved — the line falls
+        // back to normal suggested/ambiguous matching, review-required.
+        logWarn("stripe.payout.spreedly_lookup_failed", {
+          environment,
+          paymentRef: ref,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     // Resolve the DocNumber of every invoice the candidates link to —
     // the invoice number equals the Ollie order number, which is the
@@ -796,7 +859,16 @@ export async function processStripePayoutLedger(
   const { records: ddbRecords } = await loadDdbIdentityRecords(txns);
   const resolvedChargeFacts = await enrichChargeSources(txns, ddbRecords);
   const index = buildDdbPaymentIndex(ddbRecords);
-  const ollie = await fetchOllieLeg(environment, payout);
+  // Payment references the charges' Spreedly metadata claims — the QBO
+  // leg investigates any that the date-windowed scan missed.
+  const claimedPaymentRefs = [
+    ...new Set(
+      [...resolvedChargeFacts.values()]
+        .map((facts) => facts.ollieIdentity?.spreedly?.paymentRef)
+        .filter((ref): ref is string => Boolean(ref))
+    ),
+  ];
+  const ollie = await fetchOllieLeg(environment, payout, claimedPaymentRefs);
 
   // The stored proposal set is read once and serves two purposes: it is
   // the durable evidence the ledger build uses to keep already-reconciled

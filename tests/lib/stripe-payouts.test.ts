@@ -280,6 +280,9 @@ let reconActivity: FakeDoc[] = [];
 // of `null` simulates the same, and a thrown error simulates an outage.
 const qboPaymentsById = new Map<string, FakeDoc | null>();
 let qboPaymentFetchError: Error | null = null;
+// PaymentRefNum-targeted lookups for Spreedly-claimed references.
+const qboRefNumPayments = new Map<string, FakeDoc[]>();
+let qboRefNumError: Error | null = null;
 let ufAccount: { id: string; name: string } | null = {
   id: "uf-1",
   name: "Undeposited Funds",
@@ -304,6 +307,10 @@ mock.module("@/lib/qbo-api", {
       if (qboPaymentFetchError) throw qboPaymentFetchError;
       return qboPaymentsById.get(paymentId) ?? null;
     },
+    queryQboPaymentsByRefNum: async ({ refNum }: { refNum: string }) => {
+      if (qboRefNumError) throw qboRefNumError;
+      return qboRefNumPayments.get(refNum) ?? [];
+    },
     fetchQboAccountBalance: async () => null,
   },
 });
@@ -312,6 +319,9 @@ let stripePayout: FakeDoc | null = null;
 let payoutTxns: FakeDoc[] = [];
 let payoutTxnsTruncated = false;
 const chargeFacts = new Map<string, FakeDoc>();
+// Per-charge enrichment failures (Stripe read unavailable — the payout
+// build must degrade to reference-free matching, not fail).
+const chargeFactsErrors = new Set<string>();
 // Per-id payout facts for multi-payout sync tests — falls back to
 // `stripePayout` so the single-payout describes keep working.
 const payoutFactsById = new Map<string, FakeDoc | null>();
@@ -348,7 +358,12 @@ mock.module("@/lib/stripe-balance", {
       if (stripeListError) throw stripeListError;
       return { payouts: recentPayouts, truncated: recentTruncated };
     },
-    fetchStripeChargeFacts: async (id: string) => chargeFacts.get(id) ?? {},
+    fetchStripeChargeFacts: async (id: string) => {
+      if (chargeFactsErrors.has(id)) {
+        throw new Error(`charge read failed for ${id}`);
+      }
+      return chargeFacts.get(id) ?? {};
+    },
     fetchStripeRefundFacts: async () => ({}),
   },
 });
@@ -452,6 +467,7 @@ beforeEach(() => {
   applyOutcome = "applied";
   applyError = null;
   chargeFacts.clear();
+  chargeFactsErrors.clear();
   payoutFactsById.clear();
   payoutFetchErrors.clear();
   recentPayouts = [];
@@ -466,6 +482,8 @@ beforeEach(() => {
   qboInvoices = [{ id: "inv-1", docNumber: "00327" }];
   qboPaymentsById.clear();
   qboPaymentFetchError = null;
+  qboRefNumPayments.clear();
+  qboRefNumError = null;
   qboInvoiceError = null;
   reconActivity = [];
   ufAccount = { id: "uf-1", name: "Undeposited Funds" };
@@ -1113,6 +1131,225 @@ describe("processStripePayoutLedger", () => {
   });
 });
 
+describe("processStripePayoutLedger — Spreedly order identity", () => {
+  // October 7 production fixture — payout po_1UNivbC2zsUcVaNLp8xawP3R:
+  // an Ollie/Spreedly charge for $230.00 (metadata claims order 00326 /
+  // payment ref 1623638) plus a $5.00 DDB website charge. Four UF
+  // payments share the amount/date — only QBO Payment 1786 (Tropics
+  // Cafe, refNum 1623638, linked invoice 00326) corroborates the claim.
+  const PAYOUT_ID = "po_1UNivbC2zsUcVaNLp8xawP3R";
+  const TXN_ID = "txn_3UNHoNC2zsUcVaNLl3PhIrt9";
+  const CHARGE_ID = "ch_3UNHoNC2zsUcVaNL1iM9CMGQ";
+
+  function payment1786(overrides: FakeDoc = {}): FakeDoc {
+    return {
+      id: "1786",
+      txnDate: "2026-10-05",
+      totalMinor: 23000,
+      depositToAccountId: "uf-1",
+      currency: "USD",
+      customerName: "Tropics Cafe",
+      refNumber: "1623638",
+      linkedTxnIds: ["inv-326"],
+      ...overrides,
+    };
+  }
+
+  function seedOct7() {
+    stripePayout = {
+      id: PAYOUT_ID,
+      status: "paid",
+      amountMinor: 22413,
+      currency: "USD",
+      arrivalDate: "2026-10-07",
+      createdMs: Date.parse("2026-10-06T00:00:00.000Z"),
+    };
+    payoutTxns = [
+      {
+        txnId: TXN_ID,
+        type: "charge",
+        grossMinor: 23000,
+        feeMinor: 1042,
+        netMinor: 21958,
+        currency: "USD",
+        sourceId: CHARGE_ID,
+        // Pre-cutover → historical, manual-only.
+        createdMs: Date.parse("2026-10-05T00:00:00.000Z"),
+      },
+      {
+        txnId: "txn_ddb",
+        type: "charge",
+        grossMinor: 500,
+        feeMinor: 45,
+        netMinor: 455,
+        currency: "USD",
+        sourceId: "ch_ddb",
+        createdMs: Date.parse("2026-10-05T00:00:00.000Z"),
+      },
+    ];
+    cutover = "2026-10-09";
+    collectionStore("payments").set("pay_ddb", {
+      stripeChargeId: "ch_ddb",
+    });
+    chargeFacts.set(CHARGE_ID, {
+      metadata: { connect_agent: "Spreedly", order_id: "00326-1623638" },
+    });
+    // Four same-amount UF payments — only 1786 carries both identifiers.
+    const lookalike = (id: string, ref: string): FakeDoc => ({
+      id,
+      txnDate: "2026-10-05",
+      totalMinor: 23000,
+      depositToAccountId: "uf-1",
+      currency: "USD",
+      customerName: "Other Customer",
+      refNumber: ref,
+      linkedTxnIds: [`inv-${id}`],
+    });
+    qboPayments = [
+      lookalike("1801", "9000001"),
+      lookalike("1802", "9000002"),
+      lookalike("1803", "9000003"),
+      payment1786(),
+    ];
+    qboInvoices = [
+      { id: "inv-326", docNumber: "00326" },
+      { id: "inv-1801", docNumber: "00901" },
+      { id: "inv-1802", docNumber: "00902" },
+      { id: "inv-1803", docNumber: "00903" },
+    ];
+  }
+
+  it("verifies QBO Payment 1786 out of four same-amount candidates", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct7();
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const lines = doc.lines as FakeDoc[];
+    const ollie = lines.find((l) => l.txnId === TXN_ID)!;
+    const ddb = lines.find((l) => l.txnId === "txn_ddb")!;
+
+    // The previously ambiguous charge is now a verified Ollie match on
+    // the corroborated QBO internal id.
+    assert.equal(ollie.lane, "ollie");
+    assert.equal(ollie.confidence, "verified");
+    assert.equal(ollie.qboPaymentId, "1786");
+    assert.equal(ollie.reconciled, undefined);
+    assert.ok(
+      !(doc.exceptions as FakeDoc[]).some(
+        (e) => e.ref === TXN_ID && e.code === "ambiguous_match"
+      )
+    );
+    // The DDB website charge is unaffected by Ollie metadata.
+    assert.equal(ddb.lane, "ddb");
+
+    // A historical, manual-only move proposal references the internal
+    // payment id — never the human-readable reference alone.
+    const { qboProposalIdFor } = await import(
+      "@/lib/stripe-payouts-common"
+    );
+    const moveId = qboProposalIdFor(
+      "sandbox",
+      PAYOUT_ID,
+      "move_payment_to_clearing",
+      "1786"
+    );
+    const move = collectionStore("qboAccountingProposals").get(moveId)!;
+    assert.equal(move.kind, "move_payment_to_clearing");
+    assert.equal(move.status, "proposed");
+    assert.equal(move.historical, true);
+    assert.notEqual(move.autoEligible, true);
+    assert.equal(move.amountMinor, 23000);
+    assert.equal(
+      (move.qboRefs as { paymentId: string }).paymentId,
+      "1786"
+    );
+    assert.equal(
+      (move.debit as { accountId: string }).accountId,
+      "34"
+    );
+    assert.equal(
+      (move.credit as { accountId: string }).accountId,
+      "uf-1"
+    );
+
+    // Fee + transfer aggregates still cover the whole payout.
+    const kinds = [
+      ...collectionStore("qboAccountingProposals").values(),
+    ].map((p) => p.kind);
+    assert.ok(kinds.includes("stripe_fee_expense"));
+    assert.ok(kinds.includes("payout_transfer"));
+  });
+
+  it("rescues a claimed payment the date-window scan missed", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct7();
+    // Payment 1786 predates the payout's UF scan window — the targeted
+    // PaymentRefNum lookup finds it anyway.
+    qboPayments = qboPayments.filter((p) => p.id !== "1786");
+    qboRefNumPayments.set("1623638", [payment1786()]);
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.confidence, "verified");
+    assert.equal(line.qboPaymentId, "1786");
+  });
+
+  it("refuses a claimed payment that is not in Undeposited Funds", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct7();
+    qboPayments = qboPayments.filter((p) => p.id !== "1786");
+    // The lookup finds the payment — but it already deposits to a bank
+    // account, so it is not a reclassification candidate. The claim
+    // cannot be honored; the charge stays review-required.
+    qboRefNumPayments.set("1623638", [
+      payment1786({ depositToAccountId: "77" }),
+    ]);
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    assert.notEqual(line.qboPaymentId, "1786");
+    assert.equal(line.lane, "external");
+    assert.equal(line.confidence, "ambiguous");
+    const moves = [
+      ...collectionStore("qboAccountingProposals").values(),
+    ].filter((p) => p.kind === "move_payment_to_clearing");
+    assert.equal(moves.length, 0);
+  });
+
+  it("degrades to ambiguous when the Stripe charge read fails", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct7();
+    chargeFactsErrors.add(CHARGE_ID);
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    // No identity evidence → four same-amount candidates stay ambiguous.
+    assert.equal(line.lane, "external");
+    assert.equal(line.confidence, "ambiguous");
+    const moves = [
+      ...collectionStore("qboAccountingProposals").values(),
+    ].filter((p) => p.kind === "move_payment_to_clearing");
+    assert.equal(moves.length, 0);
+  });
+
+  it("still verifies through the fallback when Spreedly refs are absent", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct7();
+    // Charge carries only the legacy labeled description.
+    chargeFacts.set(CHARGE_ID, {
+      description: "Ollie Order #00326",
+    });
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    // Order↔invoice identity hit disambiguates exactly as before.
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.confidence, "verified");
+    assert.equal(line.qboPaymentId, "1786");
+  });
+});
+
 describe("processStripePayoutLedger — reconciled payment identity", () => {
   // Production regression fixture — payout po_1UPu2kC2zsUcVaNLpowu61JK
   // (2026-10-13, net $285.18): charge txn_3UOHlrC2zsUcVaNLOvs5Nk81 was
@@ -1402,6 +1639,29 @@ describe("processStripePayoutLedger — reconciled payment identity", () => {
     for (const p of collectionStore("qboAccountingProposals").values()) {
       assert.notEqual(p.autoEligible, true);
     }
+  });
+
+  it("durable reconciliation wins over fresh Spreedly metadata", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    seedOct13();
+    await seedAppliedMove();
+    // The charge now also carries the Spreedly claim — the applied
+    // proposal still owns the relationship; nothing re-matches and no
+    // second move is proposed.
+    chargeFacts.set("ch_sea_saba", {
+      metadata: { connect_agent: "Spreedly", order_id: "00327-1626166" },
+    });
+    qboPaymentsById.set(PAYMENT_ID, qbo1795());
+    await processStripePayoutLedger(PAYOUT_ID);
+    const doc = collectionStore("stripePayouts").get(PAYOUT_ID)!;
+    const line = (doc.lines as FakeDoc[]).find((l) => l.txnId === TXN_ID)!;
+    assert.equal(line.lane, "ollie");
+    assert.equal(line.confidence, "suggested"); // original tier preserved
+    assert.equal(line.reconciled, "applied");
+    assert.equal(line.qboPaymentId, PAYMENT_ID);
+    const moves = moveProposals();
+    assert.equal(moves.length, 1);
+    assert.equal(moves[0].status, "applied");
   });
 });
 
