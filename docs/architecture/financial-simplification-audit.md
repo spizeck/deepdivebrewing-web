@@ -6,6 +6,17 @@ reconciliation automation, and the surrounding operational machinery.
 **Status:** investigation only — no accounting behavior changes are proposed
 for immediate implementation; each item lists its own gate.
 
+> **Revision (2026-10-19 follow-up):** the owner has clarified that
+> **automatic payout accounting is a mandatory business requirement** —
+> manual monthly journal entries are explicitly rejected. The original
+> audit's "retire the dormant execution layer / human posts in QBO"
+> recommendation is therefore **rescinded**. Sections 6–9 are revised to a
+> **commissioning plan**: keep and prove the existing proposal/executor
+> machinery, simplify only what weakens nothing, and activate through a
+> controlled pilot. The factual findings (§§1–5) are unchanged — the code
+> and its dormancy claims are still accurate; what changed is the verdict
+> about what to do with it.
+
 ## Executive summary
 
 The codebase carries **~15,400 lines of financial `lib/` modules, ~1,100
@@ -34,16 +45,20 @@ overbuild: at brewery volume (order of a few payouts and a few dozen
 charges per month), the proposed entries are a checklist a human can post
 in QuickBooks in minutes.
 
-**Recommended direction:** keep the observe-mode ledger as the permanent
-discrepancy-detection surface, keep proposals as a computed worklist, and
-**retire the dormant execution layer** (decisions, executor, apply route,
-`automatic` mode, cutover/historical machinery) rather than continue
-maintaining an un-armed write path that a single env var can switch from
-"report" to "unattended QuickBooks writer." Independently, ask the
-accountant whether Ollie payments even need reclassification — leaving them
-in Undeposited Funds and matching the payout in the QBO bank feed is the
-native mechanism for exactly this, and removes the business need behind the
-most complex matching code in the repo.
+**Recommended direction (revised): commission the existing automation.**
+The desired steady state is: Stripe settles → payout ledger classifies →
+verified proposals post to QBO unattended → the owner is interrupted only
+for genuine exceptions. The execution layer the original audit proposed
+deleting is now the asset: its safety model (fingerprint-bound approvals,
+claim leases, apply-time revalidation, marker adoption, `uncertain`
+states) is *the* thing that makes unattended posting defensible. The
+correct move is to **validate and activate it through a controlled pilot**,
+not to remove it. What can still be simplified: the dead QBO webhook path
+(F6), the duplicated recon pipeline (F5), and any orchestration that does
+not protect the automatic write path. Independently, the accountant must
+approve the clearing-account convention the executor implements
+(reclassifying Ollie payments out of Undeposited Funds) — that is an
+accounting-policy decision, not a code decision.
 
 ---
 
@@ -219,6 +234,13 @@ flags. Persisted snapshot `qboReconState/{env}`.
 
 ### Overbuilt / disproportional (the audit's core findings)
 
+> **Revision:** under the mandatory-automation requirement, F1–F4 remain
+> accurate *descriptions* — but the verdict flips from "remove" to
+> **"commission and validate"**. The execution layer is the deliverable,
+> not the overbuild; what was disproportionate is that it was built to an
+> unattended-execution standard and never activated. F5–F6 still identify
+> genuine removable/mergeable code.
+
 **F1. The proposal execution layer is a dormant write path.**
 `stripe-payout-decisions.ts` (fingerprint-bound approve/reject,
 `expectedFingerprint` conflict semantics, `confirmQboPaymentId`),
@@ -332,25 +354,39 @@ verified-tier matching from *execution prerequisite* to *reporting aid*.
 This is a modeling decision for the accountant — both models are correct;
 the UF-native one needs less machinery.
 
-## 6. Recommended minimum viable architecture
+## 6. Recommended minimum viable architecture — REVISED (automated)
 
 ```
 Stripe Checkout → payments record → webhook settle → Sales Receipt
-(gross → clearing)                       [KEEP — the only auto-write]
+(gross → clearing)                                    [KEEP — auto-write 1]
 Cash payment        → same record → Sales Receipt (→ cash acct)   [KEEP]
 Ollie → QBO invoices+payments (UF)  — Ollie's own integration     [KEEP, untouched]
-Payout webhook → ledger + classification + exception flags        [KEEP as report]
-Monthly close (human, ~15 min):  per payout, post JE (fees, actual)
-   + transfer clearing→bank / bank-feed match UF payments         [MANUAL, native]
-Recon: single report (consolidated ledger view + clearing diff)   [SIMPLIFY to one]
-Refunds: document manual RefundReceipt procedure; #180 optional   [DEFER or minimal]
+Payout webhook → ledger + classification + proposals              [KEEP]
+  ├─ move_payment_to_clearing (verified Ollie matches → auto)     [COMMISSION]
+  ├─ stripe_fee_expense JE (actual fees; auto when fully          [COMMISSION]
+  │   identified) — otherwise manual approval
+  ├─ payout_transfer clearing→bank (auto when fully identified)   [COMMISSION]
+  └─ exceptions → admin attention queue (ambiguous, unmatched,    [KEEP]
+      refunds, foreign currency, unposted receipts)
+Cron sweep: missed-enqueue + due records + payout re-scan +
+  pendingAutoApply retry                                          [KEEP]
+Recon report → fold unique value (clearing-balance diff) into the
+  payout view or keep as the monthly-close check                  [SIMPLIFY later]
+Refunds: ledger surfaces them as exceptions; posting stays manual
+  until #180                                                      [DEFER posting]
 ```
 
-In this architecture QuickBooks stays the system of record for money
-movement and the app's job narrows to three things: **(1)** book the one
-leg nobody else books (DDB gross receipts), **(2)** surface what a payout
-contains and flag what doesn't reconcile, **(3)** never block a sale on
-any of it.
+The automation boundary, as implemented, is already the right one:
+**automatic** = every charge-side movement in the payout positively
+identified (DDB `confirmed` or `verified` Ollie), ledger complete and
+balanced, eligible scope only. **Exception** = suggested-only matches,
+ambiguous/unmatched lines, refunds, foreign currency, account-level
+movements — proposals stay manual and a human approves each in the admin
+panel. Unattended execution never happens on a partially-understood
+payout.
+
+The activation sequence and its gates live in the revised §8 and the
+payout-automation ops doc.
 
 ## 7. Keep / Simplify / Replace / Remove / Defer matrix
 
@@ -363,101 +399,118 @@ any of it.
 | Sync queue + worker + backoff + marker adoption | **KEEP** | Prevents lost/duplicate receipts; right pattern |
 | Daily sweep cron | **KEEP** | Bounded recovery, near-zero cost |
 | Sync admin panel (counts, retry) | **KEEP** | The one ops surface that matters |
-| Payout ingestion + ledger + lane classification (observe) | **KEEP (as report)** | Discrepancy visibility: `ddb_receipt_unposted`, unclassified/external flags, exceptions list |
-| Computed proposals (3 kinds, rendered in admin) | **SIMPLIFY** | Keep as *computed-at-render checklist* — drop persistence of the proposal state machine (fingerprints/stale/revival) if no decision machinery remains |
-| `suggested`-tier Ollie matching (amount+date+UF) | **SIMPLIFY** | Sufficient for a human worklist |
-| `verified` tier: Spreedly two-leg, DocNumber resolution, name-demotion rules | **SIMPLIFY/DEFER** | Only feeds `autoEligible`/apply-time identity — dormant; demote to evidence annotation, not a gate |
-| Fingerprint-bound decisions (`stripe-payout-decisions.ts`, proposals route) | **REMOVE** | Exists only to arm execution; never used in prod |
-| Guarded executor (`stripe-payout-executor.ts`, apply route) | **REMOVE** | Dormant write path; highest-risk dead code. Correctness is preserved by human execution in QBO |
-| `automatic` mode + `autoEligible` + `pendingAutoApply` | **REMOVE** | Speculative unattended bookkeeping; mode flag alone is a risk surface |
-| Cutover/historical proposal machinery | **REMOVE** | One-time migration tooling; manual historical handling suffices |
-| `STRIPE_ACCOUNTING_MODE` / `STRIPE_AUTOMATION_CUTOVER` env surface | **REMOVE** | Collapses with the execution layer |
-| Windowed recon report (`qbo-recon*`) | **SIMPLIFY/MERGE** | Consolidate into the payout-ledger view; keep only clearing-balance diff + fee-booked inspection that the ledger lacks |
-| QBO webhook + receipts collection | **REMOVE** | No consumer; unsubscribing at Intuit + deleting the route/storage removes ~400 lines. (Keep endpoint-removed docs note.) |
-| Refund posting (RefundReceipt) — #180 | **DEFER** | Manual documented procedure acceptable at this volume; if built, keep minimal (enqueue on `refunded` → mirrored RefundReceipt — pipeline exists) |
-| Fee posting (`stripe_fee` dormant vocabulary) | **DEFER** | Monthly accountant JE from Stripe payout report = zero code; revisit only if volume grows |
+| Payout ingestion + ledger + lane classification | **KEEP** | Discrepancy visibility + the evidence base automatic posting stands on |
+| Computed proposals (3 kinds, deterministic ids, persisted) | **KEEP** | The review artifact AND the executor's unit of work; persistence makes decisions auditable and rebuilds idempotent |
+| `suggested`-tier Ollie matching | **KEEP** | The manual-review tier — feeds proposals a human confirms |
+| `verified` tier: Spreedly two-leg, DocNumber resolution, name-demotion rules | **KEEP** | Now load-bearing: it is the ONLY identity evidence that qualifies a move for unattended execution |
+| Fingerprint-bound decisions (`stripe-payout-decisions.ts`, proposals route) | **KEEP** | Required for the manual exception path *and* the approval-mode pilot that precedes automatic |
+| Guarded executor (`stripe-payout-executor.ts`, apply route) | **KEEP + VALIDATE** | The automatic write path itself; needs controlled pilot evidence before `automatic`, not removal |
+| `automatic` mode + `autoEligible` + `pendingAutoApply` | **KEEP + COMMISSION** | The business goal. `autoEligible`'s gating (fully-identified, balanced, in-scope) is appropriately conservative — see validation |
+| Cutover/historical proposal machinery | **KEEP (for now)** | Required by the executor's own gate (no cutover → execution refuses) and by backlog handling at activation. Revisit *after* the pre-automation backlog is cleared — it is a candidate for removal once history is settled |
+| `STRIPE_ACCOUNTING_MODE` / `STRIPE_AUTOMATION_CUTOVER` env surface | **KEEP** | The activation gate — deliberately retained as the safety switch |
+| Windowed recon report (`qbo-recon*`) | **SIMPLIFY/MERGE (defer)** | Keep as the period-close check during early automation; consolidation into the payout view is a *later* cleanup, not an activation gate |
+| QBO webhook + receipts collection | **REMOVE** | No consumer; unsubscribing at Intuit + deleting the route/storage removes ~400 lines |
+| Refund posting (RefundReceipt) — #180 | **DEFER** | Refunds surface as ledger exceptions today; manual procedure acceptable at this volume |
 | Tax posting config — #184 | **DEFER (accountant gate)** | Mechanism ready; activation pending answers |
 | Chargeback/dispute posting | **DEFER** | Classification+exception visibility already exists; posting manual |
-| Stripe-account separation for Ollie vs web | **REPLACE (business change, not code)** | If Ollie can settle to a dedicated Stripe account (or Ollie's QBO integration can target the clearing account), the mixed-source problem — the root cause of most custom complexity — disappears, and even native connectors become viable |
+| Stripe-account separation for Ollie vs web | **REPLACE (business change, not code)** | If Ollie can settle to a dedicated Stripe account, the mixed-source problem disappears and the matching machinery becomes a much simpler DDB-only reconciliation |
 
-## 8. Prioritized remediation sequence
+## 8. Prioritized sequence — REVISED (commission, then simplify)
 
-Ranked by **maintenance savings ÷ financial risk**:
+Ordered by what must happen before `automatic` can be trusted, then by
+maintenance savings:
 
-**P0 — freeze the execution layer (docs/policy, near-zero risk)**
-Set `STRIPE_ACCOUNTING_MODE` absent/`observe` permanently; document that
-`approval`/`automatic` are retired vocabulary. Cost: trivial. This is the
-default already — formalize it.
+**C0 — validation groundwork (no production behavior change)** — done on
+the commissioning branch: representative-scenario tests through the
+ledger→proposal pipeline; focused fixes for gaps found during review
+(e.g. manual-cover suppression now surfaces an `existing_manual_entry`
+exception instead of skipping silently); removal of the dead QBO webhook
+path.
 
-**P1 — remove the dormant write path (~4–6k lines incl. tests/UI)** — S
-Delete `stripe-payout-decisions.ts`, `stripe-payout-executor.ts`, the
-proposals/apply/decision routes, `automatic`/`autoEligible`/`pendingAutoApply`
-branches, cutover/historical proposal variants, and the decision/apply UI
-blocks in `admin-quickbooks-payouts.tsx`. Keep proposal *computation* as a
-read-only checklist on the payout card. Effort: medium (surgical deletion +
-test pruning). Risk: low — path is unused; all safeguards (sales-receipt
-dedupe, sync queue, ledger) unaffected. Rollback: git revert.
+**C1 — accounting decisions (owner + accountant, no code)**
+Approve: the Stripe-clearing convention for Ollie payments
+(`move_payment_to_clearing` reclassifies Ollie's UF payments — the
+alternative UF-native model is a different proposal kind that does not
+exist today), the payout-account mapping (bank vs Payouts in Transit —
+`stripePayoutAccountId`), the fee expense account, and the tax position
+(#184). Without the clearing-convention sign-off, `verified` moves must
+stay manual.
 
-**P2 — demote matching tiers (~300–500 lines)** — M
-Keep `suggested`/`ambiguous`/`unmatched` display; reduce `verified` to an
-evidence label (keep identifier extraction as *displayed evidence*, drop
-it as an execution gate — including the executor-specific claim pools and
-two-leg promotion if P1 lands). Risk: low; reporting-only. Rollback: revert.
+**C2 — configuration + pilot under `approval` mode**
+Complete the account mapping (clearing / fee / payout destination), set
+`STRIPE_AUTOMATION_CUTOVER` to a date after which all payouts are known
+clean, set `STRIPE_ACCOUNTING_MODE=approval`. Then: run the manual payout
+sync for a few recent real payouts; review each computed proposal in the
+admin panel; approve and apply the ones that are correct; verify the
+resulting QBO entries by hand (move → JE → transfer). This is the only
+way to gain real-world evidence the executor posts correctly — it has
+**never** written to a live or sandbox company.
 
-**P3 — consolidate reconciliation surfaces** — M
-Fold the windowed recon report's unique value (clearing-balance diff,
-existing-entries inspection) into the payout-ledger admin view; retire
-`qbo-recon*` (~1,650 lines) or reduce it to a "balances" card. Risk: low —
-read-only. Rollback: revert.
+**C3 — settle the backlog, then enable `automatic`**
+Once the approval-mode pilot shows the three writes landing correctly and
+the pre-cutover historical proposals are resolved (approve-and-apply or
+reject), set `STRIPE_ACCOUNTING_MODE=automatic`. First payouts under
+automatic: check the QBO entries against the payout ledger after each one
+for the first few weeks; the exceptions list + `pendingAutoApply` retries
+cover transient failures.
 
-**P4 — remove QBO webhook receipts** — S
-Unsubscribe in the Intuit portal, delete route + `lib/qbo-webhook.ts` +
-`qboWebhookReceipts` rules/tests. Confirm no future plan needs them.
-Risk: trivial. Rollback: revert + re-subscribe.
+**S1 — remove QBO webhook receipts** — S (done on the commissioning
+branch): dead-end write-only storage, ~400 lines removed.
 
-**P5 — bookkeeping-procedure documentation** — S
-Write the ops doc for the manual monthly close: where fee totals come
-from (Stripe payout report or proposal card), the two-leg payout match
-(clearing transfer + UF match), refund reversal procedure (card + cash).
-This is what makes "human executes" the designed path rather than tribal
-knowledge.
+**S2 — consolidate the recon report** — M (deferred, post-activation):
+fold clearing-balance diff into the payout view; retire or shrink
+`qbo-recon*` (~1,650 lines). Not an activation gate.
 
-**Deferred items** keep their issues open: #180 (refund posting — decide
-manual-forever vs minimal implementation), #184 (tax — accountant gate),
-fee posting (monthly JE recommended), `automatic` payout execution
-(revisit only if monthly payout count grows ≥10×).
+**S3 — retire cutover/historical machinery** — S (deferred): once every
+pre-automation payout is reconciled and no `historical` proposals remain,
+the historical variants and `-HIST` marker namespace can be deleted.
 
-## 9. Estimated reduction
+## 9. Estimated reduction — REVISED
 
-| Change | Lines removed (approx.) | Notes |
+| Change | Lines affected (approx.) | Notes |
 | --- | --- | --- |
-| P1 execution layer | ~4,000–6,000 (impl + routes + UI + tests) | biggest single win; also removes the only money-mutating surface beyond receipts |
-| P2 matching demotion | ~300–600 | shrinks the hardest-to-review logic |
-| P3 recon merge | ~1,200–1,650 | one reconciliation pipeline instead of two |
-| P4 webhook receipts | ~400 | dead-end storage |
-| **Total** | **~6,000–8,500 (~20–25% of the financial subsystem)** | plus retirement of the `approval`/`automatic` risk surface |
+| S1 QBO webhook receipts | ~400 removed | dead-end storage |
+| S2 recon consolidation (later) | ~1,200–1,650 removed | one reconciliation surface |
+| S3 cutover/historical retirement (after backlog settles) | ~several hundred | inside `stripe-payouts*.ts` |
+| C0 commissioning fixes/tests | +small net | scenario tests add lines; the fixes prevent silent gaps |
+| **Realistic total reduction** | **~1,600–2,500 (now), ~2,000–3,000 (after backlog)** | vs the ~6–8.5k the manual model would have freed |
 
-Ongoing-maintenance effect: Stripe/QBO API changes, security reviews, and
-payout-flow edits stop having to keep a dormant write path consistent;
-the remaining surface is reads + one bounded write.
+The honest trade-off: automation keeps ~3–4k more lines than the manual
+model would have, but those lines *earn their keep* — they are the
+difference between "posting unattended" and "owner does monthly
+bookkeeping," which is the stated goal. The right maintenance metric
+under automation is not lines but **proven execution**: an executor that
+has posted correctly for weeks is cheaper to keep than a dormant one was
+to delete.
 
-## 10. Financial-correctness safeguards the simplification must preserve
+## 10. Financial-correctness safeguards — REVISED (what automation relies on)
 
 - Sales-Receipt dedupe (`env:source:sourceId` durable record + `ddb:`
   marker adoption) — untouched.
-- Positive DDB identity for posting — only `payments/` records post; the
-  Ollie lane is *never* written by us (after P1 there is no write that
-  could touch it at all).
+- Positive DDB identity for posting; Ollie lane writes go only through
+  `move_payment_to_clearing` on `verified` identity — `suggested` tier
+  never executes unattended.
 - Webhook signature verification, canonical re-fetch, snapshot
   quarantine — untouched.
-- `needs_attention` human-review path — untouched.
-- Ledger/exceptions continue to flag: unposted DDB receipts, ambiguous
-  matches, foreign currency, unattributed movements, clearing drift.
-- Audit trail (`payments/events`, admin audit log, proposal history as
-  computed output) preserved.
-- Nothing auto-posts: every QBO mutation beyond the Sales Receipt
-  requires a human in QBO — which is *strictly more conservative* than
-  the armed modes ever were.
+- `needs_attention` / proposal-exception human-review paths — untouched
+  and load-bearing: they are the exception surface automatic mode routes
+  around, not through.
+- Automatic-path hard gates, all enforced in code and unit-tested:
+  `autoEligible` requires a complete, balanced, single-currency,
+  fully-identified eligible ledger; `move` auto-eligibility requires
+  `verified` identity; aggregate writes require synced DDB receipts
+  (`ddb_gross_unposted`); approvals bind to a material fingerprint;
+  claims are leased; writes are revalidated at apply time; unknown write
+  outcomes park as `uncertain` and reconcile by marker before retrying;
+  pre-cutover dates and `historical` proposals refuse unattended
+  execution.
+- Audit trail (`payments/events`, proposal `decisions[]`/`auditTrail`,
+  admin audit log) preserved — every automated action is recorded with
+  actor `automation`.
+- Mode semantics: `observe` refuses every write; `approval` requires a
+  human decision; `automatic` self-approves only `autoEligible`
+  proposals. The mode flag is the kill switch — set it back to `observe`
+  and the executor refuses everything instantly.
 
 ## 11. Where "simpler" would introduce accounting errors (explicit)
 
@@ -469,33 +522,49 @@ the remaining surface is reads + one bounded write.
   Ollie wholesale revenue. Explicitly rejected unless the Stripe account
   is split.
 - **Auto-matching Ollie payments by amount/date alone for *writes*** →
-  wrong-payment reclassification. Mitigated in the recommendation by
-  removing writes entirely; suggestions stay review-grade forever.
+  wrong-payment reclassification. The implemented model agrees: only
+  `verified` (identifier-corroborated) matches are `autoEligible`;
+  `suggested` stays review-grade forever.
+- **Removing the fingerprint/lease/uncertain machinery from the
+  executor** → a write path that can't prove what it approved, can't
+  exclude concurrent writers, and can't distinguish "posted" from
+  "maybe posted." Those controls are the reason automation is defensible.
 - **Posting net instead of gross** (or letting a connector do summarized
   entries) → loses per-purpose income detail (tours vs tastings) the
   business reports on.
 - **Estimating fees** → wrong expense; actuals come from balance
   transactions/payout report only.
+- **Aggregates posting before DDB receipts** → clearing outflows with no
+  proven inflow; the `ddb_gross_unposted` refusal exists for exactly this.
 
-## 12. Decisions requiring owner / accountant input
+## 12. Decisions requiring owner / accountant input — REVISED
 
-1. **Shared Stripe account**: can Ollie's Spreedly gateway point at a
-   separate/dedicated Stripe account for web payments? (Highest-leverage
-   question — eliminates mixed-source payouts entirely.)
-2. **Ollie lane model**: reclassify Ollie payments to clearing (current
-   design) vs. leave in UF and two-leg match (native)? Also: can Ollie's
-   QBO integration target the clearing account at write time?
-3. **Execution model**: app-executed proposals (approval mode) vs.
-   proposals-as-checklist + human posts in QBO (recommended).
-4. **Fee booking**: per-payout JE vs monthly summary JE (recommend
-   monthly, from the Stripe report).
-5. **Payout destination**: `Stripe Balance` clearing semantics vs bank —
-   accountant's call already encoded as `stripePayoutAccountId`.
-6. **Refund gap (#180)**: manual procedure acceptable, or build minimal
+1. **Clearing convention for Ollie payments** (activation blocker): the
+   executor reclassifies Ollie's UF payments into the Stripe clearing
+   account so one transfer settles each payout. Approve this convention,
+   or say UF-native is required — the latter is a *different proposal
+   kind that does not exist* and would be new build. Related: can Ollie's
+   QBO integration target clearing at write time? If yes, move proposals
+   become unnecessary entirely.
+2. **Payout destination** (`stripePayoutAccountId`): the bank account
+   Stripe settles into, or a "Payouts in Transit" clearing account —
+   accountant's call; the mapping supports either.
+3. **Fee expense account** (`stripeFeeExpenseAccountId`): which QBO
+   expense account carries Stripe fees.
+4. **Cutover date**: the first date after which all payouts are clean for
+   automation — everything earlier posts only through the manual
+   historical path.
+5. **Refund gap (#180)**: refunds surface as exceptions; posting a
+   reversal stays manual. Acceptable at this volume, or build the
    RefundReceipt sync?
-7. **Tax (#184)** — unchanged; still awaiting the accountant's answers.
-8. **QBO webhook receipts**: safe to remove? (No consumer today; confirm
-   no planned use.)
+6. **Tax (#184)** — unchanged; still awaiting the accountant's answers.
+   (Not an activation blocker for payout posting itself — it gates
+   receipt tax treatment, a separate decision.)
+7. **Shared Stripe account** — still the highest-leverage simplification:
+   a dedicated DDB Stripe account would make the mixed-source matching
+   machinery unnecessary. Worth asking Ollie, but not blocking.
+8. **QBO webhook receipts**: removed in the commissioning branch; if the
+   Intuit app still has a webhook subscription, unsubscribe it there.
 
 ---
 
@@ -506,4 +575,6 @@ writes, no production mutations, no accounting changes. Verified against:
 `docs/TECHNICAL.md` §11, `lib/qbo-*.ts`, `lib/stripe-*.ts`,
 `lib/payments-*.ts`, `app/api/admin/quickbooks/*`, `app/api/webhooks/*`,
 `vercel.json`, `firestore.rules`, and git history (#161, #178–#184, #206,
-#223–#239).*
+#223–#239). Revised 2026-10-19 to reflect the owner's mandatory-automation
+requirement: §§6–12 now describe commissioning the existing executor
+rather than retiring it.*
