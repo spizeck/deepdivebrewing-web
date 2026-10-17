@@ -54,7 +54,74 @@ happens on a partially-understood payout.
 - [ ] QBO connection healthy (Test connection), no `needs_attention`
   sync records outstanding.
 
-## 2. Pilot — `approval` mode
+## 2. Sandbox pilot — prove the provider boundary first
+
+Before touching production, exercise the executor against a **QBO sandbox
+company** with **Stripe test mode** payouts. This is the missing evidence:
+the executor has only ever run against mocked provider calls.
+
+### Environment
+
+Use a **Vercel preview deployment** (or `next dev`) — never the
+production deployment. Set on the preview environment:
+
+- `QBO_ENVIRONMENT=sandbox` plus the Intuit app's **development** keys
+  (`QBO_CLIENT_ID` / `QBO_CLIENT_SECRET` — development keys can only ever
+  talk to sandbox companies, which is itself a safety property),
+  `QBO_TOKEN_ENCRYPTION_KEY` (any fresh 32-byte key), and
+  `QBO_REDIRECT_URI=https://<preview-host>/api/admin/quickbooks/callback`
+  — register that exact URL in the Intuit app first.
+- Stripe **test** keys (`sk_test_…`). A registered test webhook is
+  optional — **Sync recent payouts** covers ingestion.
+- `STRIPE_ACCOUNTING_MODE=approval`,
+  `STRIPE_AUTOMATION_CUTOVER=<a date before today>`.
+
+Sharing the production Firebase project is safe *except for one caveat*:
+connection docs are per-environment (`qboConnections/sandbox`), sync
+records are `sandbox:*`-namespaced, and test payments carry
+`livemode:false` — **but** the accounting-mapping document is a single
+slot bound to environment + realmId, so saving the sandbox mapping
+invalidates the production one until it is re-saved. That fails closed
+(production is in `observe`, so a missing mapping only *blocks*
+proposals) — still, either re-enter the production mapping when the
+pilot ends or run the preview against a separate Firebase project.
+
+### Fixture recipe
+
+- **Ollie lane (`verified`):** in the sandbox company create a Customer
+  → Invoice whose DocNumber carries `Order <orderNum>` (e.g.
+  `Ollie Order 91001`) → receive a Payment with
+  `PaymentRefNum=<paymentNum>` (e.g. `55007`), deposited to
+  **Undeposited Funds**. In Stripe test mode, create a PaymentIntent for
+  the same amount with metadata `connect_agent=Spreedly`,
+  `order_id=<orderNum>-<paymentNum>` — both legs of the composite must
+  corroborate the same QBO payment for `verified`.
+- **DDB lane (optional for a first pilot):** run a real checkout through
+  the preview's payments tool — it produces a `livemode:false` payment
+  record and a Sales Receipt in the sandbox company via the normal sync.
+- **Payout:** once the test charges settle into test balance, create the
+  payout (`stripe payouts create --amount <net> --currency usd`) or wait
+  for the scheduled test payout; test payouts can take ~a business day to
+  reach `paid`. Then **Sync recent payouts** on the preview admin.
+
+### What to verify
+
+1. The ledger classifies the fixture charge as Ollie `verified`; the
+   move + fee JE + transfer proposals are `autoEligible`.
+2. Approve + apply; in the **sandbox** company confirm: the Payment's
+   `DepositToAccountRef` is now the clearing account, the JournalEntry
+   carries actual fees and the `DDB-PAYOUT-FEE:po_…` marker, the
+   Transfer carries `DDB-PAYOUT-TRANSFER:po_…`.
+3. Re-run **Sync recent payouts** — proposals are unchanged
+   (deterministic ids) and nothing double-posts.
+4. A charge with no metadata and no matching QBO payment lands as
+   `unmatched` — proposals stay manual, exception listed.
+5. `uncertain` outcomes are unit-tested (executor tests) but can't be
+   forced without fault injection — watch the logs for
+   `stripe.payout.apply_*` events instead; that gap is acceptable for
+   the pilot.
+
+## 3. Production pilot — `approval` mode
 
 1. Set `STRIPE_ACCOUNTING_MODE=approval` (Vercel env, redeploy).
 2. In the payout panel, run **Sync recent payouts** to ingest the last
@@ -71,11 +138,11 @@ happens on a partially-understood payout.
 6. Repeat until the three write kinds have each landed correctly at
    least once on real data.
 
-**Do not skip to automatic before step 5 verifies real QBO writes.** The
-executor has only ever run against mocks — the pilot is what proves the
-provider boundary.
+**Do not skip to automatic before step 5 verifies real QBO writes** —
+and do not start this pilot until the sandbox pilot (§2) has already
+proven the provider boundary.
 
-## 3. Backlog
+## 4. Backlog
 
 - Pre-cutover payouts classify but only produce `historical` proposals —
   approve-and-apply each by hand, or post by hand and let
@@ -85,7 +152,7 @@ provider boundary.
   fingerprint no longer binds, but an undecided backlog pollutes the
   exception surface.
 
-## 4. Go automatic
+## 5. Go automatic
 
 1. Set `STRIPE_ACCOUNTING_MODE=automatic` (Vercel env, redeploy).
 2. On the next paid payout, `autoEligible` proposals self-approve and
@@ -96,7 +163,7 @@ provider boundary.
    unexplained residual (the recon report's clearing-balance diff is
    the period-close check for this).
 
-## 5. Exceptions — what interrupts you
+## 6. Exceptions — what interrupts you
 
 The admin payout panel's exceptions list is the attention queue:
 ambiguous/unmatched movements, foreign currency, unposted DDB receipts
@@ -107,7 +174,7 @@ names the movement and the reason; the fix is to investigate, then
 approve/reject the proposal or correct the QBO record. Exceptions never
 post silently.
 
-## 6. Disable / rollback
+## 7. Disable / rollback
 
 - **Instant kill switch:** `STRIPE_ACCOUNTING_MODE=observe` — the
   executor refuses every write, ingestion keeps running.
@@ -118,7 +185,7 @@ post silently.
   the mapping/decision that produced it. The proposal's `auditTrail`
   and `decisions[]` record exactly what the system believed.
 
-## 7. Monitoring (first ~month)
+## 8. Monitoring (first ~month)
 
 - Weekly: scan the payout panel exceptions for any payout that didn't
   fully reconcile.
