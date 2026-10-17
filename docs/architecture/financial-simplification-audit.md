@@ -39,11 +39,15 @@ wholesale — so payouts are mixed-source and every generic tool (native
 Stripe→QBO connectors included) would double-count the Ollie lane. The
 pipeline exists to answer "which balance transactions in this payout are
 ours, which are Ollie's, and what should be booked?" That *question* is
-genuinely hard and the ledger that answers it is worth keeping. The
-*machinery that acts on the answer* (approve → apply → auto-apply) is the
-overbuild: at brewery volume (order of a few payouts and a few dozen
-charges per month), the proposed entries are a checklist a human can post
-in QuickBooks in minutes.
+genuinely hard and the ledger that answers it is worth keeping. ~~The
+machinery that acts on the answer is the overbuild~~ — **revised:** the
+machinery that acts on the answer (approve → apply → auto-apply) is the
+automation the owner requires. Its cost is real, but its safety controls
+(fingerprint-bound approvals, claim leases, apply-time revalidation,
+marker adoption, `uncertain` states) are exactly what permit unattended
+writes without risking duplicate or mis-directed postings. The remaining
+problem is *proof*: it has never executed against a live or sandbox QBO
+company, so commissioning — not removal — is the path.
 
 **Recommended direction (revised): commission the existing automation.**
 The desired steady state is: Stripe settles → payout ledger classifies →
@@ -248,12 +252,13 @@ flags. Persisted snapshot `qboReconState/{env}`.
 marker+legs recovery scan, `uncertain` state, adoption), the apply and
 decision routes, and the decision UI in `admin-quickbooks-payouts.tsx` —
 ~1,300 implementation lines plus ~1,700 lines of dedicated tests plus UI —
-exist to perform three QBO writes a human can do in minutes per payout.
+implement the three QBO writes the owner wants posted automatically.
 Production has *never* armed it (`observe` refuses it end to end). It is
 simultaneously the highest-risk code in the repo (the only path that can
-mutate the books beyond Sales Receipts) and the least exercised.
-Every future change to matching or proposals must keep this whole
-apparatus consistent or it silently rots — a loaded gun in the repo.
+mutate the books beyond Sales Receipts) and the least exercised — so the
+risk is *unproven* execution, not the existence of the path. The
+commissioning plan (§8) supplies the missing evidence through a real
+sandbox/approval-mode pilot before `automatic` is enabled.
 
 **F2. `automatic` mode was built before the pilot that would justify it.**
 Self-approving `autoEligible` proposals, `pendingAutoApply` retry
@@ -265,9 +270,10 @@ and a confidence level the business hasn't reached.
 **F3. Cutover + historical-proposal machinery.** `STRIPE_AUTOMATION_CUTOVER`,
 `:historical` proposal variants, `-HIST` marker namespaces, suppression of
 historical proposals by existing entries, manual-only enforcement — built
-to handle a backlog migration that (a) is a one-time event and (b) can be
-done by hand in less time than the machinery took to design. ~Several
-hundred lines inside `stripe-payouts*.ts`.
+to handle a backlog migration that is a one-time event. ~Several
+hundred lines inside `stripe-payouts*.ts`. **Revised:** keep until the
+pre-cutover backlog is settled — it is what prevents a legacy payout from
+auto-posting against already-reconciled books — then remove in C6.
 
 **F4. The Ollie matching engine exceeds what the *decision* needs.**
 Verified-tier matching requires: namespaced identifier extraction from
@@ -275,11 +281,15 @@ charge metadata/description, linked-invoice DocNumber resolution, the
 Spreedly composite `order_id` two-leg corroboration (both legs must agree
 on the same candidate), PaymentRefNum targeted lookups, cross-payout claim
 pools, and customer-name demotion with a carved-out exception for fully
-corroborated Spreedly matches. This is forensic-accounting-grade matching
-to produce a `verified` badge whose only consumer is `autoEligible` — the
-path that never runs. For a human-readable worklist, `suggested` (unique
-amount+date+currency candidate) is sufficient evidence; a human confirms
-in seconds at this scale.
+corroborated Spreedly matches. ~~This is forensic-accounting-grade
+matching to produce a `verified` badge whose only consumer is
+`autoEligible` — the path that never runs.~~ **Revised:** `verified` is
+the only tier that gates unattended writes, so under the
+mandatory-automation requirement the forensic matching *is* the safety
+control — it is what keeps amount/date collisions (e.g. two same-price
+Ollie payments in one payout) from misfiling revenue. Keep it; the
+simplification is that `suggested`/`ambiguous`/`unmatched` need no
+execution path — they are already exception lanes.
 
 **F5. Two parallel reconciliation pipelines.** `qbo-recon.ts` (windowed
 report) and `stripe-payouts.ts` (per-payout ledger) independently list
@@ -328,7 +338,7 @@ is sized for a payments-ops team, not a brewery.
 | Alternative | What it actually does | Fit for DDB |
 | --- | --- | --- |
 | **Stripe Connector by QuickBooks** (Intuit's own app, free) | Auto-imports Stripe sales, refunds, fees, payouts → QBO; maps products→items; can match imported txns to existing QBO records | **Blocked by the shared account**: it imports *every* Stripe transaction — including Ollie/Spreedly charges that Ollie already books as invoices+payments → duplicate revenue. Becomes viable **only if DDB's web payments move to a dedicated Stripe account**. Caveats: CW (non-US) company support unverified; ad-hoc Checkout `price_data` items map weakly; introduces a second writer whose posting model (its own receipts + deposit) would collide with the current clearing model unless the custom sync is fully retired. |
-| **QBO bank feed + match** | Deposits arriving at the bank match against UF payments / clearing transfers; "make deposits" handles batched settlement natively | **Strong.** This is the *native* mechanism for everything the proposal layer does: match a payout deposit to Ollie UF payments + clearing withdrawals + fee adjustments. Already partially in use (docs: payouts arrive as transfers involving UF). Zero code. |
+| **QBO bank feed + match** | Deposits arriving at the bank match against UF payments / clearing transfers; "make deposits" handles batched settlement natively | **Keep as the manual fallback for exceptions only** — not the target architecture. Under the mandatory-automation requirement the executor performs the UF→clearing moves and transfers itself; the bank feed remains the human tool for the exception lane and for pre-cutover history. If the accountant prefers the UF-native model (§5) this row becomes the posting mechanism and the executor's reclassification proposals are retired instead. |
 | **Ollie → QBO integration** | Already creates invoices + payments; owns wholesale revenue end-to-end | Keep as-is. **Open question:** can Ollie's integration be configured to deposit payments to the Stripe clearing account (or another account) instead of UF? If yes, `move_payment_to_clearing` proposals lose their reason to exist. |
 | **Stripe payout reconciliation report** (Dashboard CSV) | Per-payout itemization of charges/fees/refunds | Feeds a monthly fee JE with zero code; the accountant's existing tool for the same numbers the pipeline computes. |
 | **Synder / A2X / Acodei etc.** ($20–80/mo) | Per-transaction or summarized payout sync | Same shared-account double-counting risk; adds vendor cost and a parallel posting model. Not recommended. |
@@ -351,8 +361,21 @@ removes the write that touches Ollie's own records (the riskiest proposal
 kind — it mutates a Payment Ollie created), and demotes the elaborate
 verified-tier matching from *execution prerequisite* to *reporting aid*.
 
-This is a modeling decision for the accountant — both models are correct;
-the UF-native one needs less machinery.
+This is a modeling decision for the accountant — both models are correct.
+The honest trade-off under the mandatory-automation requirement:
+
+- **Clearing model (implemented):** the executor does the UF→clearing
+  moves, the fee JE, and the transfer — fully automatic for verified
+  payouts, but it reclassifies records Ollie created.
+- **UF-native model:** simpler QBO footprint and no writes to Ollie's
+  records, but the Ollie leg reconciles via the bank feed — meaning either
+  *manual* matching per payout (which contradicts the automation
+  requirement) or a different, unbuilt automation path.
+
+**Default: proceed with the implemented clearing model unless the
+accountant objects** — switching to UF-native is new build, not a
+simplification of what exists. This decision is listed in §12 and is a
+precondition for production activation.
 
 ## 6. Recommended minimum viable architecture — REVISED (automated)
 
