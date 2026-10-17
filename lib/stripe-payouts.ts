@@ -1058,6 +1058,66 @@ export async function processStripePayoutLedger(
     else laneCounts[line.lane] += 1;
   }
   const exceptions: PayoutException[] = ledger.exceptions.slice(0, 100);
+  // A proposal suppressed by a detected manual QBO entry is correct —
+  // the posting already exists — but it must never be invisible: a
+  // false-positive cover detection would otherwise hide a needed write.
+  // The conditions below mirror the suppression rules in
+  // `buildPayoutProposals` exactly: a suppressed posting surfaces as an
+  // `existing_manual_entry` exception with the amount it would have
+  // carried, so the review surface always explains why no proposal
+  // appeared.
+  const suppressedEligibleLines = ledger.lines.filter(
+    (line) => line.scope === "eligible"
+  );
+  const suppressedPreCutoverLines = ledger.lines.filter(
+    (line) => line.scope === "pre_cutover"
+  );
+  const suppressedPartialScope =
+    suppressedEligibleLines.length > 0 && suppressedPreCutoverLines.length > 0;
+  if (existingCover.hasFeeEntry) {
+    const feesMinor = suppressedEligibleLines.reduce(
+      (sum, line) => sum + line.feeMinor,
+      0
+    );
+    if (feesMinor > 0) {
+      exceptions.push({
+        code: "existing_manual_entry",
+        ref: payout.id,
+        detail:
+          "A QuickBooks entry already covers this payout's Stripe fees — the fee proposal was suppressed. Verify the entry belongs to this payout; delete the proposal expectation only after confirming.",
+        amountMinor: feesMinor,
+      });
+    }
+  }
+  if (existingCover.hasHistoricalFeeEntry) {
+    const feesMinor = suppressedPreCutoverLines.reduce(
+      (sum, line) => sum + line.feeMinor,
+      0
+    );
+    if (feesMinor > 0) {
+      exceptions.push({
+        code: "existing_manual_entry",
+        ref: payout.id,
+        detail:
+          "A QuickBooks entry already covers this payout's pre-cutover Stripe fees — the historical fee proposal was suppressed. Verify the entry belongs to this payout.",
+        amountMinor: feesMinor,
+      });
+    }
+  }
+  if (
+    existingCover.hasTransferEntry &&
+    payout.status === "paid" &&
+    ((suppressedEligibleLines.length > 0 && !suppressedPartialScope) ||
+      suppressedPreCutoverLines.length > 0)
+  ) {
+    exceptions.push({
+      code: "existing_manual_entry",
+      ref: payout.id,
+      detail:
+        "A QuickBooks Transfer/Deposit already covers this payout amount from Stripe clearing — the payout-transfer proposal was suppressed. Verify the entry belongs to this payout.",
+      amountMinor: payout.amountMinor,
+    });
+  }
   if (truncated) {
     exceptions.push({
       code: "unmatched_movement",

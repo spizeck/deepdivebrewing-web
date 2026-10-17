@@ -2,7 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
   getQboEnvironment,
-  getQboWebhookVerifierToken,
   isQboConfigured,
   loadQboConfig,
   qboApiBaseUrl,
@@ -42,7 +41,6 @@ const FULL_ENV = {
   QBO_CLIENT_ID: "client-id",
   QBO_CLIENT_SECRET: "client-secret",
   QBO_REDIRECT_URI: "https://app.example.com/api/admin/quickbooks/callback",
-  QBO_WEBHOOK_VERIFIER_TOKEN: "verifier",
   QBO_TOKEN_ENCRYPTION_KEY: "0".repeat(64),
 };
 
@@ -146,17 +144,6 @@ describe("isQboConfigured", () => {
     });
     withEnv({ ...FULL_ENV, QBO_TOKEN_ENCRYPTION_KEY: "short" }, () => {
       assert.strictEqual(isQboConfigured(), false);
-    });
-  });
-});
-
-describe("getQboWebhookVerifierToken", () => {
-  it("returns the token or undefined", () => {
-    withEnv(FULL_ENV, () => {
-      assert.strictEqual(getQboWebhookVerifierToken(), "verifier");
-    });
-    withEnv({ ...FULL_ENV, QBO_WEBHOOK_VERIFIER_TOKEN: undefined }, () => {
-      assert.strictEqual(getQboWebhookVerifierToken(), undefined);
     });
   });
 });

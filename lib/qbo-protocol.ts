@@ -1,10 +1,9 @@
 // Pure protocol helpers for the QuickBooks Online integration (issue #161):
 // OAuth 2.0 request construction, token-response parsing, error
-// normalization, webhook signature verification, and payload
-// canonicalization. Everything here is dependency-free and unit-testable;
-// the server-only modules (lib/qbo.ts, lib/qbo-api.ts, lib/qbo-webhook.ts)
-// wire in fetch and Firestore.
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+// normalization, and payload canonicalization. Everything here is
+// dependency-free and unit-testable; the server-only modules (lib/qbo.ts,
+// lib/qbo-api.ts, lib/qbo-sync.ts) wire in fetch and Firestore.
+import { randomBytes } from "node:crypto";
 import { QboError, type QboErrorKind } from "@/lib/qbo-errors";
 import {
   QBO_ACCOUNTING_SCOPE,
@@ -336,102 +335,6 @@ export function buildQboQueryUrl(
   const url = new URL(qboApiUrl(environment, realmId, "/query"));
   url.searchParams.set("query", query);
   return url.toString();
-}
-
-// --- Webhooks ---
-
-// Intuit signs the raw request body with HMAC-SHA256 keyed by the webhook
-// verifier token and sends the base64 digest in `intuit-signature`.
-export function verifyQboWebhookSignature(
-  rawBody: string,
-  signatureHeader: string | null | undefined,
-  verifierToken: string
-): boolean {
-  if (!signatureHeader) return false;
-  const expected = createHmac("sha256", verifierToken)
-    .update(rawBody, "utf8")
-    .digest();
-  let provided: Buffer;
-  try {
-    provided = Buffer.from(signatureHeader, "base64");
-  } catch {
-    return false;
-  }
-  return provided.length === expected.length && timingSafeEqual(provided, expected);
-}
-
-// Classic QBO payload (the portal's default format — the opt-in CloudEvents
-// format is intentionally not enabled; see docs/operations/quickbooks.md):
-//   { "eventNotifications": [
-//       { "realmId": "…", "dataChangeEvent": { "entities": [
-//           { "name": "Customer", "id": "1", "operation": "Create",
-//             "lastUpdated": "…" } ] } } ] }
-export interface QboEntityNotification {
-  realmId: string;
-  entityName: string;
-  entityId: string;
-  operation: string;
-  lastUpdated: string;
-}
-
-export function parseQboWebhookNotifications(
-  rawBody: string
-): QboEntityNotification[] {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    return [];
-  }
-  if (typeof payload !== "object" || payload === null) return [];
-  const notifications = (payload as Record<string, unknown>).eventNotifications;
-  if (!Array.isArray(notifications)) return [];
-
-  const out: QboEntityNotification[] = [];
-  for (const notification of notifications) {
-    if (typeof notification !== "object" || notification === null) continue;
-    const n = notification as Record<string, unknown>;
-    const realmId = typeof n.realmId === "string" ? n.realmId : "";
-    const dataChangeEvent = n.dataChangeEvent;
-    const entities =
-      typeof dataChangeEvent === "object" && dataChangeEvent !== null
-        ? (dataChangeEvent as Record<string, unknown>).entities
-        : undefined;
-    if (!realmId || !Array.isArray(entities)) continue;
-    for (const entity of entities) {
-      if (typeof entity !== "object" || entity === null) continue;
-      const e = entity as Record<string, unknown>;
-      const entityName = typeof e.name === "string" ? e.name : "";
-      const entityId =
-        typeof e.id === "string" || typeof e.id === "number"
-          ? String(e.id)
-          : "";
-      const operation = typeof e.operation === "string" ? e.operation : "";
-      const lastUpdated =
-        typeof e.lastUpdated === "string" ? e.lastUpdated : "";
-      if (!entityName || !entityId) continue;
-      out.push({ realmId, entityName, entityId, operation, lastUpdated });
-    }
-  }
-  return out;
-}
-
-// Durable dedupe key for one delivered notification. QBO deliveries carry
-// no event id, so the content identity (realm + entity + operation +
-// timestamp) is the dedupe anchor — a repeated POST of the same
-// notification hashes identically.
-export function qboWebhookDedupeKey(n: QboEntityNotification): string {
-  return createHash("sha256")
-    .update(
-      [
-        n.realmId,
-        n.entityName,
-        n.entityId,
-        n.operation,
-        n.lastUpdated,
-      ].join("|")
-    )
-    .digest("hex");
 }
 
 // --- Provider payload canonicalization ---

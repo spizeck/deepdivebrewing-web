@@ -104,17 +104,13 @@ service cloud.firestore {
     // connection credentials, webhook dedupe receipts, accounting-mapping
     // configuration, and future sync records. Everything here is
     // credential/financial-adjacent and flows exclusively through the
-    // /api/admin/quickbooks* routes and /api/webhooks/quickbooks via the
-    // Admin SDK. No client may read or write any of it.
+    // /api/admin/quickbooks* routes via the Admin SDK. No client may read
+    // or write any of it.
     match /qboConnections/{docId} {
       allow read, write: if false;
     }
 
     match /qboOauthStates/{docId} {
-      allow read, write: if false;
-    }
-
-    match /qboWebhookReceipts/{docId} {
       allow read, write: if false;
     }
 

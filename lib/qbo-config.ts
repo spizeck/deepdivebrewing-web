@@ -120,9 +120,6 @@ export function loadQboConfig(): QboAppConfig {
   };
 }
 
-// Verifier token for POST /api/webhooks/quickbooks — the `intuit-signature`
-// HMAC key. Unset means the endpoint is not configured and must refuse
-// work rather than process unverified events.
-export function getQboWebhookVerifierToken(): string | undefined {
-  return process.env.QBO_WEBHOOK_VERIFIER_TOKEN?.trim() || undefined;
-}
+// The Intuit webhook endpoint was removed — its receipts were write-only
+// and no consumer ever read them. If entity-change notifications are
+// needed again, re-add the verifier check at that time.
