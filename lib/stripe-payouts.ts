@@ -63,6 +63,10 @@ import {
   timestampMillis,
 } from "@/lib/payments-common";
 import { applyPayoutProposal } from "@/lib/stripe-payout-executor";
+import {
+  payoutAttentionKey,
+  sendPayoutAttentionEmail,
+} from "@/lib/payout-attention";
 import { logError, logInfo, logWarn } from "@/lib/log";
 import { QboError } from "@/lib/qbo-errors";
 import {
@@ -1360,6 +1364,51 @@ export async function processStripePayoutLedger(
         applied,
         pending,
         retryable,
+      });
+    }
+
+    // Attention notification — automatic mode only. One email per
+    // distinct exception signature; the dedup key lives on the payout doc
+    // so an unresolved problem never emails twice. `cutover_skipped` is
+    // informational history and never notifies. A mail failure must not
+    // break ledger processing — it logs and the sweep retries nothing
+    // (the next build re-evaluates the key).
+    try {
+      const attentionKey = payoutAttentionKey({
+        payoutId: payout.id,
+        amountMinor: payout.amountMinor,
+        currency: payout.currency,
+        arrivalDate: payout.arrivalDate,
+        exceptions,
+        autoApplied: applied,
+        autoPending: pending,
+      });
+      const ref = payoutRef(payout.id);
+      const storedSnap = await ref.get();
+      const priorKey = storedSnap.data()?.attentionKey;
+      if (attentionKey !== (typeof priorKey === "string" ? priorKey : null)) {
+        if (attentionKey) {
+          await sendPayoutAttentionEmail({
+            payoutId: payout.id,
+            amountMinor: payout.amountMinor,
+            currency: payout.currency,
+            arrivalDate: payout.arrivalDate,
+            exceptions,
+            autoApplied: applied,
+            autoPending: pending,
+          });
+        }
+        await ref.set(
+          deepOmitUndefined({
+            attentionKey,
+            attentionNotifiedAt: attentionKey ? now : undefined,
+          }),
+          { merge: true }
+        );
+      }
+    } catch (error) {
+      logError("stripe.payout.attention_notify_failed", error, {
+        payoutId: payout.id,
       });
     }
   }

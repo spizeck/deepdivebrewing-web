@@ -445,3 +445,86 @@ describe("scenario: non-paid payout statuses", () => {
     });
   }
 });
+
+describe("scenario: $50 Stripe minimum-balance reserve movements", () => {
+  // The owner keeps a $50 minimum Stripe balance. Every payout carries a
+  // `payout_minimum_balance_hold` (money into the reserve) and a
+  // `payout_minimum_balance_release` (reserve released back) — observed on
+  // every production payout. They are intra-Stripe account-level
+  // movements: never revenue, fees, refunds, or bank transfers, and they
+  // must not block an otherwise fully-identified payout from posting
+  // unattended.
+  const reserveLines: StripePayoutTxn[] = [
+    charge({ txnId: "txn_payout_self", type: "payout" }),
+    charge({
+      txnId: "txn_hold",
+      type: "payout_minimum_balance_hold",
+      grossMinor: -5000,
+      netMinor: -5000,
+    }),
+    charge({
+      txnId: "txn_release",
+      type: "payout_minimum_balance_release",
+      grossMinor: 5000,
+      netMinor: 5000,
+    }),
+  ];
+
+  it("stay in the net so the ledger balances, and are account-level", () => {
+    const { ledger } = run({
+      txns: [
+        sale("txn_d1", "ch_d1", 12000, 378),
+        ...reserveLines,
+      ],
+      ddbRecords: [{ paymentId: "pay_d1", chargeId: "ch_d1" }],
+      receipts: [["pay_d1", "synced"]],
+    });
+    assert.equal(ledger.totals.balanced, true);
+    const hold = ledger.lines.find((l) => l.type === "payout_minimum_balance_hold");
+    const release = ledger.lines.find((l) => l.type === "payout_minimum_balance_release");
+    assert.equal(hold?.lane, "account_level");
+    assert.equal(release?.lane, "account_level");
+    // Never classified as revenue, fees, or refunds.
+    assert.equal(ledger.totals.grossChargesMinor, 12000);
+    assert.equal(ledger.totals.refundsMinor, 0);
+    assert.equal(ledger.totals.feesMinor, 378);
+  });
+
+  it("do not block aggregates — a fully-identified payout with reserve movements is auto-eligible", () => {
+    const { proposals } = run({
+      txns: [
+        sale("txn_d1", "ch_d1", 12000, 378),
+        ...reserveLines,
+      ],
+      ddbRecords: [{ paymentId: "pay_d1", chargeId: "ch_d1" }],
+      receipts: [["pay_d1", "synced"]],
+    });
+    // Payout amount = 12000 - 378 - 5000 + 5000 = 11622.
+    const transfer = byKind(proposals, "payout_transfer")[0];
+    assert.equal(transfer.amountMinor, 11622);
+    assert.equal(transfer.autoEligible, true);
+    assert.equal(byKind(proposals, "stripe_fee_expense")[0].autoEligible, true);
+    assert.equal(byKind(proposals, "move_payment_to_clearing").length, 0);
+  });
+
+  it("a payout made only of reserve movements produces no auto-eligible work", () => {
+    // $0 payout whose entire content is the reserve shuffle — nothing to
+    // post, nothing to auto-execute.
+    const { proposals } = run({ txns: [...reserveLines] });
+    assert.ok(proposals.every((p) => !p.autoEligible));
+  });
+
+  it("an unrecognized account-level movement still blocks automation", () => {
+    const { proposals } = run({
+      txns: [
+        sale("txn_d1", "ch_d1", 12000, 378),
+        ...reserveLines,
+        charge({ txnId: "txn_adj", type: "adjustment", grossMinor: -200, netMinor: -200 }),
+      ],
+      ddbRecords: [{ paymentId: "pay_d1", chargeId: "ch_d1" }],
+      receipts: [["pay_d1", "synced"]],
+    });
+    assert.equal(byKind(proposals, "payout_transfer")[0].autoEligible, false);
+    assert.equal(byKind(proposals, "stripe_fee_expense")[0].autoEligible, false);
+  });
+});

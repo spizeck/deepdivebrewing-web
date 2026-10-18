@@ -849,6 +849,21 @@ function isChargeBucket(type: string): boolean {
   return type === "charge" || type === "payment";
 }
 
+// Stripe minimum-balance hold/release movements shift money between the
+// available balance and the payout reserve — the funds never leave the
+// Stripe account, so they are never revenue, processing fees, refunds,
+// or transfers to the bank. They legitimately explain why a paid amount
+// differs from the charge nets, so they are exempt from aggregate
+// identity gating; any residual they don't explain still fails the
+// `totals.balanced` check. Only these two named types are exempt — any
+// other account-level movement keeps aggregates manual.
+export function isMinimumBalanceMovement(type: string): boolean {
+  return (
+    type === "payout_minimum_balance_hold" ||
+    type === "payout_minimum_balance_release"
+  );
+}
+
 function isRefundBucket(type: string): boolean {
   return type === "refund" || type === "payment_refund";
 }
@@ -1464,13 +1479,16 @@ export function buildPayoutProposals(
   // eligible movement is positively identified (DDB-confirmed or
   // verified-Ollie). The payout's own debit (`type === "payout"`) is an
   // account-level line with no match confidence — it is expected on
-  // every paid payout and is never weighed. Any other account-level
-  // movement (adjustment, dispute, unclassified) keeps the aggregates
-  // manual, as does an unidentified or pre-cutover line: a human still
-  // has to look at the payout, so its fee/transfer postings stay manual
-  // too.
+  // every paid payout and is never weighed. Minimum-balance hold/release
+  // movements are likewise exempt: they are intra-Stripe reserve shifts
+  // that carry no posting, and any residual they leave unexplained fails
+  // `totals.balanced` anyway. Any other account-level movement
+  // (adjustment, dispute, unclassified) keeps the aggregates manual, as
+  // does an unidentified or pre-cutover line: a human still has to look
+  // at the payout, so its fee/transfer postings stay manual too.
   const autoIdentityLines = eligibleLines.filter(
-    (line) => line.type !== "payout"
+    (line) =>
+      line.type !== "payout" && !isMinimumBalanceMovement(line.type)
   );
   const aggregateAutoEligible =
     input.ledgerComplete !== false &&

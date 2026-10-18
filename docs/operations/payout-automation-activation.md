@@ -27,6 +27,16 @@ adjustments — keeps the whole payout's proposals manual and surfaces as
 an exception in the admin payout panel. Unattended execution never
 happens on a partially-understood payout.
 
+**The $50 Stripe minimum balance:** payouts carry
+`payout_minimum_balance_hold` and `payout_minimum_balance_release`
+lines — intra-Stripe reserve shifts that explain why the paid amount
+differs from charge nets. They are classified as account-level
+movements, never proposed as revenue/fees/refunds/transfers, and are
+exempt from the identity gate so they don't block an otherwise fully
+identified payout. A residual they don't explain still fails the
+balance check and keeps the payout manual; any *other* unrecognized
+account-level movement does the same.
+
 ## 1. Preconditions
 
 ### Accounting decisions (owner + accountant — gates, not code)
@@ -140,7 +150,10 @@ pilot ends or run the preview against a separate Firebase project.
 
 **Do not skip to automatic before step 5 verifies real QBO writes** —
 and do not start this pilot until the sandbox pilot (§2) has already
-proven the provider boundary.
+proven the provider boundary. (Status as of 2026-10: the production
+approval-mode pilot is already done — ~35 proposals applied to the live
+company with correct entries. Remaining gate: the reserve-movement
+exemption and attention notifications, then the env flip.)
 
 ## 4. Backlog
 
@@ -173,6 +186,15 @@ ambiguous/unmatched movements, foreign currency, unposted DDB receipts
 names the movement and the reason; the fix is to investigate, then
 approve/reject the proposal or correct the QBO record. Exceptions never
 post silently.
+
+**Notification:** under `automatic` mode, each payout needing attention
+sends one email to `PAYOUT_ATTENTION_EMAIL` (falling back to the staff
+notification mailbox) naming the payout, amount, exception codes, how
+many proposals already applied, and the admin link. The email is deduped
+by a signature of the payout's exception set stored on the payout doc —
+an unchanged problem never re-sends; `cutover_skipped` (expected
+pre-automation history) never notifies. A send failure logs
+`stripe.payout.attention_notify_failed` and does not affect processing.
 
 ## 7. Disable / rollback
 
