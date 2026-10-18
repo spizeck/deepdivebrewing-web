@@ -52,12 +52,15 @@ function actionableExceptions(
   );
 }
 
-// Returns null when nothing warrants attention — pure function so the
-// dedup contract is testable without Firestore or Resend.
+// Returns null when no actionable exception exists — pure function so
+// the dedup contract is testable without Firestore or Resend. The key
+// covers the exception signature only; pending auto-apply work is
+// tracked separately (attentionPending on the payout doc) so a retry
+// resolving transiently does not re-send an email for an unchanged
+// exception set.
 export function payoutAttentionKey(input: PayoutAttentionInput): string | null {
   const actionable = actionableExceptions(input.exceptions);
-  const pending = (input.autoPending ?? 0) > 0;
-  if (actionable.length === 0 && !pending) return null;
+  if (actionable.length === 0) return null;
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -67,7 +70,6 @@ export function payoutAttentionKey(input: PayoutAttentionInput): string | null {
         e: actionable
           .map((exception) => `${exception.code}@${exception.ref ?? ""}`)
           .sort(),
-        n: pending,
       })
     )
     .digest("hex")
@@ -115,14 +117,17 @@ export function buildPayoutAttentionEmail(
       appliedNote,
       `Review and decide at: ${siteUrl}/admin/integrations/quickbooks`,
       "",
-      "Safe next action: open the payout card, read the exception detail, and approve or correct the affected proposal. Nothing posts without approval.",
+      "Safe next action: open the payout card, read the exception detail, and approve or correct the affected proposal. The exceptions above stay unposted until then; verified entries may already have posted automatically.",
     ].join("\n"),
   };
 }
 
 // Sends the attention email. Returns "sent" or "skipped" (no recipient
-// configured). Throws propagate — the caller wraps this in its own
-// failure boundary so a mail outage can never break ledger processing.
+// configured). Resend reports API failures in `error` rather than
+// throwing — normalize those to a throw so the caller only records the
+// notification as delivered when the provider actually accepted it.
+// Throws propagate — the caller wraps this in its own failure boundary
+// so a mail outage can never break ledger processing.
 export async function sendPayoutAttentionEmail(
   input: PayoutAttentionInput
 ): Promise<"sent" | "skipped"> {
@@ -134,12 +139,15 @@ export async function sendPayoutAttentionEmail(
     return "skipped";
   }
   const email = buildPayoutAttentionEmail(input, to);
-  await getResendClient().emails.send({
+  const { error } = await getResendClient().emails.send({
     from: getDefaultFromEmail(),
     to: email.to,
     subject: email.subject,
     text: email.text,
   });
+  if (error) {
+    throw new Error(`resend.emails.send failed: ${error.name}`);
+  }
   logInfo("stripe.payout.attention_notified", { payoutId: input.payoutId });
   return "sent";
 }

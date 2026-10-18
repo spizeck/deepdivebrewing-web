@@ -1368,11 +1368,12 @@ export async function processStripePayoutLedger(
     }
 
     // Attention notification — automatic mode only. One email per
-    // distinct exception signature; the dedup key lives on the payout doc
-    // so an unresolved problem never emails twice. `cutover_skipped` is
+    // distinct exception signature plus one when pending auto-apply work
+    // first appears; the dedup state lives on the payout doc so an
+    // unresolved problem never emails twice. `cutover_skipped` is
     // informational history and never notifies. A mail failure must not
-    // break ledger processing — it logs and the sweep retries nothing
-    // (the next build re-evaluates the key).
+    // break ledger processing — it logs, the attention state stays
+    // unpersisted, and the next build retries the send.
     try {
       const attentionKey = payoutAttentionKey({
         payoutId: payout.id,
@@ -1385,26 +1386,46 @@ export async function processStripePayoutLedger(
       });
       const ref = payoutRef(payout.id);
       const storedSnap = await ref.get();
-      const priorKey = storedSnap.data()?.attentionKey;
-      if (attentionKey !== (typeof priorKey === "string" ? priorKey : null)) {
-        if (attentionKey) {
-          await sendPayoutAttentionEmail({
-            payoutId: payout.id,
-            amountMinor: payout.amountMinor,
-            currency: payout.currency,
-            arrivalDate: payout.arrivalDate,
-            exceptions,
-            autoApplied: applied,
-            autoPending: pending,
-          });
+      const stored = storedSnap.data() ?? {};
+      const priorKey =
+        typeof stored.attentionKey === "string" ? stored.attentionKey : null;
+      const priorPending = stored.attentionPending === true;
+      const attentionPending = pending > 0;
+      const keyChanged = attentionKey !== priorKey;
+      const pendingChanged = attentionPending !== priorPending;
+      if (keyChanged || pendingChanged) {
+        // Email on a new or changed exception set, or when pending work
+        // appears. State changes that resolve attention (exception set
+        // cleared, pending retried to success) persist without emailing —
+        // so a transient failure that later resolves never re-sends for
+        // an unchanged exception set.
+        const owed =
+          (keyChanged && attentionKey !== null) ||
+          (pendingChanged && attentionPending);
+        const delivered = owed
+          ? (await sendPayoutAttentionEmail({
+              payoutId: payout.id,
+              amountMinor: payout.amountMinor,
+              currency: payout.currency,
+              arrivalDate: payout.arrivalDate,
+              exceptions,
+              autoApplied: applied,
+              autoPending: pending,
+            })) === "sent"
+          : true;
+        // Persist attention state only once there is no undelivered
+        // email — a skipped or failed send leaves the stored key stale
+        // so the next build retries the notification.
+        if (delivered) {
+          await ref.set(
+            deepOmitUndefined({
+              attentionKey,
+              attentionPending,
+              attentionNotifiedAt: owed ? now : undefined,
+            }),
+            { merge: true }
+          );
         }
-        await ref.set(
-          deepOmitUndefined({
-            attentionKey,
-            attentionNotifiedAt: attentionKey ? now : undefined,
-          }),
-          { merge: true }
-        );
       }
     } catch (error) {
       logError("stripe.payout.attention_notify_failed", error, {

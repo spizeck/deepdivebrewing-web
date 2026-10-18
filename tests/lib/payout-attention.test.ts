@@ -75,9 +75,19 @@ describe("payoutAttentionKey", () => {
     assert.equal(payoutAttentionKey({ ...input }), a);
   });
 
-  it("is non-null for pending auto-apply work even without exceptions", async () => {
+  it("excludes pending auto-apply work — the caller tracks it separately so retry resolution never re-sends", async () => {
     const { payoutAttentionKey } = await load();
-    assert.ok(payoutAttentionKey({ ...base, autoPending: 1 }));
+    assert.equal(payoutAttentionKey({ ...base, autoPending: 1 }), null);
+    // Pending state must not change the exception signature either —
+    // a pending→resolved transition leaves the key identical.
+    const withException: PayoutAttentionInput = {
+      ...base,
+      exceptions: [{ code: "unmatched_movement", ref: "txn_r1" }],
+    };
+    assert.equal(
+      payoutAttentionKey({ ...withException, autoPending: 0 }),
+      payoutAttentionKey({ ...withException, autoPending: 2 })
+    );
   });
 
   it("changes when the exception set changes — resolved-then-new re-notifies", async () => {
@@ -164,7 +174,7 @@ describe("buildPayoutAttentionEmail", () => {
     assert.match(email.text, /Refund — review manually\./);
     assert.match(email.text, /2 proposal\(s\) were already applied/);
     assert.match(email.text, /\/admin\/integrations\/quickbooks/);
-    assert.match(email.text, /Nothing posts without approval/);
+    assert.match(email.text, /stay unposted until then/);
   });
 
   it("states plainly when nothing was applied", async () => {

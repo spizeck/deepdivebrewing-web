@@ -103,9 +103,12 @@ pilot ends or run the preview against a separate Firebase project.
   `Ollie Order 91001`) → receive a Payment with
   `PaymentRefNum=<paymentNum>` (e.g. `55007`), deposited to
   **Undeposited Funds**. In Stripe test mode, create a PaymentIntent for
-  the same amount with metadata `connect_agent=Spreedly`,
-  `order_id=<orderNum>-<paymentNum>` — both legs of the composite must
-  corroborate the same QBO payment for `verified`.
+  the same amount, then set the **Charge's** metadata —
+  `connect_agent=Spreedly`, `order_id=<orderNum>-<paymentNum>` — because
+  the matcher reads `charge.metadata`, not PaymentIntent metadata
+  (`stripe charges update <ch_…> -d "metadata[connect_agent]=Spreedly" -d "metadata[order_id]=<orderNum>-<paymentNum>"`).
+  Both legs of the composite must corroborate the same QBO payment for
+  `verified`.
 - **DDB lane (optional for a first pilot):** run a real checkout through
   the preview's payments tool — it produces a `livemode:false` payment
   record and a Sales Receipt in the sandbox company via the normal sync.
