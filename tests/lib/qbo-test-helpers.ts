@@ -1,5 +1,5 @@
 // Shared scaffolding for unit tests of the QBO server modules
-// (lib/qbo-sync.ts, lib/qbo-tokens.ts, lib/qbo-webhook.ts). Those modules
+// (lib/qbo-sync.ts, lib/qbo-tokens.ts). Those modules
 // carry `import "server-only"` (a throw-only marker the Next.js bundler
 // gates on) and talk to Firestore through lib/firebase-admin-db.ts, so
 // tests substitute both with module mocks and drive an in-memory

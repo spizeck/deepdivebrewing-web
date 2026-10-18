@@ -6,7 +6,7 @@ QuickBooks company, keeping sandbox and production strictly separated,
 the DDB-payment Sales Receipt sync, and operating the integration day
 to day.
 
-**Scope:** OAuth + token lifecycle, webhook receipts, entity discovery,
+**Scope:** OAuth + token lifecycle, entity discovery,
 accounting-mapping configuration, and one bookkeeping write — gross
 Sales Receipts for settled DDB-admin payments. Everything else (refunds,
 payouts, fees, journals) remains deferred (see
@@ -22,7 +22,7 @@ payouts, fees, journals) remains deferred (see
 | Token refresh | `getQuickBooksAccessToken()` (`lib/qbo-tokens.ts`) is the single acquisition point. A short Firestore lease prevents concurrent refresh races; the rotated refresh token Intuit returns always replaces the stored one in the same transaction that clears the lease. An `invalid_grant` response flips the record to `reauthorization_required` — the remedy is reconnecting, not retrying. |
 | Environment separation | `QBO_ENVIRONMENT` (`sandbox` \| `production`) is read server-side only and decides the Intuit API host, which credential pair is expected, and which `qboConnections` document is used. The doc id IS the environment, so a preview deployment can never address the production company record — and the stored record's `environment` field is re-verified on every read. |
 | API boundary | `lib/qbo-api.ts` is the only module that talks to Intuit's v3 API (`/v3/company/{realmId}`, `minorversion=75`). Raw provider payloads never cross the boundary; callers get canonical shapes or a normalized `QboError`. The connected-company identity is the `realmId` from the OAuth callback — CompanyInfo is fetched inside that realm context as a health/identity confirmation and display-metadata source only. `CompanyInfo.Id` is provider metadata (a real sandbox Id differs from the realmId), never carried into the canonical shape, and can never replace the realm. |
-| Webhooks | `POST /api/webhooks/quickbooks` verifies `intuit-signature` (HMAC-SHA256 over the raw body, keyed by `QBO_WEBHOOK_VERIFIER_TOKEN`) before parsing. Verified notifications are deduplicated by content hash into `qboWebhookReceipts`. No entity sync runs yet — receipts are the durable hook future work consumes. |
+| Webhooks | **Removed.** The `POST /api/webhooks/quickbooks` endpoint and `qboWebhookReceipts` storage were deleted — the receipts were write-only and nothing ever consumed them. If entity-change notifications are needed again, re-add the verifier check then. Any registered Intuit webhook subscription should be removed from the app configuration. |
 | Sync worker | `lib/qbo-sync.ts` processes durable `qboSyncRecords` under a short lease; `lib/qbo-sweep.ts` is the bounded sweep — missed-enqueue recovery plus due-record processing — invoked by `GET /api/cron/qbo-sweep` (Vercel Cron, `CRON_SECRET` bearer) and by the admin "Run sync sweep" action (`POST /api/admin/quickbooks/sync`). |
 | Admin authorization | Every `/api/admin/quickbooks/*` endpoint requires the `accounting` capability via `requireAdminPermission` — checked against the live `adminUsers` record on each request, so revoking the permission denies the next call. See `lib/admin-permissions.ts`. |
 | Admin surface | `/admin/integrations/quickbooks` (linked from the admin dashboard QuickBooks card, visible only to admins holding the `accounting` permission) shows environment, connection status, company name, abbreviated realm id, last health check, the accounting-mapping panel, and the sync operations panel — counts by status, paused state, recent failed/needs-attention records, and a per-record manual retry. |
@@ -40,7 +40,6 @@ redirect URIs, verifier tokens, or companies:
 | QuickBooks company | Intuit sandbox company | Real DDB QuickBooks company |
 | Vercel env scope | Preview (and Development for local) | Production |
 | `QBO_REDIRECT_URI` | `https://<preview-host>/api/admin/quickbooks/callback` | `https://deepdivebrewing.com/api/admin/quickbooks/callback` |
-| Webhook endpoint | `https://<preview-host>/api/webhooks/quickbooks` | `https://deepdivebrewing.com/api/webhooks/quickbooks` |
 
 `QBO_TOKEN_ENCRYPTION_KEY` may be the same generated value in both scopes
 or different per scope — it encrypts this app's Firestore records only;
@@ -75,14 +74,7 @@ All Intuit-side steps happen in the
    all match `QBO_REDIRECT_URI`. For local development,
    `http://localhost:3000/api/admin/quickbooks/callback` is also
    accepted by Intuit.
-6. **Add the Development webhook endpoint.** In the app's Development
-   webhooks section, subscribe to `https://<preview-host>/api/webhooks/quickbooks`
-   and select the entity events worth receiving (Customer, Item,
-   Account, Payment, SalesReceipt, Invoice are the relevant set for
-   future accounting work).
-7. **Copy the Development webhook verifier token.** Shown on the same
-   webhooks settings page. Set it as `QBO_WEBHOOK_VERIFIER_TOKEN`.
-8. **Set the Vercel environment variables** (Project → Settings →
+6. **Set the Vercel environment variables** (Project → Settings →
    Environment Variables), scoped to **Preview** (and **Development** if
    you want local dev):
 
@@ -92,7 +84,6 @@ All Intuit-side steps happen in the
    | `QBO_CLIENT_ID` | Development client id |
    | `QBO_CLIENT_SECRET` | Development client secret |
    | `QBO_REDIRECT_URI` | The exact URI from step 5 |
-   | `QBO_WEBHOOK_VERIFIER_TOKEN` | The verifier token from step 7 |
    | `QBO_TOKEN_ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 
    For local dev, put the same values in `.env.local` (see
@@ -101,16 +92,13 @@ All Intuit-side steps happen in the
    optionally `QBO_SWEEP_LOOKBACK_HOURS`) belong to the production setup
    below — a deployment without them simply rejects cron calls, which is
    the intended fail-closed behavior for previews.
-9. **Vercel Deployment Protection.** If the project protects preview
-   deployments, add a narrow bypass for the OAuth callback and webhook
-   paths — Protection Bypass for Automation scoped to
-   `/api/admin/quickbooks/callback` and `/api/webhooks/quickbooks` (or
+7. **Vercel Deployment Protection.** If the project protects preview
+   deployments, add a narrow bypass for the OAuth callback — Protection
+   Bypass for Automation scoped to `/api/admin/quickbooks/callback` (or
    the smallest path/host rule Vercel offers). Do not disable preview
    protection globally. The callback must be reachable by the admin's
-   browser after Intuit's redirect; the webhook must be reachable by
-   Intuit's servers unauthenticated — it authenticates via signature,
-   not Vercel auth.
-10. **Connect the sandbox company.** Sign in to `/admin` on the preview
+   browser after Intuit's redirect.
+8. **Connect the sandbox company.** Sign in to `/admin` on the preview
     deployment → QuickBooks card → Connect QuickBooks → authorize the
     **sandbox** company at Intuit. The page should return with
     "QuickBooks connected" and show the sandbox company name. Use **Test
@@ -135,13 +123,8 @@ Intuit **Development** credentials and a US sandbox company:
 - **Test connection** succeeded and health shows healthy.
 - The accounting-mapping UI loaded real sandbox entities (accounts,
   items, customers, payment methods, tax codes).
-- A signed Intuit webhook delivery was accepted: signature verified,
-  connected realm recognized, receipt persisted
-  (`qbo.webhook.processed` — `received=1 recorded=1 duplicates=0
-  ignoredRealms=0`).
-
-Duplicate webhook delivery is covered by automated tests; a real Intuit
-resend was not performed manually.
+- A signed Intuit webhook delivery was accepted at the time (the
+  endpoint has since been removed — its receipts were never consumed).
 
 ## Production setup
 
@@ -153,13 +136,10 @@ always with **Production** app settings and **Production** Vercel scope.
    host/verifier URLs — Intuit gates production keys on these).
 2. Register the **Production** redirect URI:
    `https://deepdivebrewing.com/api/admin/quickbooks/callback`.
-3. Add the **Production** webhook endpoint:
-   `https://deepdivebrewing.com/api/webhooks/quickbooks` with the same
-   entity selections, and copy the **Production** verifier token.
-4. Set the same six variables in Vercel scoped to **Production**, using
+3. Set the QBO variables in Vercel scoped to **Production**, using
    the **Production** client id/secret and
    `QBO_ENVIRONMENT=production`.
-5. Set **`CRON_SECRET`** (Production scope) to a generated secret — the
+4. Set **`CRON_SECRET`** (Production scope) to a generated secret — the
    QBO sync sweep cron authenticates with it, and the route fails closed
    without it:
    `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
@@ -167,7 +147,7 @@ always with **Production** app settings and **Production** Vercel scope.
    missed-enqueue window should differ — it also controls how far back
    older settled payments are picked up (see
    [Backfill bounds](#backfill-bounds)).
-6. Redeploy production (env changes never reach already-deployed
+5. Redeploy production (env changes never reach already-deployed
    builds). After the first deploy with the cron configured, confirm the
    `qbo-sweep` job appears under Project → Settings → Crons and that the
    first run logs `qbo.sweep.completed`.
@@ -193,15 +173,12 @@ misconfiguration fails closed instead of posting to the wrong books.
   authorized company must change.
 - **Disconnect** requires confirmation, asks Intuit to revoke the grant,
   and deletes all credential material locally. The connection record
-  keeps only historical metadata; webhook receipts and future sync
-  records are intentionally preserved.
+  keeps only historical metadata; sync records are intentionally
+  preserved.
 - **Accounting mapping** selects real Account/Item/Customer/TaxCode
   entities from the connected company — see
   [Accounting mapping](#accounting-mapping) for the required fields and
   how to verify them.
-- **Webhooks** require no admin interaction. Deliveries are deduplicated
-  by content identity; notifications for a realm other than the
-  connected company are recorded but flagged ignored.
 
 ## Sales Receipt sync (DDB payments only)
 
@@ -854,7 +831,7 @@ it is never sent to the browser.
 | Connect redirects back with `state_expired`/`state_invalid` | OAuth flow took >10 min, or the callback hit a different browser/deployment than the connect request | Retry connect; verify `QBO_REDIRECT_URI` exactly matches the registered URI |
 | "Reconnect required" | Grant revoked at Intuit, or refresh token expired from disuse | Reconnect; verify the authorized company on return |
 | "Connection check completed" but health shows unavailable | Intuit outage or transient failure | Retry later; check Intuit status if persistent |
-| Webhooks never arrive | Wrong endpoint registered, or Vercel protection blocking Intuit | Intuit app's webhook config for the matching environment; Deployment Protection bypass for `/api/webhooks/quickbooks` |
+| Webhooks never arrive | The endpoint was removed — unregister the subscription in the Intuit app's webhook configuration | Intuit app webhook settings for the matching environment |
 | Mapping save rejected with "does not exist" | Selected entity id isn't in the connected company | Re-load entity lists; the mapping validates against live QBO data |
 | Sync record stuck in `failed` | Retryable provider/Stripe outage still ongoing, or `nextAttemptAt` not yet due | Check `lastErrorCode`/`lastErrorMessage` in the sync panel; the next sweep retries automatically |
 | Sync record in `needs_attention` | Mapping/purpose/canonical mismatch, or `retry_exhausted` | Fix the cause (mapping, record, reconnect), then **Retry** in the sync panel |

@@ -1030,6 +1030,17 @@ describe("processStripePayoutLedger", () => {
       proposals.some((p) => p.kind === "payout_transfer"),
       false
     );
+    // Suppression must never be silent: each covered posting surfaces as
+    // an `existing_manual_entry` exception so a false-positive detection
+    // can be caught rather than hiding a needed write.
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const exceptions = doc.exceptions as FakeDoc[];
+    const covered = exceptions.filter(
+      (e) => e.code === "existing_manual_entry"
+    );
+    assert.equal(covered.length, 2);
+    assert.ok(covered.some((e) => e.amountMinor === 320));
+    assert.ok(covered.some((e) => e.amountMinor === 9680));
   });
 
   it("never lets one share's marker-stamped entry suppress the other share's proposal", async () => {

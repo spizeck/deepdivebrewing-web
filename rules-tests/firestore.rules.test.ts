@@ -509,7 +509,6 @@ describe("QuickBooks collections deny all client access (issue #161)", () => {
   const collections = [
     "qboConnections",
     "qboOauthStates",
-    "qboWebhookReceipts",
     "qboConfig",
     "qboSyncRecords",
     "qboReconState",

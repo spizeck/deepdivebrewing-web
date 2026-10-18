@@ -81,7 +81,6 @@ describe("firestore.rules", () => {
     for (const collection of [
       "qboConnections",
       "qboOauthStates",
-      "qboWebhookReceipts",
       "qboConfig",
       "qboSyncRecords",
       "qboSweepState",

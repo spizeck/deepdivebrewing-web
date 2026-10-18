@@ -1,8 +1,7 @@
 // Shared, dependency-free vocabulary for the QuickBooks Online (QBO)
 // integration (issue #161). Firebase-free so admin client components may
 // import the view/label types; all persistence and provider IO lives in the
-// server-only modules (lib/qbo.ts, lib/qbo-api.ts, lib/qbo-webhook.ts,
-// lib/qbo-sync.ts).
+// server-only modules (lib/qbo.ts, lib/qbo-api.ts, lib/qbo-sync.ts).
 
 // --- Environment ---
 
@@ -25,7 +24,6 @@ export function qboEnvironmentLabel(environment: QboEnvironment): string {
 
 export const QBO_CONNECTIONS_COLLECTION = "qboConnections";
 export const QBO_OAUTH_STATES_COLLECTION = "qboOauthStates";
-export const QBO_WEBHOOK_RECEIPTS_COLLECTION = "qboWebhookReceipts";
 export const QBO_CONFIG_COLLECTION = "qboConfig";
 export const QBO_SYNC_RECORDS_COLLECTION = "qboSyncRecords";
 export const QBO_SWEEP_STATE_COLLECTION = "qboSweepState";

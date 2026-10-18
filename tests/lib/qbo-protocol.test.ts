@@ -1,6 +1,5 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { createHmac } from "node:crypto";
 import {
   buildQboAuthorizationUrl,
   buildQboQueryUrl,
@@ -17,14 +16,11 @@ import {
   decideQboTokenAction,
   generateQboOAuthState,
   parseQboTokenResponse,
-  parseQboWebhookNotifications,
   qboEntityQueryStatement,
   qboErrorForHttpStatus,
   qboQueryRowCount,
   qboTokenResponseIsInvalidGrant,
-  qboWebhookDedupeKey,
   toQboError,
-  verifyQboWebhookSignature,
   QBO_ACCESS_TOKEN_SKEW_MS,
 } from "@/lib/qbo-protocol";
 import { QboError } from "@/lib/qbo-errors";
@@ -299,137 +295,6 @@ describe("buildQboQueryUrl", () => {
   it("never allows a non-Intuit host", () => {
     const url = buildQboQueryUrl("production", "realm-1", "select 1");
     assert.ok(url.startsWith("https://quickbooks.api.intuit.com/"));
-  });
-});
-
-describe("verifyQboWebhookSignature", () => {
-  const verifier = "verifier-token";
-  const body = JSON.stringify({ eventNotifications: [] });
-
-  function sign(payload: string): string {
-    return createHmac("sha256", verifier).update(payload, "utf8").digest("base64");
-  }
-
-  it("accepts a valid signature over the raw body", () => {
-    assert.strictEqual(
-      verifyQboWebhookSignature(body, sign(body), verifier),
-      true
-    );
-  });
-
-  it("rejects invalid, missing, and malformed signatures", () => {
-    assert.strictEqual(
-      verifyQboWebhookSignature(body, sign("other"), verifier),
-      false
-    );
-    assert.strictEqual(verifyQboWebhookSignature(body, null, verifier), false);
-    assert.strictEqual(verifyQboWebhookSignature(body, "", verifier), false);
-    assert.strictEqual(
-      verifyQboWebhookSignature(body, "not-base64!!", verifier),
-      false
-    );
-    assert.strictEqual(
-      verifyQboWebhookSignature(body, sign(body), "wrong-verifier"),
-      false
-    );
-  });
-
-  it("rejects a signature computed over a transformed body", () => {
-    const pretty = JSON.stringify(JSON.parse(body), null, 2);
-    assert.strictEqual(
-      verifyQboWebhookSignature(pretty, sign(body), verifier),
-      false
-    );
-  });
-});
-
-describe("parseQboWebhookNotifications", () => {
-  it("parses batched notifications and entities", () => {
-    const payload = JSON.stringify({
-      eventNotifications: [
-        {
-          realmId: "r1",
-          dataChangeEvent: {
-            entities: [
-              {
-                name: "Customer",
-                id: "42",
-                operation: "Create",
-                lastUpdated: "2026-01-01T00:00:00Z",
-              },
-              {
-                name: "Invoice",
-                id: 7,
-                operation: "Update",
-                lastUpdated: "2026-01-01T00:01:00Z",
-              },
-            ],
-          },
-        },
-        {
-          realmId: "r2",
-          dataChangeEvent: {
-            entities: [
-              {
-                name: "Item",
-                id: "3",
-                operation: "Delete",
-                lastUpdated: "2026-01-01T00:02:00Z",
-              },
-            ],
-          },
-        },
-      ],
-    });
-    const notifications = parseQboWebhookNotifications(payload);
-    assert.strictEqual(notifications.length, 3);
-    assert.deepStrictEqual(notifications[0], {
-      realmId: "r1",
-      entityName: "Customer",
-      entityId: "42",
-      operation: "Create",
-      lastUpdated: "2026-01-01T00:00:00Z",
-    });
-    assert.strictEqual(notifications[1].entityId, "7");
-    assert.strictEqual(notifications[2].realmId, "r2");
-  });
-
-  it("drops malformed payloads and entities defensively", () => {
-    assert.deepStrictEqual(parseQboWebhookNotifications("not json"), []);
-    assert.deepStrictEqual(parseQboWebhookNotifications("{}"), []);
-    assert.deepStrictEqual(
-      parseQboWebhookNotifications('{"eventNotifications":"x"}'),
-      []
-    );
-    const partial = JSON.stringify({
-      eventNotifications: [
-        { realmId: "", dataChangeEvent: { entities: [{ name: "X", id: "1" }] } },
-        { realmId: "r", dataChangeEvent: { entities: [{ id: "1" }] } },
-        { realmId: "r", dataChangeEvent: { entities: [{ name: "X" }] } },
-        { realmId: "r", dataChangeEvent: { entities: [{ name: "X", id: "9" }] } },
-      ],
-    });
-    const notifications = parseQboWebhookNotifications(partial);
-    assert.strictEqual(notifications.length, 1);
-    assert.strictEqual(notifications[0].entityId, "9");
-  });
-});
-
-describe("qboWebhookDedupeKey", () => {
-  it("is stable for identical notifications and differs otherwise", () => {
-    const base = {
-      realmId: "r",
-      entityName: "Customer",
-      entityId: "1",
-      operation: "Create",
-      lastUpdated: "t",
-    };
-    assert.strictEqual(qboWebhookDedupeKey(base), qboWebhookDedupeKey({ ...base }));
-    assert.notStrictEqual(
-      qboWebhookDedupeKey(base),
-      qboWebhookDedupeKey({ ...base, operation: "Update" })
-    );
-    assert.match(qboWebhookDedupeKey(base), /^[0-9a-f]{64}$/);
   });
 });
 

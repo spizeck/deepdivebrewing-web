@@ -9,7 +9,7 @@ mechanism exists and stays inert until the accountant's answers are
 recorded in the mapping. Refunds (#180), payouts/fees (#181), and the
 retry sweep (#183, done) complete the remaining scope.
 
-The connection foundation (OAuth, tokens, webhooks, entity discovery,
+The connection foundation (OAuth, tokens, entity discovery,
 mapping, `intuit_tid` capture) is live in production and read-only — see
 `../operations/quickbooks.md`. The Stripe payment tool is documented in
 `../operations/payments.md`.
@@ -34,7 +34,8 @@ account-structure assumptions.
 - `payments` — currently empty (test records cleaned up).
 - `qboWebhookReceipts` — production realm notifications recorded,
   including `Account` updates (the chart of accounts is being actively
-  maintained).
+  maintained). *(Collection since removed — the receipts were
+  write-only and nothing consumed them.)*
 
 **Runtime evidence:** production `qbo.api.entities` logs show successful
 one-page discovery runs for `account`, `item`, `customer`, `tax-code` —
@@ -130,7 +131,7 @@ in the QBO and Stripe UIs):
 | All six accounting mappings unset (`qboConfig/accountingMapping` absent) | ✅ verified |
 | No sync records exist (`qboSyncRecords` empty) | ✅ verified |
 | Real Stripe payments settle through the tool (`checkout.session.completed` → `paid` applied in prod) | ✅ verified (`stripeEvents`, runtime logs) |
-| `Account` webhook notifications received for the production realm | ✅ verified (`qboWebhookReceipts`) |
+| `Account` webhook notifications received for the production realm | ✅ verified at the time (`qboWebhookReceipts` — since removed) |
 | Account/Item/Customer/TaxCode discovery queries succeed (one page each; result counts not logged) | ✅ verified (`qbo.api.entities` logs) |
 | Which integration/feed creates Stripe-related entries today | ✅ **resolved (#178)** — see "Two Stripe lanes" below |
 | Whether a Stripe clearing/merchant-fee account exists and what it receives | ✅ resolved — the company has a dedicated `Stripe Balance` account, plus Undeposited Funds, a credit-card/merchant-fee expense account, and the Mercury bank account |
