@@ -14,6 +14,7 @@ const AXE_ROUTES = [
   "/",
   "/beers",
   "/about",
+  "/brewed-on-saba",
   "/trade",
   "/contact",
   "/where-to-buy",
