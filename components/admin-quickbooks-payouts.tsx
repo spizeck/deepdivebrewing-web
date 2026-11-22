@@ -284,7 +284,10 @@ function ProposalRow({
       </p>
       {proposal.evidence.length > 0 && (
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Evidence: {proposal.evidence.join(", ")}
+          Evidence:{" "}
+          {proposal.evidence
+            .map((code) => EVIDENCE_LABELS[code] ?? code)
+            .join(", ")}
         </p>
       )}
       {decision && (
