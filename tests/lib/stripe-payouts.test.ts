@@ -1140,8 +1140,8 @@ describe("processStripePayoutLedger", () => {
           txnId: "m2",
           matchedAmountMinor: 9680,
           accountId: "34",
-          outcome: "manual_cover",
-          reason: "unique amount match",
+          outcome: "verified_cover",
+          reason: "bound to po_xyz — executor marker",
         },
       ],
     });
@@ -1163,6 +1163,58 @@ describe("processStripePayoutLedger", () => {
       (c) => c.txnId === "m2"
     )!;
     assert.equal(candidate.outcome, "claimed_by_other_payout");
+    assert.equal(candidate.boundPayoutId, "po_xyz");
+  });
+
+  it("keeps a heuristic sibling claim ambiguous instead of releasing the proposal", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // po_xyz recorded m2 as manual_cover — itself an unverified guess.
+    // Treating that claim as definitive would let po_abc auto-post a
+    // duplicate transfer; the candidate stays ambiguous and in review.
+    collectionStore("stripePayouts").set("po_xyz", {
+      payoutId: "po_xyz",
+      environment: "sandbox",
+      status: "paid",
+      amountMinor: 9680,
+      currency: "USD",
+      createdMs: Date.parse("2026-10-14T00:00:00.000Z"),
+      coverMatchAmounts: [9680],
+      coverCandidateIds: ["Transfer:m2"],
+      coverCandidates: [
+        {
+          aspect: "transfer",
+          entityType: "Transfer",
+          txnId: "m2",
+          matchedAmountMinor: 9680,
+          accountId: "34",
+          outcome: "manual_cover",
+          reason: "unique amount match",
+        },
+      ],
+    });
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "m2",
+        txnDate: "2026-10-15",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    accountingMode = "automatic";
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    const transfer = proposals.find((p) => p.kind === "payout_transfer");
+    assert.ok(transfer, "heuristic claim must not suppress the proposal");
+    assert.equal(transfer.autoEligible, false);
+    assert.ok(
+      applyCalls.every((c) => c.proposalId !== transfer.proposalId),
+      "a possible duplicate must never auto-post"
+    );
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidate = (doc.coverCandidates as FakeDoc[]).find(
+      (c) => c.txnId === "m2"
+    )!;
+    assert.equal(candidate.outcome, "ambiguous");
     assert.equal(candidate.boundPayoutId, "po_xyz");
   });
 

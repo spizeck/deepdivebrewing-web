@@ -857,8 +857,14 @@ async function detectExistingCover(
     const possible = raw.filter((c) => !c.verified && !c.boundPayoutId);
     const accountCurrencies = new Map<string, string | null>();
     const claimedElsewhere = new Map<string, string>();
+    const heuristicClaims = new Map<string, string>();
     const competitors = new Set<string>();
+    // Sibling lookups guard against auto-posting a duplicate — if they
+    // fail after candidates were found, every possible match must stay
+    // ambiguous rather than silently passing as "no cover".
+    let siblingResolutionFailed = false;
     if (possible.length) {
+      try {
       for (const accountId of new Set(possible.map((c) => c.accountId))) {
         try {
           const balance = await fetchQboAccountBalance({
@@ -894,12 +900,18 @@ async function detectExistingCover(
             continue;
           const recorded = (
             doc.data().coverCandidates as CoverCandidate[] | undefined
-          )?.some(
+          )?.find(
             (c) =>
               coverEntityKey(c.entityType, c.txnId) === key &&
               (c.outcome === "verified_cover" || c.outcome === "manual_cover")
           );
-          if (recorded) claimedElsewhere.set(key, doc.id);
+          // A sibling's verified claim is definitive; its manual_cover
+          // claim is itself a heuristic guess — a possible match for
+          // the same entity stays ambiguous here rather than passing
+          // as clean and auto-posting a duplicate.
+          if (recorded?.outcome === "verified_cover")
+            claimedElsewhere.set(key, doc.id);
+          else if (recorded) heuristicClaims.set(key, doc.id);
         }
       }
       // Competitors: a sibling whose own match amounts could claim a
@@ -928,8 +940,20 @@ async function detectExistingCover(
           ...sameAmount.docs,
           ...sameFees.docs,
         ]) {
-          if (doc.id !== payout.id && doc.data().environment === environment)
-            siblings.set(doc.id, doc.data());
+          if (doc.id === payout.id) continue;
+          const data = doc.data();
+          if (data.environment !== environment) continue;
+          // Same number in a different currency is different money —
+          // only same-currency (or unknown-currency) siblings compete.
+          const siblingCurrency =
+            typeof data.currency === "string" ? data.currency : undefined;
+          if (
+            siblingCurrency &&
+            payout.currency &&
+            siblingCurrency.toUpperCase() !== payout.currency.toUpperCase()
+          )
+            continue;
+          siblings.set(doc.id, data);
         }
         if (!siblings.size) continue;
         for (const cand of possible) {
@@ -953,6 +977,9 @@ async function detectExistingCover(
           }
         }
       }
+      } catch {
+        siblingResolutionFailed = true;
+      }
     }
 
     const candidates: CoverCandidate[] = [];
@@ -971,7 +998,11 @@ async function detectExistingCover(
       } else {
         const currency = accountCurrencies.get(cand.accountId);
         const claimPayoutId = claimedElsewhere.get(key);
-        if (
+        if (siblingResolutionFailed) {
+          outcome = "ambiguous";
+          reason =
+            "sibling cover records unreadable — possible match cannot be confirmed";
+        } else if (
           currency &&
           payout.currency &&
           currency !== payout.currency.toUpperCase()
@@ -985,7 +1016,12 @@ async function detectExistingCover(
         } else if (claimPayoutId) {
           outcome = "claimed_by_other_payout";
           boundPayoutId = claimPayoutId;
-          reason = "already recorded as cover on another payout";
+          reason = "verified cover recorded on another payout";
+        } else if (heuristicClaims.has(key)) {
+          outcome = "ambiguous";
+          boundPayoutId = heuristicClaims.get(key);
+          reason =
+            "recorded as an unverified match on another payout — cannot confirm attribution";
         } else if (competitors.has(key)) {
           outcome = "ambiguous";
           reason =
