@@ -874,6 +874,10 @@ async function detectExistingCover(
       const payouts = getFirebaseAdminDb().collection(
         STRIPE_PAYOUTS_COLLECTION
       );
+      // Sibling lookups are single-field only (array-contains /
+      // equality) with environment checked in memory — equality-plus-
+      // array-contains across different fields would need a composite
+      // index deploy before this could run.
       // Claims: an earlier build already recorded this entity as cover
       // for a different payout.
       const txnKeys = [
@@ -883,11 +887,11 @@ async function detectExistingCover(
       ];
       for (const key of txnKeys) {
         const snap = await payouts
-          .where("environment", "==", environment)
           .where("coverCandidateIds", "array-contains", key)
           .get();
         for (const doc of snap.docs) {
-          if (doc.id === payout.id) continue;
+          if (doc.id === payout.id || doc.data().environment !== environment)
+            continue;
           const recorded = (
             doc.data().coverCandidates as CoverCandidate[] | undefined
           )?.some(
@@ -914,18 +918,9 @@ async function detectExistingCover(
         ...new Set(possible.map((c) => c.matchedAmountMinor)),
       ]) {
         const [recorded, sameAmount, sameFees] = await Promise.all([
-          payouts
-            .where("environment", "==", environment)
-            .where("coverMatchAmounts", "array-contains", amount)
-            .get(),
-          payouts
-            .where("environment", "==", environment)
-            .where("amountMinor", "==", amount)
-            .get(),
-          payouts
-            .where("environment", "==", environment)
-            .where("totals.feesMinor", "==", amount)
-            .get(),
+          payouts.where("coverMatchAmounts", "array-contains", amount).get(),
+          payouts.where("amountMinor", "==", amount).get(),
+          payouts.where("totals.feesMinor", "==", amount).get(),
         ]);
         const siblings = new Map<string, Record<string, unknown>>();
         for (const doc of [
@@ -933,7 +928,8 @@ async function detectExistingCover(
           ...sameAmount.docs,
           ...sameFees.docs,
         ]) {
-          if (doc.id !== payout.id) siblings.set(doc.id, doc.data());
+          if (doc.id !== payout.id && doc.data().environment === environment)
+            siblings.set(doc.id, doc.data());
         }
         if (!siblings.size) continue;
         for (const cand of possible) {
