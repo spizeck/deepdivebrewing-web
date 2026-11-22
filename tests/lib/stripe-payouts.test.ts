@@ -393,7 +393,14 @@ mock.module("@/lib/stripe-balance", {
 // The guarded executor is exercised in its own suite — here it is a
 // stub so the orchestration's automatic-mode pass can be driven to any
 // outcome, including throws.
-const applyCalls: { proposalId: string; auto: boolean }[] = [];
+const applyCalls: {
+  proposalId: string;
+  auto: boolean;
+  // Payout doc state the executor's gates could see at apply time —
+  // verifyDdbGrossReceipts reads stripePayouts/{id}.lines, so it must
+  // already be on disk when any apply runs.
+  payoutDocLines: number | null;
+}[] = [];
 let applyOutcome = "applied";
 let applyError: Error | null = null;
 mock.module("@/lib/stripe-payout-executor", {
@@ -402,9 +409,18 @@ mock.module("@/lib/stripe-payout-executor", {
       proposalId: string;
       auto?: boolean;
     }) => {
+      const proposal = collectionStore("qboAccountingProposals").get(
+        input.proposalId
+      );
+      const payoutDoc = proposal?.payoutId
+        ? collectionStore("stripePayouts").get(proposal.payoutId as string)
+        : undefined;
       applyCalls.push({
         proposalId: input.proposalId,
         auto: input.auto === true,
+        payoutDocLines: Array.isArray(payoutDoc?.lines)
+          ? (payoutDoc!.lines as FakeDoc[]).length
+          : null,
       });
       if (applyError) throw applyError;
       return { apply: { outcome: applyOutcome } };
@@ -2465,6 +2481,13 @@ describe("processStripePayoutLedger — automatic mode", () => {
     assert.equal(fee.autoEligible, true);
     assert.ok(
       applyCalls.some((c) => c.proposalId === fee.proposalId && c.auto)
+    );
+    // The payout doc — with this build's `lines` — must be on disk
+    // before any apply runs, or the executor's DDB-gross-receipts gate
+    // reads an empty list and passes silently.
+    assert.ok(
+      applyCalls.every((c) => (c.payoutDocLines ?? 0) > 0),
+      "executor gates read the fresh payout doc during apply"
     );
     const stored = collectionStore("stripePayouts").get("po_abc")!;
     assert.equal(stored.pendingAutoApply, false);

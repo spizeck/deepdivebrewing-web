@@ -1638,7 +1638,11 @@ export async function processStripePayoutLedger(
       method: payout.method,
       payoutType: payout.type,
       createdMs: payout.createdMs,
-      pendingLedger: false,
+      // Still pending — the final write below clears this only after the
+      // apply pass, so an interrupted build stays recoverable by the
+      // sweep even though the doc (with fresh `lines`, needed by the
+      // executor's DDB-receipt check) is already on disk.
+      pendingLedger: true,
       automationMode: mode,
       totals: ledger.totals,
       laneCounts,
@@ -1660,6 +1664,16 @@ export async function processStripePayoutLedger(
       lastProcessedIso: now,
     }),
   });
+  // Commit the payout doc up front — still marked pending — so the
+  // executor's DDB-receipt check reads this build's `lines` during the
+  // apply pass; pendingLedger/pendingAutoApply are finalized below.
+  for (let i = 0; i < writes.length; i += BATCH_WRITE_LIMIT) {
+    const batch = getFirebaseAdminDb().batch();
+    for (const write of writes.slice(i, i + BATCH_WRITE_LIMIT)) {
+      batch.set(write.ref, write.data, { merge: true });
+    }
+    await batch.commit();
+  }
 
   // Stale marks on existing docs run as per-document transactions so a
   // decision committed after the snapshot is seen — a doc whose status
@@ -1922,19 +1936,15 @@ export async function processStripePayoutLedger(
     }
   }
 
-  // The payout doc commits LAST in the build: `pendingLedger` clears
-  // only once stale marks, proposal merges, and the apply pass have all
-  // run, and `pendingAutoApply` lands in the same write as the durable
-  // retry signal. Anything thrown earlier leaves the payout pending for
-  // the sweep instead of half-processed and current.
-  writes[0].data.pendingAutoApply = pendingAutoApply;
-  for (let i = 0; i < writes.length; i += BATCH_WRITE_LIMIT) {
-    const batch = getFirebaseAdminDb().batch();
-    for (const write of writes.slice(i, i + BATCH_WRITE_LIMIT)) {
-      batch.set(write.ref, write.data, { merge: true });
-    }
-    await batch.commit();
-  }
+  // Finalize: `pendingLedger` clears only once stale marks, proposal
+  // merges, and the apply pass have all run, and `pendingAutoApply`
+  // lands in the same write as the durable retry signal. Anything
+  // thrown earlier leaves the payout pending for the sweep instead of
+  // half-processed and current.
+  await payoutRef(payout.id).set(
+    { pendingLedger: false, pendingAutoApply },
+    { merge: true }
+  );
   return {
     status: payout.status,
     lineCount: ledger.lines.length,
