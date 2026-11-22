@@ -649,7 +649,13 @@ far that pipeline may go:
   payout could claim or already claims the same entity). A possible
   match that could belong to more than one payout never suppresses and
   never auto-posts: the proposal is emitted with an `ambiguous_cover`
-  exception and stays in review. Every candidate the scan considered is
+  exception and stays in review. A cover scan that fails or is
+  truncated by the query page cap is treated the same way — every
+  uncovered aspect stays a possible match, and the claims a prior
+  complete scan recorded (`coverCandidateIds`, `coverMatchAmounts`,
+  `coverCandidates`) are preserved rather than erased; the same holds
+  when the scan cannot run at all (QuickBooks unavailable or the
+  account mapping incomplete). Every candidate the scan considered is
   stored on the payout doc (`coverCandidates`) and shown in the payout
   detail. A stored decision carries forward only while the
   proposal's material fingerprint still matches (see **Decisions**

@@ -680,7 +680,35 @@ async function detectExistingCover(
       mapping.stripeFeeExpenseAccountId,
     ].filter((id): id is string => Boolean(id))
   );
-  if (!watched.size || !isQboConfigured()) return none;
+  // What a fee proposal would actually carry — on a cutover-straddling
+  // payout the eligible proposal covers the eligible-line fee sum and
+  // the historical proposal covers the pre-cutover sum. A manual entry
+  // matching the ledger total covers both shares.
+  const eligibleFeesMinor = ledger.lines
+    .filter((line) => line.scope === "eligible")
+    .reduce((sum, line) => sum + line.feeMinor, 0);
+  const preCutoverFeesMinor = ledger.lines
+    .filter((line) => line.scope === "pre_cutover")
+    .reduce((sum, line) => sum + line.feeMinor, 0);
+  const coveredFeeAmounts = new Set(
+    [ledger.totals.feesMinor, eligibleFeesMinor].filter((n) => n > 0)
+  );
+  const coveredHistoricalFeeAmounts = new Set(
+    [ledger.totals.feesMinor, preCutoverFeesMinor].filter((n) => n > 0)
+  );
+  const matchAmounts = [
+    ...new Set([
+      ...coveredFeeAmounts,
+      ...coveredHistoricalFeeAmounts,
+      ...(payout.status === "paid" ? [payout.amountMinor] : []),
+    ]),
+  ].sort((a, b) => a - b);
+  if (!watched.size || !isQboConfigured()) {
+    // Detection can't run — not a failed scan: posting is impossible
+    // without QuickBooks anyway, so no ambiguity is raised; the caller
+    // still preserves any claims a prior build recorded.
+    return { ...none, matchAmounts, scanUnavailable: true };
+  }
   try {
     const token = await getQuickBooksAccessToken();
     const anchor = payout.createdMs ?? Date.now();
@@ -701,29 +729,10 @@ async function detectExistingCover(
         })
       )
     );
-    // What a fee proposal would actually carry — on a cutover-straddling
-    // payout the eligible proposal covers the eligible-line fee sum and
-    // the historical proposal covers the pre-cutover sum. A manual entry
-    // matching the ledger total covers both shares.
-    const eligibleFeesMinor = ledger.lines
-      .filter((line) => line.scope === "eligible")
-      .reduce((sum, line) => sum + line.feeMinor, 0);
-    const preCutoverFeesMinor = ledger.lines
-      .filter((line) => line.scope === "pre_cutover")
-      .reduce((sum, line) => sum + line.feeMinor, 0);
-    const coveredFeeAmounts = new Set(
-      [ledger.totals.feesMinor, eligibleFeesMinor].filter((n) => n > 0)
-    );
-    const coveredHistoricalFeeAmounts = new Set(
-      [ledger.totals.feesMinor, preCutoverFeesMinor].filter((n) => n > 0)
-    );
-    const matchAmounts = [
-      ...new Set([
-        ...coveredFeeAmounts,
-        ...coveredHistoricalFeeAmounts,
-        ...(payout.status === "paid" ? [payout.amountMinor] : []),
-      ]),
-    ].sort((a, b) => a - b);
+    // A page-cap truncation means the window held more rows than we
+    // fetched — unseen entries may exist, so no unmarked match can be
+    // called unique and uncovered aspects stay possible.
+    const scanTruncated = scans.some((scan) => scan.truncated);
 
     // Verified links: entities an applied proposal for THIS payout
     // recorded as its execution result — a durable, payout-specific
@@ -829,8 +838,10 @@ async function detectExistingCover(
         );
         // A payout's transfer moves money OUT of clearing to the bank —
         // the clearing leg must be negative. A positive same-amount leg
-        // (a deposit into clearing, a refund leg) is not payout cover.
+        // (a deposit into clearing, a refund leg) is not payout cover,
+        // and only a paid payout ever posts a transfer at all.
         if (
+          payout.status === "paid" &&
           transferLeg &&
           transferLeg.amountMinor === -payout.amountMinor &&
           (entry.entityType === "Transfer" || entry.entityType === "Deposit")
@@ -919,11 +930,19 @@ async function detectExistingCover(
       // older docs only carry the payout amount and fee totals, so those
       // are checked too — a missing field must never read as "no
       // competition".
+      // The sibling's scan window is calendar-day bounded like the QBO
+      // query — comparing ms-precision timestamps would let a
+      // transaction dated on the first or last included day escape the
+      // competition check.
       const siblingWindow = (createdMs: unknown) =>
         typeof createdMs === "number"
           ? {
-              fromMs: createdMs - OLLIE_SCAN_LEAD_DAYS * DAY_MS,
-              toMs: createdMs + OLLIE_SCAN_LAG_DAYS * DAY_MS + DAY_MS - 1,
+              from: new Date(createdMs - OLLIE_SCAN_LEAD_DAYS * DAY_MS)
+                .toISOString()
+                .slice(0, 10),
+              to: new Date(createdMs + OLLIE_SCAN_LAG_DAYS * DAY_MS)
+                .toISOString()
+                .slice(0, 10),
             }
           : undefined;
       for (const amount of [
@@ -961,15 +980,13 @@ async function detectExistingCover(
           const key = coverEntityKey(cand.entry.entityType, cand.entry.id);
           for (const data of siblings.values()) {
             const window = siblingWindow(data.createdMs);
-            const txnMs = cand.entry.txnDate
-              ? Date.parse(`${cand.entry.txnDate}T00:00:00Z`)
-              : NaN;
             // Can't bound the sibling's window or the entry date —
             // treat as competing (conservative).
             if (
               !window ||
-              Number.isNaN(txnMs) ||
-              (txnMs >= window.fromMs && txnMs <= window.toMs)
+              !cand.entry.txnDate ||
+              (cand.entry.txnDate >= window.from &&
+                cand.entry.txnDate <= window.to)
             ) {
               competitors.add(key);
               break;
@@ -998,7 +1015,11 @@ async function detectExistingCover(
       } else {
         const currency = accountCurrencies.get(cand.accountId);
         const claimPayoutId = claimedElsewhere.get(key);
-        if (siblingResolutionFailed) {
+        if (scanTruncated) {
+          outcome = "ambiguous";
+          reason =
+            "cover scan truncated — possible match cannot be confirmed";
+        } else if (siblingResolutionFailed) {
           outcome = "ambiguous";
           reason =
             "sibling cover records unreadable — possible match cannot be confirmed";
@@ -1043,6 +1064,7 @@ async function detectExistingCover(
         outcome,
         reason,
         boundPayoutId,
+        accountCurrency: accountCurrencies.get(cand.accountId) ?? undefined,
       });
     }
 
@@ -1060,15 +1082,30 @@ async function detectExistingCover(
       hasFeeEntry: covered("fee"),
       hasTransferEntry: covered("transfer"),
       hasHistoricalFeeEntry: covered("historical_fee"),
-      feeAmbiguous: !covered("fee") && ambiguous("fee"),
-      transferAmbiguous: !covered("transfer") && ambiguous("transfer"),
+      feeAmbiguous:
+        !covered("fee") && (ambiguous("fee") || scanTruncated),
+      transferAmbiguous:
+        !covered("transfer") && (ambiguous("transfer") || scanTruncated),
       historicalFeeAmbiguous:
-        !covered("historical_fee") && ambiguous("historical_fee"),
+        !covered("historical_fee") &&
+        (ambiguous("historical_fee") || scanTruncated),
       candidates: candidates.slice(0, COVER_CANDIDATE_LIMIT),
       matchAmounts,
+      scanIncomplete: scanTruncated || undefined,
     };
   } catch {
-    return none;
+    // The scan could not complete — unseen entries may exist, so every
+    // aspect stays a possible match: proposals are held for review
+    // rather than auto-posting against a cover we never saw. Stored
+    // claims are preserved by the caller.
+    return {
+      ...none,
+      feeAmbiguous: true,
+      transferAmbiguous: true,
+      historicalFeeAmbiguous: true,
+      matchAmounts,
+      scanIncomplete: true,
+    };
   }
 }
 
@@ -1251,6 +1288,13 @@ export async function processStripePayoutLedger(
     logWarn("stripe.payout.ledger_missing", { payoutId });
     return null;
   }
+
+  // Crash safety: mark the payout pending BEFORE any work; the flag is
+  // cleared only by the payout doc write at the end of the build. A
+  // build interrupted between stale-marking, proposal merges, and the
+  // apply pass is retried by the sweep instead of leaving a stale
+  // proposal executable against a "current" payout doc.
+  await payoutRef(payout.id).set({ pendingLedger: true }, { merge: true });
 
   const statusOnly = !["paid"].includes(payout.status);
   const { txns, truncated } = statusOnly
@@ -1471,8 +1515,11 @@ export async function processStripePayoutLedger(
     if (feesMinor > 0) {
       exceptions.push({
         code: "ambiguous_cover",
-        ref: payout.id,
-        detail: `Possible existing QuickBooks fee ${ambiguousRefs("fee")} could also belong to another payout — the fee proposal was left for review instead of suppressed, and must not post until the entry's payout is confirmed.`,
+        // Aspect-scoped ref: fee and transfer ambiguity are distinct
+        // alerts — one attention key each, so a flip between them is
+        // still notified.
+        ref: `${payout.id}:fee`,
+        detail: `Possible existing QuickBooks fee ${ambiguousRefs("fee") || "(scan incomplete)"} could also belong to another payout — the fee proposal was left for review instead of suppressed, and must not post until the entry's payout is confirmed.`,
         amountMinor: feesMinor,
       });
     }
@@ -1498,8 +1545,8 @@ export async function processStripePayoutLedger(
     if (feesMinor > 0) {
       exceptions.push({
         code: "ambiguous_cover",
-        ref: payout.id,
-        detail: `Possible existing QuickBooks fee ${ambiguousRefs("historical_fee")} could also belong to another payout — the historical fee proposal was left for review instead of suppressed.`,
+        ref: `${payout.id}:historical_fee`,
+        detail: `Possible existing QuickBooks fee ${ambiguousRefs("historical_fee") || "(scan incomplete)"} could also belong to another payout — the historical fee proposal was left for review instead of suppressed.`,
         amountMinor: feesMinor,
       });
     }
@@ -1518,8 +1565,8 @@ export async function processStripePayoutLedger(
   } else if (existingCover.transferAmbiguous && transferNeeded) {
     exceptions.push({
       code: "ambiguous_cover",
-      ref: payout.id,
-      detail: `Possible existing QuickBooks Transfer/Deposit ${ambiguousRefs("transfer")} could also belong to another payout — the payout-transfer proposal was left for review instead of suppressed, and must not post until the entry's payout is confirmed.`,
+      ref: `${payout.id}:transfer`,
+      detail: `Possible existing QuickBooks Transfer/Deposit ${ambiguousRefs("transfer") || "(scan incomplete)"} could also belong to another payout — the payout-transfer proposal was left for review instead of suppressed, and must not post until the entry's payout is confirmed.`,
       amountMinor: payout.amountMinor,
     });
   }
@@ -1531,6 +1578,53 @@ export async function processStripePayoutLedger(
         "Payout transaction list was truncated — the persisted ledger is partial.",
     });
   }
+
+  // A cover scan that could not run or could not finish must not erase
+  // what a complete scan recorded — keep the previously stored
+  // candidates and claims, and union any fresh links a partial scan
+  // still found.
+  const coverScanClean =
+    !existingCover.scanIncomplete && !existingCover.scanUnavailable;
+  const priorCoverDoc = coverScanClean
+    ? {}
+    : ((await payoutRef(payout.id).get()).data() ?? {});
+  const freshCoverCandidates = existingCover.candidates ?? [];
+  const freshCandidateKeys = new Set(
+    freshCoverCandidates.map(
+      (c) => `${c.entityType}:${c.txnId}:${c.aspect}`
+    )
+  );
+  // Freshly scanned candidates carry this build's evidence; prior rows
+  // remain for entries the incomplete scan never reached.
+  const storedCoverCandidates = [
+    ...freshCoverCandidates,
+    ...coverScanClean
+      ? []
+      : (
+          (priorCoverDoc.coverCandidates as CoverCandidate[] | undefined) ??
+          []
+        ).filter(
+          (c) =>
+            !freshCandidateKeys.has(`${c.entityType}:${c.txnId}:${c.aspect}`)
+        ),
+  ];
+  const storedCoverMatchAmounts = [
+    ...new Set([
+      ...((priorCoverDoc.coverMatchAmounts as number[] | undefined) ?? []),
+      ...(existingCover.matchAmounts ?? []),
+    ]),
+  ].sort((a, b) => a - b);
+  const storedCoverCandidateIds = [
+    ...new Set([
+      ...((priorCoverDoc.coverCandidateIds as string[] | undefined) ?? []),
+      ...(existingCover.candidates ?? [])
+        .filter(
+          (c) =>
+            c.outcome === "verified_cover" || c.outcome === "manual_cover"
+        )
+        .map((c) => `${c.entityType}:${c.txnId}`),
+    ]),
+  ];
 
   writes.push({
     ref: payoutRef(payout.id),
@@ -1545,10 +1639,6 @@ export async function processStripePayoutLedger(
       payoutType: payout.type,
       createdMs: payout.createdMs,
       pendingLedger: false,
-      // A full rebuild resolves any outstanding automatic-apply retry —
-      // the post-build apply pass sets this back to true if unattended
-      // work remains.
-      pendingAutoApply: false,
       automationMode: mode,
       totals: ledger.totals,
       laneCounts,
@@ -1562,26 +1652,14 @@ export async function processStripePayoutLedger(
       // indexes — a sibling payout's scan resolves in one query whether
       // a same-amount entry could belong to more than one payout or was
       // already claimed here.
-      coverCandidates: existingCover.candidates ?? [],
-      coverMatchAmounts: existingCover.matchAmounts ?? [],
-      coverCandidateIds: (existingCover.candidates ?? [])
-        .filter(
-          (c) =>
-            c.outcome === "verified_cover" || c.outcome === "manual_cover"
-        )
-        .map((c) => `${c.entityType}:${c.txnId}`),
+      coverCandidates: storedCoverCandidates,
+      coverMatchAmounts: storedCoverMatchAmounts,
+      coverCandidateIds: storedCoverCandidateIds,
       qboAvailable: ollie.available,
       lastProcessedAt: FieldValue.serverTimestamp(),
       lastProcessedIso: now,
     }),
   });
-  for (let i = 0; i < writes.length; i += BATCH_WRITE_LIMIT) {
-    const batch = getFirebaseAdminDb().batch();
-    for (const write of writes.slice(i, i + BATCH_WRITE_LIMIT)) {
-      batch.set(write.ref, write.data, { merge: true });
-    }
-    await batch.commit();
-  }
 
   // Stale marks on existing docs run as per-document transactions so a
   // decision committed after the snapshot is seen — a doc whose status
@@ -1718,6 +1796,10 @@ export async function processStripePayoutLedger(
   // path — claim lease, fingerprint binding, QBO revalidation, recovery
   // lookup — and a per-proposal failure is recorded, never fatal to the
   // ledger build.
+  // Durable retry signal, persisted on the payout doc write below: a
+  // transient apply failure must not disappear with the build result —
+  // the sweep and manual sync revisit the payout while this is true.
+  let pendingAutoApply = false;
   if (mode === "automatic") {
     let applied = 0;
     let pending = 0;
@@ -1763,16 +1845,7 @@ export async function processStripePayoutLedger(
         });
       }
     }
-    // Durable retry signal: a transient failure must not disappear with
-    // the build result. The payout doc carries `pendingAutoApply` so the
-    // sweep and manual sync revisit the payout instead of treating it
-    // as fully processed.
-    if (retryable > 0) {
-      await payoutRef(payout.id).set(
-        { pendingAutoApply: true },
-        { merge: true }
-      );
-    }
+    pendingAutoApply = retryable > 0;
     if (applied || pending) {
       logInfo("stripe.payout.auto_apply", {
         payoutId: payout.id,
@@ -1847,6 +1920,20 @@ export async function processStripePayoutLedger(
         payoutId: payout.id,
       });
     }
+  }
+
+  // The payout doc commits LAST in the build: `pendingLedger` clears
+  // only once stale marks, proposal merges, and the apply pass have all
+  // run, and `pendingAutoApply` lands in the same write as the durable
+  // retry signal. Anything thrown earlier leaves the payout pending for
+  // the sweep instead of half-processed and current.
+  writes[0].data.pendingAutoApply = pendingAutoApply;
+  for (let i = 0; i < writes.length; i += BATCH_WRITE_LIMIT) {
+    const batch = getFirebaseAdminDb().batch();
+    for (const write of writes.slice(i, i + BATCH_WRITE_LIMIT)) {
+      batch.set(write.ref, write.data, { merge: true });
+    }
+    await batch.commit();
   }
   return {
     status: payout.status,

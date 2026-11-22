@@ -801,6 +801,9 @@ export interface CoverCandidate {
   reason: string;
   /** Payout id this entry is bound or recorded to, when known. */
   boundPayoutId?: string;
+  /** Currency of the matched account, when the balance read resolved —
+   *  lets the detail view render excluded amounts honestly. */
+  accountCurrency?: string;
 }
 
 /** Aggregated result of the existing-cover scan, passed to the proposal
@@ -822,6 +825,15 @@ export interface ExistingCover {
    *  same-amount candidate could belong to them too (the input to the
    *  cross-payout uniqueness check). */
   matchAmounts?: number[];
+  /** The scan started but could not finish (query failure, truncated
+   *  pages, failed sibling lookup) — unseen entries may exist, so the
+   *  caller must treat every aspect as a possible match and preserve
+   *  previously stored cover claims. */
+  scanIncomplete?: boolean;
+  /** Detection could not run at all (QBO not configured, no watched
+   *  accounts) — posting is impossible in that state, so no ambiguity
+   *  is raised; the caller still preserves stored cover claims. */
+  scanUnavailable?: boolean;
 }
 
 /** A QBO payment relationship this payout already established through

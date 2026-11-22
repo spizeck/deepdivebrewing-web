@@ -184,6 +184,9 @@ const fakeDb = {
   ) =>
     work({
       get: async (ref: FakeDocRef) => {
+        if (txFailDocIds.has(ref.__id ?? "")) {
+          throw new Error("simulated transaction read failure");
+        }
         const coll = collectionStore(ref.__coll ?? "");
         return {
           exists: coll.has(ref.__id ?? ""),
@@ -279,6 +282,13 @@ let qboPayments: FakeDoc[] = [];
 let qboInvoices: FakeDoc[] = [];
 let qboInvoiceError: Error | null = null;
 let reconActivity: FakeDoc[] = [];
+// Existing-cover scan failure/truncation seams — a thrown error or a
+// page-cap truncation must hold proposals for review, never auto-post.
+let reconActivityError: Error | null = null;
+let reconActivityTruncated = false;
+// Per-doc transaction read failures — simulates a crash inside the
+// stale-mark/merge pass so the build must stay pending, not current.
+const txFailDocIds = new Set<string>();
 // Live single-payment reads — the reconciled-identity revalidation path.
 // Entries absent from the map read as a deleted payment (null); an entry
 // of `null` simulates the same, and a thrown error simulates an outage.
@@ -307,10 +317,13 @@ mock.module("@/lib/qbo-api", {
       if (qboInvoiceError) throw qboInvoiceError;
       return qboInvoices.filter((inv) => ids.includes(inv.id as string));
     },
-    queryQboReconActivity: async ({ entity }: { entity: string }) => ({
-      rows: reconActivity.filter((r) => r.entityType === entity),
-      truncated: false,
-    }),
+    queryQboReconActivity: async ({ entity }: { entity: string }) => {
+      if (reconActivityError) throw reconActivityError;
+      return {
+        rows: reconActivity.filter((r) => r.entityType === entity),
+        truncated: reconActivityTruncated,
+      };
+    },
     fetchQboPaymentById: async ({ paymentId }: { paymentId: string }) => {
       if (qboPaymentFetchError) throw qboPaymentFetchError;
       return qboPaymentsById.get(paymentId) ?? null;
@@ -495,6 +508,9 @@ beforeEach(() => {
   qboRefNumError = null;
   qboInvoiceError = null;
   reconActivity = [];
+  reconActivityError = null;
+  reconActivityTruncated = false;
+  txFailDocIds.clear();
   ufAccount = { id: "uf-1", name: "Undeposited Funds" };
   qboAccountBalances.clear();
   // The mapped accounts resolve to USD by default — matching the test
@@ -1241,6 +1257,12 @@ describe("processStripePayoutLedger", () => {
       },
     ];
     accountingMode = "automatic";
+    // A fully identified charge line — the ledger would be
+    // auto-eligible, so only the cover ambiguity can be holding the
+    // proposal back (proving the gate, not a coincidental ineligibility).
+    chargeFacts.set("ch_ollie", {
+      metadata: { olliePaymentNumber: "1626166" },
+    });
     await processStripePayoutLedger("po_abc");
     const proposals = [...collectionStore("qboAccountingProposals").values()];
     const transfer = proposals.find((p) => p.kind === "payout_transfer");
@@ -1258,8 +1280,10 @@ describe("processStripePayoutLedger", () => {
     const doc = collectionStore("stripePayouts").get("po_abc")!;
     const exceptions = doc.exceptions as FakeDoc[];
     assert.ok(
-      exceptions.some((e) => e.code === "ambiguous_cover"),
-      "ambiguous coverage surfaces as an actionable exception"
+      exceptions.some(
+        (e) => e.code === "ambiguous_cover" && e.ref === "po_abc:transfer"
+      ),
+      "ambiguous coverage surfaces as an actionable, aspect-keyed exception"
     );
     const candidate = (doc.coverCandidates as FakeDoc[]).find(
       (c) => c.txnId === "m2"
@@ -1289,6 +1313,9 @@ describe("processStripePayoutLedger", () => {
         ],
       },
     ];
+    chargeFacts.set("ch_ollie", {
+      metadata: { olliePaymentNumber: "1626166" },
+    });
     await processStripePayoutLedger("po_abc");
     const proposals = [...collectionStore("qboAccountingProposals").values()];
     const fee = proposals.find((p) => p.kind === "stripe_fee_expense");
@@ -1298,7 +1325,191 @@ describe("processStripePayoutLedger", () => {
     const exceptions = doc.exceptions as FakeDoc[];
     assert.ok(
       exceptions.some(
-        (e) => e.code === "ambiguous_cover" && e.amountMinor === 320
+        (e) =>
+          e.code === "ambiguous_cover" &&
+          e.amountMinor === 320 &&
+          e.ref === "po_abc:fee"
+      )
+    );
+  });
+
+  it("holds every proposal for review and preserves claims when the cover scan fails", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // po_abc previously recorded m2 as its verified cover; a rebuild
+    // during a QBO outage must not erase that claim, and with entries
+    // unseen no aspect can be proven uncovered — every proposal stays
+    // reviewable and nothing auto-posts.
+    collectionStore("stripePayouts").set("po_abc", {
+      payoutId: "po_abc",
+      environment: "sandbox",
+      status: "paid",
+      amountMinor: 9680,
+      currency: "USD",
+      createdMs: Date.parse("2026-10-13T00:00:00.000Z"),
+      coverMatchAmounts: [9680],
+      coverCandidateIds: ["Transfer:m2"],
+      coverCandidates: [
+        {
+          aspect: "transfer",
+          entityType: "Transfer",
+          txnId: "m2",
+          matchedAmountMinor: 9680,
+          accountId: "34",
+          outcome: "verified_cover",
+          reason: "bound to po_abc — executor marker",
+        },
+      ],
+    });
+    reconActivityError = new Error("qbo query failed");
+    accountingMode = "automatic";
+    chargeFacts.set("ch_ollie", {
+      metadata: { olliePaymentNumber: "1626166" },
+    });
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    const fee = proposals.find((p) => p.kind === "stripe_fee_expense");
+    const transfer = proposals.find((p) => p.kind === "payout_transfer");
+    assert.ok(fee && transfer, "proposals stay emitted for human review");
+    assert.equal(fee.autoEligible, false);
+    assert.equal(transfer.autoEligible, false);
+    // Only the genuinely verified move may post — never a possible
+    // duplicate fee or transfer.
+    assert.ok(
+      applyCalls.every(
+        (c) =>
+          c.proposalId !== fee.proposalId &&
+          c.proposalId !== transfer.proposalId
+      ),
+      "no cover-gated proposal posts on a failed scan"
+    );
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const exceptions = doc.exceptions as FakeDoc[];
+    assert.ok(
+      exceptions.some(
+        (e) => e.code === "ambiguous_cover" && e.ref === "po_abc:fee"
+      )
+    );
+    assert.ok(
+      exceptions.some(
+        (e) => e.code === "ambiguous_cover" && e.ref === "po_abc:transfer"
+      )
+    );
+    // The stored verified claim survived the failed scan.
+    assert.ok(
+      (doc.coverCandidateIds as string[]).includes("Transfer:m2")
+    );
+    assert.equal(
+      (doc.coverCandidates as FakeDoc[])[0]?.outcome,
+      "verified_cover"
+    );
+  });
+
+  it("treats a truncated cover scan as unproven coverage", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // m2 amount-matches, but the recon query hit its page cap — unseen
+    // rows may exist, so uniqueness is unprovable and the entry can
+    // never be recorded as cover.
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "m2",
+        txnDate: "2026-10-15",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    reconActivityTruncated = true;
+    accountingMode = "automatic";
+    chargeFacts.set("ch_ollie", {
+      metadata: { olliePaymentNumber: "1626166" },
+    });
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    const transfer = proposals.find((p) => p.kind === "payout_transfer");
+    assert.ok(transfer, "the proposal stays emitted for review");
+    assert.equal(transfer.autoEligible, false);
+    assert.ok(
+      applyCalls.every((c) => c.proposalId !== transfer.proposalId),
+      "no cover-gated proposal posts on a partial scan"
+    );
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidate = (doc.coverCandidates as FakeDoc[]).find(
+      (c) => c.txnId === "m2"
+    )!;
+    assert.equal(candidate.outcome, "ambiguous");
+    assert.ok(
+      !(doc.coverCandidateIds as string[]).includes("Transfer:m2"),
+      "an unproven match is never claimed"
+    );
+    assert.ok(
+      (doc.exceptions as FakeDoc[]).some(
+        (e) => e.code === "ambiguous_cover" && e.ref === "po_abc:transfer"
+      )
+    );
+  });
+
+  it("leaves the payout pending when stale-marking crashes mid-build", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // A leftover proposal the current build no longer produces must be
+    // marked stale; if the process dies during that pass the payout doc
+    // must stay pending so the sweep retries — never "current" with a
+    // stale proposal still executable.
+    collectionStore("qboAccountingProposals").set("prop_stale_1", {
+      proposalId: "prop_stale_1",
+      payoutId: "po_abc",
+      environment: "sandbox",
+      kind: "payout_transfer",
+      status: "approved",
+    });
+    txFailDocIds.add("prop_stale_1");
+    await assert.rejects(() => processStripePayoutLedger("po_abc"));
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    assert.equal(
+      doc.pendingLedger,
+      true,
+      "an interrupted build stays pending for the sweep"
+    );
+    assert.equal(
+      collectionStore("qboAccountingProposals").get("prop_stale_1")!
+        .status,
+      "approved"
+    );
+
+    // The retry converges: the stale mark lands and the payout clears.
+    txFailDocIds.clear();
+    await processStripePayoutLedger("po_abc");
+    const after = collectionStore("stripePayouts").get("po_abc")!;
+    assert.equal(after.pendingLedger, false);
+    assert.equal(
+      collectionStore("qboAccountingProposals").get("prop_stale_1")!
+        .status,
+      "stale"
+    );
+  });
+
+  it("records no transfer cover for a payout that never paid", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // An in-transit (or reversed/failed) payout never posts a transfer —
+    // a same-amount clearing debit belongs to a different payout.
+    stripePayout = { ...PAID_PAYOUT, status: "in_transit" };
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "m2",
+        txnDate: "2026-10-15",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidates = (doc.coverCandidates as FakeDoc[] | undefined) ?? [];
+    assert.equal(
+      candidates.some((c) => c.aspect === "transfer"),
+      false,
+      "a non-paid payout never claims a transfer entry"
+    );
+    assert.ok(
+      !((doc.coverCandidateIds as string[] | undefined) ?? []).includes(
+        "Transfer:m2"
       )
     );
   });
@@ -1350,6 +1561,7 @@ describe("processStripePayoutLedger", () => {
     );
     const doc = collectionStore("stripePayouts").get("po_abc")!;
     const candidates = doc.coverCandidates as FakeDoc[];
+    assert.ok(candidates.length >= 2, "the marked entries are recorded");
     assert.ok(
       candidates.every((c) => c.outcome === "verified_cover"),
       "marked entries are verified, never ambiguous"

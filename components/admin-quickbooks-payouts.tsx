@@ -629,7 +629,8 @@ function PayoutCard({
                       {candidate.txnDate ? ` · ${candidate.txnDate}` : ""}
                       {` · ${money({
                         amountMinor: candidate.matchedAmountMinor,
-                        currency: payout.currency,
+                        currency:
+                          candidate.accountCurrency ?? payout.currency,
                       })}`}
                       {candidate.boundPayoutId
                         ? ` · payout ${candidate.boundPayoutId}`
