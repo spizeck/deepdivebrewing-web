@@ -79,6 +79,25 @@ const EVIDENCE_LABELS: Record<string, string> = {
   refund_not_reclassifiable: "refund — not reclassifiable",
   foreign_currency: "foreign currency",
   multiple_candidates: "multiple candidates",
+  possible_existing_entry: "possible existing entry — review required",
+};
+
+// Cover-scan outcome labels — the candidate records stored on the
+// payout doc: which QuickBooks entries were considered for coverage and
+// whether the coverage is verified or only a possible match.
+const COVER_OUTCOME_LABELS: Record<string, string> = {
+  verified_cover: "verified cover",
+  manual_cover: "manual cover",
+  ambiguous: "ambiguous",
+  claimed_by_other_payout: "claimed by another payout",
+  bound_to_other_payout: "bound to another payout",
+  excluded: "excluded",
+};
+
+const COVER_ASPECT_LABELS: Record<string, string> = {
+  fee: "fee",
+  historical_fee: "historical fee",
+  transfer: "transfer",
 };
 
 const PROPOSAL_LABELS: Record<QboAccountingProposal["kind"], string> = {
@@ -573,6 +592,51 @@ function PayoutCard({
                 </li>
               ))}
             </ul>
+          )}
+
+          {payout.coverCandidates && payout.coverCandidates.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold">
+                Existing-cover scan
+              </h4>
+              <ul className="mt-1 space-y-1">
+                {payout.coverCandidates.map((candidate, index) => (
+                  <li
+                    key={`${candidate.entityType}-${candidate.txnId}-${candidate.aspect}-${index}`}
+                    className={`rounded border px-2 py-1 text-xs ${
+                      candidate.outcome === "ambiguous"
+                        ? "border-ember/40 bg-ember/5"
+                        : "border-border"
+                    }`}
+                  >
+                    <span
+                      className={`font-medium ${
+                        candidate.outcome === "ambiguous"
+                          ? "text-ember"
+                          : ""
+                      }`}
+                    >
+                      {COVER_OUTCOME_LABELS[candidate.outcome] ??
+                        candidate.outcome}
+                    </span>{" "}
+                    <span className="text-muted-foreground">
+                      {COVER_ASPECT_LABELS[candidate.aspect] ??
+                        candidate.aspect}
+                      {` · ${candidate.entityType} ${candidate.txnId}`}
+                      {candidate.txnDate ? ` · ${candidate.txnDate}` : ""}
+                      {` · ${money({
+                        amountMinor: candidate.matchedAmountMinor,
+                        currency: payout.currency,
+                      })}`}
+                      {candidate.boundPayoutId
+                        ? ` · payout ${candidate.boundPayoutId}`
+                        : ""}
+                      {` — ${candidate.reason}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {forPayout.length > 0 && (

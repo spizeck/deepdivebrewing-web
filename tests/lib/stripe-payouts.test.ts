@@ -63,9 +63,12 @@ function collectionStore(name: string): Map<string, FakeDoc> {
   return coll;
 }
 
-function matchesWhere(data: FakeDoc, field: string, value: unknown): boolean {
+function matchesWhere(
+  data: FakeDoc,
+  where: { field: string; op: string; value: unknown }
+): boolean {
   // Dotted paths resolve nested fields ("qboRefs.paymentId").
-  const resolved = field
+  const resolved = where.field
     .split(".")
     .reduce<unknown>(
       (acc, key) =>
@@ -74,11 +77,14 @@ function matchesWhere(data: FakeDoc, field: string, value: unknown): boolean {
           : undefined,
       data
     );
-  if (Array.isArray(value)) {
-    // `in` queries
-    return value.includes(resolved);
+  if (where.op === "array-contains") {
+    return Array.isArray(resolved) && resolved.includes(where.value);
   }
-  return resolved === value;
+  if (Array.isArray(where.value)) {
+    // `in` queries
+    return where.value.includes(resolved);
+  }
+  return resolved === where.value;
 }
 
 interface FakeQuery {
@@ -94,17 +100,15 @@ interface FakeQuery {
 function makeCollection(name: string) {
   const coll = collectionStore(name);
   const makeQuery = (
-    wheres: { field: string; value: unknown }[] = []
+    wheres: { field: string; op: string; value: unknown }[] = []
   ): FakeQuery => ({
-    where: (field: string, _op: string, value: unknown) =>
-      makeQuery([...wheres, { field, value }]),
+    where: (field: string, op: string, value: unknown) =>
+      makeQuery([...wheres, { field, op, value }]),
     orderBy: () => makeQuery(wheres),
     limit: () => makeQuery(wheres),
     get: async () => {
       const docs = [...coll.entries()]
-        .filter(([, data]) =>
-          wheres.every((w) => matchesWhere(data, w.field, w.value))
-        )
+        .filter(([, data]) => wheres.every((w) => matchesWhere(data, w)))
         .map(([id, data]) => ({ id, data: () => data }));
       return { docs, size: docs.length };
     },
@@ -124,7 +128,7 @@ function makeCollection(name: string) {
       },
     }),
     where: (field: string, op: string, value: unknown) =>
-      makeQuery([{ field, value }]).where(field, op, value),
+      makeQuery([{ field, op, value }]),
     orderBy: () => makeQuery(),
     limit: () => makeQuery(),
   };
@@ -287,6 +291,10 @@ let ufAccount: { id: string; name: string } | null = {
   id: "uf-1",
   name: "Undeposited Funds",
 };
+// Per-account balances for the existing-cover currency check — entries
+// absent from the map read as an unresolvable account (null), which the
+// detector must treat as unverifiable, not as a match.
+const qboAccountBalances = new Map<string, FakeDoc | null>();
 
 mock.module("@/lib/qbo-api", {
   namedExports: {
@@ -311,7 +319,8 @@ mock.module("@/lib/qbo-api", {
       if (qboRefNumError) throw qboRefNumError;
       return qboRefNumPayments.get(refNum) ?? [];
     },
-    fetchQboAccountBalance: async () => null,
+    fetchQboAccountBalance: async ({ accountId }: { accountId: string }) =>
+      qboAccountBalances.get(accountId) ?? null,
   },
 });
 
@@ -487,6 +496,12 @@ beforeEach(() => {
   qboInvoiceError = null;
   reconActivity = [];
   ufAccount = { id: "uf-1", name: "Undeposited Funds" };
+  qboAccountBalances.clear();
+  // The mapped accounts resolve to USD by default — matching the test
+  // payout's currency so unmarked candidates are verifiable.
+  for (const accountId of ["34", "86", "99"]) {
+    qboAccountBalances.set(accountId, { id: accountId, currency: "USD" });
+  }
   accountingMode = "observe";
   cutover = null;
   mappingView = {
@@ -1017,7 +1032,7 @@ describe("processStripePayoutLedger", () => {
       {
         entityType: "Transfer",
         id: "m2",
-        legs: [{ accountId: "34", amountMinor: 9680 }],
+        legs: [{ accountId: "34", amountMinor: -9680 }],
       },
     ];
     await processStripePayoutLedger("po_abc");
@@ -1100,6 +1115,398 @@ describe("processStripePayoutLedger", () => {
       proposals.has("sandbox:po_abc:stripe_fee_expense:aggregate"),
       "eligible fee proposal survives a historical-marker entry"
     );
+  });
+
+  it("keeps an amount-matched unmarked entry from covering two payouts (collision)", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // Reproduction of the reported collision: po_xyz — a same-amount
+    // payout whose ledger was built earlier — already recorded the only
+    // matching QuickBooks transfer as its cover. Under amount+date
+    // matching alone, m2 would suppress po_abc's transfer proposal too:
+    // one QuickBooks transaction "covering" two different payouts.
+    collectionStore("stripePayouts").set("po_xyz", {
+      payoutId: "po_xyz",
+      environment: "sandbox",
+      status: "paid",
+      amountMinor: 9680,
+      currency: "USD",
+      createdMs: Date.parse("2026-10-14T00:00:00.000Z"),
+      coverMatchAmounts: [320, 9680],
+      coverCandidateIds: ["Transfer:m2"],
+      coverCandidates: [
+        {
+          aspect: "transfer",
+          entityType: "Transfer",
+          txnId: "m2",
+          matchedAmountMinor: 9680,
+          accountId: "34",
+          outcome: "manual_cover",
+          reason: "unique amount match",
+        },
+      ],
+    });
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "m2",
+        txnDate: "2026-10-15",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    // The proposal must NOT be suppressed — m2 belongs to po_xyz.
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    const transfer = proposals.find((p) => p.kind === "payout_transfer");
+    assert.ok(transfer, "claimed candidate must not suppress the proposal");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidate = (doc.coverCandidates as FakeDoc[]).find(
+      (c) => c.txnId === "m2"
+    )!;
+    assert.equal(candidate.outcome, "claimed_by_other_payout");
+    assert.equal(candidate.boundPayoutId, "po_xyz");
+  });
+
+  it("marks same-amount candidates ambiguous when a sibling payout could also match", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // po_xyz never claimed m2, but its scan could match it (same amount,
+    // overlapping window) — the entry cannot be uniquely attributed, so
+    // the proposal stays in review and can never auto-post.
+    collectionStore("stripePayouts").set("po_xyz", {
+      payoutId: "po_xyz",
+      environment: "sandbox",
+      status: "paid",
+      amountMinor: 9680,
+      currency: "USD",
+      createdMs: Date.parse("2026-10-14T00:00:00.000Z"),
+      coverMatchAmounts: [9680],
+    });
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "m2",
+        txnDate: "2026-10-15",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    accountingMode = "automatic";
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    const transfer = proposals.find((p) => p.kind === "payout_transfer");
+    assert.ok(transfer, "ambiguous candidate keeps the proposal emitted");
+    assert.equal(transfer.autoEligible, false);
+    assert.ok(
+      (transfer.evidence as string[]).includes("possible_existing_entry")
+    );
+    assert.ok(
+      applyCalls.every(
+        (c) => c.proposalId !== transfer.proposalId
+      ),
+      "an ambiguous possible duplicate must never auto-post"
+    );
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const exceptions = doc.exceptions as FakeDoc[];
+    assert.ok(
+      exceptions.some((e) => e.code === "ambiguous_cover"),
+      "ambiguous coverage surfaces as an actionable exception"
+    );
+    const candidate = (doc.coverCandidates as FakeDoc[]).find(
+      (c) => c.txnId === "m2"
+    )!;
+    assert.equal(candidate.outcome, "ambiguous");
+  });
+
+  it("marks fee candidates ambiguous on the same basis as transfers", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    collectionStore("stripePayouts").set("po_xyz", {
+      payoutId: "po_xyz",
+      environment: "sandbox",
+      status: "paid",
+      amountMinor: 9680,
+      currency: "USD",
+      createdMs: Date.parse("2026-10-14T00:00:00.000Z"),
+      coverMatchAmounts: [320],
+    });
+    reconActivity = [
+      {
+        entityType: "JournalEntry",
+        id: "je-manual",
+        txnDate: "2026-10-15",
+        legs: [
+          { accountId: "86", amountMinor: 320 },
+          { accountId: "34", amountMinor: -320 },
+        ],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    const fee = proposals.find((p) => p.kind === "stripe_fee_expense");
+    assert.ok(fee, "ambiguous fee candidate keeps the proposal emitted");
+    assert.equal(fee.autoEligible, false);
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const exceptions = doc.exceptions as FakeDoc[];
+    assert.ok(
+      exceptions.some(
+        (e) => e.code === "ambiguous_cover" && e.amountMinor === 320
+      )
+    );
+  });
+
+  it("treats marker-stamped entries for this payout as verified cover (posted retries)", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // Entries our own executor posted — identified by the deterministic
+    // PrivateNote marker, not by amount. These suppress even when a
+    // sibling payout could amount-match, and stay suppressed across
+    // rebuilds: the marker is the durable idempotency record.
+    collectionStore("stripePayouts").set("po_xyz", {
+      payoutId: "po_xyz",
+      environment: "sandbox",
+      status: "paid",
+      amountMinor: 9680,
+      currency: "USD",
+      createdMs: Date.parse("2026-10-14T00:00:00.000Z"),
+      coverMatchAmounts: [9680],
+    });
+    reconActivity = [
+      {
+        entityType: "JournalEntry",
+        id: "je-posted",
+        memo: "DDB-PAYOUT-FEE:po_abc",
+        legs: [
+          { accountId: "86", amountMinor: 320 },
+          { accountId: "34", amountMinor: -320 },
+        ],
+      },
+      {
+        entityType: "Transfer",
+        id: "xfer-posted",
+        memo: "DDB-PAYOUT-XFER:po_abc",
+        legs: [
+          { accountId: "34", amountMinor: -9680 },
+          { accountId: "99", amountMinor: 9680 },
+        ],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.equal(
+      proposals.some((p) => p.kind === "stripe_fee_expense"),
+      false
+    );
+    assert.equal(
+      proposals.some((p) => p.kind === "payout_transfer"),
+      false
+    );
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidates = doc.coverCandidates as FakeDoc[];
+    assert.ok(
+      candidates.every((c) => c.outcome === "verified_cover"),
+      "marked entries are verified, never ambiguous"
+    );
+    assert.ok(
+      (doc.exceptions as FakeDoc[]).some(
+        (e) => e.code === "existing_manual_entry"
+      )
+    );
+
+    // The identical sibling payout suppresses on ITS OWN marked entries
+    // — distinct verified coverage for two identical-amount payouts.
+    payoutFactsById.set("po_xyz", { ...PAID_PAYOUT, id: "po_xyz" });
+    reconActivity = [
+      {
+        entityType: "JournalEntry",
+        id: "je-xyz",
+        memo: "DDB-PAYOUT-FEE:po_xyz",
+        legs: [{ accountId: "86", amountMinor: 320 }],
+      },
+      {
+        entityType: "Transfer",
+        id: "xfer-xyz",
+        memo: "DDB-PAYOUT-XFER:po_xyz",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    await processStripePayoutLedger("po_xyz");
+    const xyzProposals = [
+      ...collectionStore("qboAccountingProposals").values(),
+    ].filter((p) => p.payoutId === "po_xyz");
+    assert.equal(
+      xyzProposals.some(
+        (p) => p.kind === "stripe_fee_expense" && p.status === "proposed"
+      ),
+      false
+    );
+    assert.equal(
+      xyzProposals.some(
+        (p) => p.kind === "payout_transfer" && p.status === "proposed"
+      ),
+      false
+    );
+  });
+
+  it("verifies cover through an applied proposal's recorded QBO entity", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // An applied proposal is the verified link: the executor recorded
+    // Transfer 55 as this payout's transfer. A rebuild must recognize
+    // the entity as cover without any marker.
+    collectionStore("qboAccountingProposals").set(
+      "sandbox:po_abc:payout_transfer:aggregate",
+      {
+        proposalId: "sandbox:po_abc:payout_transfer:aggregate",
+        environment: "sandbox",
+        payoutId: "po_abc",
+        kind: "payout_transfer",
+        status: "applied",
+        execution: {
+          state: "applied",
+          qboEntityType: "Transfer",
+          qboEntityId: "55",
+        },
+      }
+    );
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "55",
+        legs: [
+          { accountId: "34", amountMinor: -9680 },
+          { accountId: "99", amountMinor: 9680 },
+        ],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidate = (doc.coverCandidates as FakeDoc[]).find(
+      (c) => c.txnId === "55"
+    )!;
+    assert.equal(candidate.outcome, "verified_cover");
+    assert.equal(
+      [...collectionStore("qboAccountingProposals").values()].some(
+        (p) => p.kind === "payout_transfer" && p.status === "proposed"
+      ),
+      false
+    );
+  });
+
+  it("never suppresses on entries marked for a different payout", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    reconActivity = [
+      {
+        entityType: "JournalEntry",
+        id: "je-other",
+        memo: "DDB-PAYOUT-FEE:po_other",
+        legs: [{ accountId: "86", amountMinor: 320 }],
+      },
+      {
+        entityType: "Transfer",
+        id: "xfer-other",
+        memo: "DDB-PAYOUT-XFER:po_other",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.ok(proposals.some((p) => p.kind === "stripe_fee_expense"));
+    assert.ok(proposals.some((p) => p.kind === "payout_transfer"));
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidates = doc.coverCandidates as FakeDoc[];
+    assert.ok(
+      candidates.every((c) => c.outcome === "bound_to_other_payout")
+    );
+    assert.ok(
+      candidates.every((c) => c.boundPayoutId === "po_other")
+    );
+  });
+
+  it("suppresses a uniquely attributable manual entry and records it as manual cover", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "m2",
+        txnDate: "2026-10-15",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.equal(
+      proposals.some((p) => p.kind === "payout_transfer"),
+      false
+    );
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidate = (doc.coverCandidates as FakeDoc[]).find(
+      (c) => c.txnId === "m2"
+    )!;
+    assert.equal(candidate.outcome, "manual_cover");
+    // The claim is persisted so a same-amount sibling sees this entity
+    // as taken on its own build.
+    assert.ok(
+      (doc.coverCandidateIds as string[]).includes("Transfer:m2")
+    );
+  });
+
+  it("does not let a same-amount leg in the wrong direction count as transfer cover", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // A positive clearing leg is money INTO clearing (deposit, refund) —
+    // the payout's transfer moves money out.
+    reconActivity = [
+      {
+        entityType: "Deposit",
+        id: "dep-in",
+        legs: [{ accountId: "34", amountMinor: 9680 }],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.ok(proposals.some((p) => p.kind === "payout_transfer"));
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    assert.equal(
+      (doc.coverCandidates as FakeDoc[]).filter(
+        (c) => c.aspect === "transfer"
+      ).length,
+      0
+    );
+  });
+
+  it("records but never covers on a currency-mismatched account", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    // EUR payout + EUR movements; the clearing account is USD — a
+    // same-amount USD leg cannot be this payout's money.
+    stripePayout = { ...PAID_PAYOUT, currency: "EUR" };
+    payoutTxns = [{ ...CHARGE, currency: "EUR" }];
+    reconActivity = [
+      {
+        entityType: "Transfer",
+        id: "m2",
+        legs: [{ accountId: "34", amountMinor: -9680 }],
+      },
+    ];
+    await processStripePayoutLedger("po_abc");
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    const candidate = (doc.coverCandidates as FakeDoc[]).find(
+      (c) => c.txnId === "m2"
+    )!;
+    assert.equal(candidate.outcome, "excluded");
+    assert.ok(
+      [...collectionStore("qboAccountingProposals").values()].some(
+        (p) => p.kind === "payout_transfer"
+      )
+    );
+  });
+
+  it("emits all proposals and records no candidates for a normal payout", async () => {
+    const { processStripePayoutLedger } = await import("@/lib/stripe-payouts");
+    await processStripePayoutLedger("po_abc");
+    const proposals = [...collectionStore("qboAccountingProposals").values()];
+    assert.ok(proposals.some((p) => p.kind === "stripe_fee_expense"));
+    assert.ok(proposals.some((p) => p.kind === "payout_transfer"));
+    const doc = collectionStore("stripePayouts").get("po_abc")!;
+    assert.deepEqual(doc.coverCandidates, []);
+    assert.deepEqual(doc.coverCandidateIds, []);
+    // The match-amounts record persists regardless — it is what sibling
+    // payouts check before claiming a same-amount entry.
+    assert.ok((doc.coverMatchAmounts as number[]).includes(9680));
+    assertNoUndefined(doc);
   });
 
   it("blocks proposals when required mappings are unset", async () => {
