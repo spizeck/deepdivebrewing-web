@@ -762,12 +762,78 @@ export interface PayoutException {
     | "unmatched_movement"
     | "foreign_currency"
     | "existing_manual_entry"
+    | "ambiguous_cover"
     | "cutover_skipped"
     | "reconciled_state_conflict"
     | "ddb_receipt_unposted";
   ref: string;
   detail: string;
   amountMinor?: number;
+}
+
+/** One QuickBooks transaction the existing-cover scan considered for a
+ *  payout — the audit record of *which* entries matched and whether the
+ *  coverage is verified or only a possible (amount/account) match.
+ *  Stored on the payout ledger doc for the admin payout view and for
+ *  cross-payout dedup: a candidate recorded here as covering one payout
+ *  can never also cover another. Contains only the minimally necessary
+ *  references — entity type, QBO id, date, matched amount and account;
+ *  memos and customer data are deliberately excluded. */
+export interface CoverCandidate {
+  /** Which posting the entry was matched against. */
+  aspect: "fee" | "historical_fee" | "transfer";
+  entityType: string;
+  /** QBO entity id — durable reference for a human audit. */
+  txnId: string;
+  txnDate?: string;
+  docNumber?: string;
+  /** The watched-account leg amount this payout matched (minor units,
+   *  debit-positive on the matched account). */
+  matchedAmountMinor: number;
+  accountId: string;
+  outcome:
+    | "verified_cover" // bound to THIS payout: executor marker or an applied proposal's recorded entity
+    | "manual_cover" // unmarked entry claimed by this payout — unique match, no competitor
+    | "ambiguous" // possible match that could belong to more than one payout — never suppresses
+    | "claimed_by_other_payout" // recorded as covering a different stored payout
+    | "bound_to_other_payout" // carries another payout's marker — definitively not ours
+    | "excluded"; // failed a validation gate (currency, direction)
+  reason: string;
+  /** Payout id this entry is bound or recorded to, when known. */
+  boundPayoutId?: string;
+  /** Currency of the matched account, when the balance read resolved —
+   *  lets the detail view render excluded amounts honestly. */
+  accountCurrency?: string;
+}
+
+/** Aggregated result of the existing-cover scan, passed to the proposal
+ *  builder. `has*` = verified coverage suppresses the proposal;
+ *  `*Ambiguous` = a possible-but-unproven match exists, so the emitted
+ *  proposal stays in review (never auto-eligible). */
+export interface ExistingCover {
+  hasFeeEntry: boolean;
+  hasTransferEntry: boolean;
+  hasHistoricalFeeEntry?: boolean;
+  feeAmbiguous?: boolean;
+  transferAmbiguous?: boolean;
+  historicalFeeAmbiguous?: boolean;
+  /** Every candidate record the scan considered (capped). Persisted on
+   *  the payout doc. */
+  candidates?: CoverCandidate[];
+  /** Every leg amount this payout's scan could match — persisted on the
+   *  payout doc so sibling payouts can detect, in one query, that a
+   *  same-amount candidate could belong to them too (the input to the
+   *  cross-payout uniqueness check). */
+  matchAmounts?: number[];
+  /** The scan started but could not finish (query failure, truncated
+   *  pages, failed sibling lookup) — unseen entries may exist, so the
+   *  caller must treat every aspect as a possible match and preserve
+   *  previously stored cover claims. */
+  scanIncomplete?: boolean;
+  /** Detection could not run at all (QBO not configured, no watched
+   *  accounts) — posting is impossible in that state, so no ambiguity
+   *  is raised; the caller still preserves stored cover claims. */
+  scanUnavailable?: boolean;
 }
 
 /** A QBO payment relationship this payout already established through
@@ -1352,12 +1418,11 @@ export interface BuildProposalsInput {
    *  tracked per share: an entry matching the pre-cutover fee sum
    *  suppresses only the historical proposal, one matching the eligible
    *  or total sum suppresses the eligible proposal; a transfer entry
-   *  always covers the full paid amount and suppresses either. */
-  existingCover?: {
-    hasFeeEntry: boolean;
-    hasTransferEntry: boolean;
-    hasHistoricalFeeEntry?: boolean;
-  };
+   *  always covers the full paid amount and suppresses either.
+   *  `*Ambiguous` flags mean a possible match exists that could belong
+   *  to more than one payout — the proposal is still emitted but never
+   *  auto-eligible: a possible duplicate must never post unattended. */
+  existingCover?: ExistingCover;
   /** The company's Undeposited Funds account id, when resolvable —
    *  recorded as the move proposal's credit leg so an account change
    *  invalidates approvals like any other material fact. */
@@ -1515,7 +1580,9 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "stripe_fee_expense",
       status: clearingId && feeId ? "proposed" : "blocked",
-      autoEligible: aggregateAutoEligible,
+      // A possible-but-unproven existing entry keeps the proposal in
+      // review — never auto-post a possible duplicate.
+      autoEligible: aggregateAutoEligible && !input.existingCover?.feeAmbiguous,
       amountMinor: eligibleFeesMinor,
       currency: payout.currency,
       accountingDate,
@@ -1532,6 +1599,9 @@ export function buildPayoutProposals(
       evidence: [
         "actual_stripe_fees",
         ...scopeEvidence,
+        ...(input.existingCover?.feeAmbiguous
+          ? ["possible_existing_entry"]
+          : []),
         ...(feeId ? [] : ["fee_account_unmapped"]),
         ...(clearingId ? [] : ["clearing_account_unmapped"]),
       ],
@@ -1556,7 +1626,8 @@ export function buildPayoutProposals(
       payoutId: payout.id,
       kind: "payout_transfer",
       status: clearingId && payoutAccountId ? "proposed" : "blocked",
-      autoEligible: aggregateAutoEligible,
+      autoEligible:
+        aggregateAutoEligible && !input.existingCover?.transferAmbiguous,
       amountMinor: payout.amountMinor,
       currency: payout.currency,
       accountingDate,
@@ -1572,6 +1643,9 @@ export function buildPayoutProposals(
       qboRefs: {},
       evidence: [
         "payout_paid",
+        ...(input.existingCover?.transferAmbiguous
+          ? ["possible_existing_entry"]
+          : []),
         ...(payoutAccountId ? [] : ["payout_account_unmapped"]),
         ...(clearingId ? [] : ["clearing_account_unmapped"]),
       ],
@@ -1633,6 +1707,9 @@ export function buildPayoutProposals(
       evidence: [
         "actual_stripe_fees",
         ...historicalEvidence,
+        ...(input.existingCover?.historicalFeeAmbiguous
+          ? ["possible_existing_entry"]
+          : []),
         ...(feeId ? [] : ["fee_account_unmapped"]),
         ...(clearingId ? [] : ["clearing_account_unmapped"]),
       ],
@@ -1674,6 +1751,9 @@ export function buildPayoutProposals(
       evidence: [
         "payout_paid",
         ...historicalEvidence,
+        ...(input.existingCover?.transferAmbiguous
+          ? ["possible_existing_entry"]
+          : []),
         ...(payoutAccountId ? [] : ["payout_account_unmapped"]),
         ...(clearingId ? [] : ["clearing_account_unmapped"]),
       ],
@@ -1718,6 +1798,11 @@ export interface StripePayoutView {
    *  detail row — absent before the first ledger build. */
   lines?: StripePayoutLine[];
   exceptions?: PayoutException[];
+  /** QuickBooks entries the existing-cover scan considered for this
+   *  payout, with the match reason and whether coverage is verified or
+   *  only possible — the audit trail behind each existing/ambiguous
+   *  cover exception. Absent before the first ledger build. */
+  coverCandidates?: CoverCandidate[];
 }
 
 export interface StripePayoutAutomationView {

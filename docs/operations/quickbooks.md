@@ -640,9 +640,24 @@ far that pipeline may go:
   (reclassify the matched Ollie payment out of Undeposited Funds),
   *record Stripe fees* (actual payout fees to the mapped expense
   account), and *payout transfer* (clearing → the mapped payout
-  account). Missing mappings produce `blocked` proposals; a manually
-  entered fee journal or transfer covering the exact amount suppresses
-  the proposal. A stored decision carries forward only while the
+  account). Missing mappings produce `blocked` proposals; a QuickBooks
+  entry already covering the posting suppresses the proposal — but only
+  on verified cover (the entity's PrivateNote carries this payout's
+  executor marker, or an applied proposal recorded that entity id) or a
+  uniquely attributable manual match (exact amount, mapped account,
+  correct posting direction, matching currency, and no other stored
+  payout could claim or already claims the same entity). A possible
+  match that could belong to more than one payout never suppresses and
+  never auto-posts: the proposal is emitted with an `ambiguous_cover`
+  exception and stays in review. A cover scan that fails or is
+  truncated by the query page cap is treated the same way — every
+  uncovered aspect stays a possible match, and the claims a prior
+  complete scan recorded (`coverCandidateIds`, `coverMatchAmounts`,
+  `coverCandidates`) are preserved rather than erased; the same holds
+  when the scan cannot run at all (QuickBooks unavailable or the
+  account mapping incomplete). Every candidate the scan considered is
+  stored on the payout doc (`coverCandidates`) and shown in the payout
+  detail. A stored decision carries forward only while the
   proposal's material fingerprint still matches (see **Decisions**
   below). Proposals a rebuild stops
   producing (a line went pre-cutover, a match resolved elsewhere) are
